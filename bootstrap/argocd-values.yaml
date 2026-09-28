@@ -1,0 +1,51 @@
+# Minimal Argo CD for a local cluster (chart argo/argo-cd).
+# Installed by scripts/kind-up.sh; everything else is deployed by Argo CD itself.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 1
+
+configs:
+  params:
+    server.insecure: true          # plain HTTP behind kubectl port-forward
+  cm:
+    # Argo CD doesn't report child Application health by default, which makes
+    # sync waves in an app-of-apps meaningless. This restores it, so each wave
+    # waits for the previous apps to be Healthy.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+    # Treat a ClickHouseInstallation as Healthy only once the operator has
+    # finished reconciling it, so Cerberus doesn't start before ClickHouse exists.
+    resource.customizations.health.clickhouse.altinity.com_ClickHouseInstallation: |
+      hs = { status = "Progressing", message = "waiting for operator" }
+      if obj.status ~= nil and obj.status.status ~= nil then
+        hs.message = obj.status.status
+        if obj.status.status == "Completed" then
+          hs.status = "Healthy"
+        end
+      end
+      return hs
+
+controller:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+repoServer:
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+server:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+redis:
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }

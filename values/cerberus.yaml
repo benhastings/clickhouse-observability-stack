@@ -1,0 +1,27 @@
+# Chart: oci://ghcr.io/tsouza/cerberus/charts/cerberus
+fullnameOverride: cerberus    # Service: http://cerberus.observability:8080
+replicaCount: 1
+
+clickhouse:
+  addr:
+    - clickhouse:9000
+  database: otel
+  username: otel
+  existingSecret: clickhouse-credentials
+  passwordKey: password
+
+# Cerberus creates the database and the standard OTel tables at startup.
+# It owns the table definitions (not the collector) on purpose: Cerberus is
+# validated against the clickhouseexporter v0.152 layout, and newer exporters
+# changed some column types (e.g. metrics TimeUnix DateTime64(9) -> DateTime).
+# The collector's exporter runs with create_schema: false and inserts into these.
+autoCreate:
+  schema: true
+  database: true
+
+schema:
+  ttl: "7d"
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 768Mi }

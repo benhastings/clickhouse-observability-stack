@@ -1,0 +1,52 @@
+# A single-node ClickHouse, managed by the Altinity operator.
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: otel
+  namespace: observability
+spec:
+  defaults:
+    templates:
+      podTemplate: clickhouse
+      dataVolumeClaimTemplate: data
+      serviceTemplate: clickhouse
+  configuration:
+    users:
+      # The "otel" user, with its password read from the clickhouse-credentials Secret.
+      otel/k8s_secret_password: observability/clickhouse-credentials/password
+      otel/networks/ip:
+        - "0.0.0.0/0"
+        - "::/0"
+      otel/profile: default
+      otel/quota: default
+    clusters:
+      - name: main
+        layout:
+          shardsCount: 1
+          replicasCount: 1
+  templates:
+    serviceTemplates:
+      # Gives the installation a stable Service name: clickhouse.observability.svc
+      - name: clickhouse
+        generateName: clickhouse
+        spec:
+          type: ClusterIP
+          ports:
+            - { name: http, port: 8123 }
+            - { name: tcp, port: 9000 }
+    podTemplates:
+      - name: clickhouse
+        spec:
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:26.9.5.2
+              resources:
+                requests: { cpu: 250m, memory: 768Mi }
+                limits: { memory: 1536Mi }
+    volumeClaimTemplates:
+      - name: data
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
