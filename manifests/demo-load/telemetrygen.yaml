@@ -23,7 +23,7 @@ spec:
             - --otlp-endpoint=otel-collector:4317
             - --otlp-insecure
             - --service=checkout
-            - --rate=5
+            - --rate=2
             - --duration=inf
             - --child-spans=2
             - --span-duration=40ms

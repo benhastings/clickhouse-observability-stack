@@ -22,6 +22,7 @@ autoCreate:
 schema:
   ttl: "7d"
 
+# Low-memory settings for light local testing.
 resources:
-  requests: { cpu: 100m, memory: 128Mi }
-  limits: { memory: 768Mi }
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { memory: 384Mi }

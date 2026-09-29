@@ -8,9 +8,10 @@ adminPassword: admin
 persistence:
   enabled: false                 # dashboards and datasources are provisioned from Git
 
+# Low-memory settings for light local testing.
 resources:
-  requests: { cpu: 50m, memory: 128Mi }
-  limits: { memory: 512Mi }
+  requests: { cpu: 25m, memory: 96Mi }
+  limits: { memory: 384Mi }
 
 # Loads dashboards from ConfigMaps labelled grafana_dashboard=1
 # (see manifests/grafana-dashboards/).

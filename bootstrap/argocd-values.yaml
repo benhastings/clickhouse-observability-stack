@@ -39,13 +39,17 @@ configs:
 
 controller:
   resources:
-    requests: { cpu: 100m, memory: 256Mi }
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
 repoServer:
   resources:
-    requests: { cpu: 50m, memory: 128Mi }
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { memory: 384Mi }
 server:
   resources:
-    requests: { cpu: 50m, memory: 64Mi }
+    requests: { cpu: 25m, memory: 48Mi }
+    limits: { memory: 256Mi }
 redis:
   resources:
-    requests: { cpu: 25m, memory: 32Mi }
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { memory: 64Mi }
