@@ -6,3 +6,19 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: clickhouse-obs
 nodes:
   - role: control-plane
+    # Needed on hosts whose root filesystem is btrfs on an encrypted
+    # (device-mapper) volume: without it the kubelet can't stat the root
+    # device and never starts the control-plane pods. Harmless elsewhere.
+    extraMounts:
+      - hostPath: /dev/mapper
+        containerPath: /dev/mapper
+    # Container creation can be slow on btrfs hosts (about a minute per
+    # control-plane container on first boot). Give the control plane longer
+    # than kubeadm's default 4 minutes to come up.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        timeouts:
+          controlPlaneComponentHealthCheck: 10m0s
+          kubeletHealthCheck: 10m0s
+          kubernetesAPICall: 10m0s

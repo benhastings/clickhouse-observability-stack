@@ -15,11 +15,13 @@ configs:
     # sync waves in an app-of-apps meaningless. This restores it, so each wave
     # waits for the previous apps to be Healthy.
     resource.customizations.health.argoproj.io_Application: |
-      hs = {}
-      hs.status = "Progressing"
-      hs.message = ""
-      if obj.status ~= nil and obj.status.health ~= nil then
-        hs.status = obj.status.health.status
+      hs = { status = "Progressing", message = "" }
+      -- A newly created Application briefly reports Healthy before its first
+      -- sync (it has no resources yet), so also require it to be Synced.
+      if obj.status ~= nil and obj.status.health ~= nil and obj.status.sync ~= nil then
+        if obj.status.sync.status == "Synced" then
+          hs.status = obj.status.health.status
+        end
         if obj.status.health.message ~= nil then
           hs.message = obj.status.health.message
         end
