@@ -13,7 +13,11 @@ spec:
   configuration:
     users:
       # The "otel" user, with its password read from the clickhouse-credentials Secret.
-      otel/k8s_secret_password: observability/clickhouse-credentials/password
+      otel/password:
+        valueFrom:
+          secretKeyRef:
+            name: clickhouse-credentials
+            key: password
       otel/networks/ip:
         - "0.0.0.0/0"
         - "::/0"
