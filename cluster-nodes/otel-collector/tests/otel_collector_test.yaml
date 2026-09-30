@@ -1,0 +1,58 @@
+suite: otel-collector
+templates:
+  - templates/common.yaml
+release:
+  name: otel-collector
+  namespace: observability
+tests:
+  - it: accepts OTLP on otel-collector:4317 and :4318
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: otel-collector
+      - equal:
+          path: spec.ports
+          value:
+            - name: otlp
+              port: 4317
+              targetPort: otlp
+              protocol: TCP
+              appProtocol: grpc
+            - name: otlp-http
+              port: 4318
+              targetPort: otlp-http
+              protocol: TCP
+
+  - it: never creates the ClickHouse schema, which Cerberus owns
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "create_schema: false"
+
+  - it: routes traces through the span-metrics and service-graph connectors
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "exporters:\\n\\s+- clickhouse\\n\\s+- spanmetrics\\n\\s+- servicegraph"
+
+  - it: mounts the rendered config where --config points
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - --config=/conf/relay.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: otel-collector

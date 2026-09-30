@@ -1,0 +1,10 @@
+apiVersion: v2
+name: clickhouse
+description: Single-node ClickHouse, declared as a ClickHouseInstallation, and its credentials.
+type: application
+version: 0.1.0
+appVersion: "26.9.5.2"
+dependencies:
+  - name: common
+    version: 0.1.0
+    repository: file://../../helm-templates/common

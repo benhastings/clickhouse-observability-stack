@@ -1,0 +1,80 @@
+deployment:
+  enabled: true
+  containers:
+    checkout-ok:
+      image:
+        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
+        tag: v0.161.0
+      args:
+        - traces
+        - --otlp-endpoint=otel-collector:4317
+        - --otlp-insecure
+        - --service=checkout
+        - --rate=2
+        - --duration=inf
+        - --child-spans=2
+        - --span-duration=40ms
+        - --otlp-attributes=deployment.environment.name="local"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+    payments-ok:
+      image:
+        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
+        tag: v0.161.0
+      args:
+        - traces
+        - --otlp-endpoint=otel-collector:4317
+        - --otlp-insecure
+        - --service=payments
+        - --rate=3
+        - --duration=inf
+        - --span-duration=350ms
+        - --otlp-attributes=deployment.environment.name="local"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+    payments-errors:
+      image:
+        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
+        tag: v0.161.0
+      args:
+        - traces
+        - --otlp-endpoint=otel-collector:4317
+        - --otlp-insecure
+        - --service=payments
+        - --rate=1
+        - --duration=inf
+        - --span-duration=900ms
+        - --status-code=error
+        - --otlp-attributes=deployment.environment.name="local"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+    logs:
+      image:
+        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
+        tag: v0.161.0
+      args:
+        - logs
+        - --otlp-endpoint=otel-collector:4317
+        - --otlp-insecure
+        - --service=checkout
+        - --rate=2
+        - --duration=inf
+        - --body=order placed
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi

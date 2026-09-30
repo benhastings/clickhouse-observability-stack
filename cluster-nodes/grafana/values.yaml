@@ -1,0 +1,180 @@
+secrets:
+  admin:
+    create: false
+
+configMaps:
+  config:
+    data:
+      grafana.ini: |
+        [analytics]
+        check_for_updates = true
+        [log]
+        mode = console
+        [paths]
+        data = /var/lib/grafana/
+        logs = /var/log/grafana
+        plugins = /var/lib/grafana/plugins
+        provisioning = /etc/grafana/provisioning
+        [plugins]
+        preinstall_auto_update = false
+        [unified_storage]
+        index_path = /var/lib/grafana-search/bleve
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus (Cerberus)
+            uid: cerberus-prometheus
+            type: prometheus
+            access: proxy
+            url: http://cerberus:8080
+            isDefault: true
+            editable: false
+            jsonData:
+              timeInterval: 15s
+              exemplarTraceIdDestinations:
+                - name: trace_id
+                  datasourceUid: cerberus-tempo
+          - name: Loki (Cerberus)
+            uid: cerberus-loki
+            type: loki
+            access: proxy
+            url: http://cerberus:8080
+            editable: false
+          - name: Tempo (Cerberus)
+            uid: cerberus-tempo
+            type: tempo
+            access: proxy
+            url: http://cerberus:8080
+            editable: false
+            jsonData:
+              serviceMap:
+                datasourceUid: cerberus-prometheus
+              nodeGraph:
+                enabled: true
+              tracesToMetrics:
+                datasourceUid: cerberus-prometheus
+                spanStartTimeShift: "-5m"
+                spanEndTimeShift: "5m"
+                tags:
+                  - key: service.name
+                    value: service_name
+                queries:
+                  - name: Request rate
+                    query: sum(rate(traces_span_metrics_calls{$$__tags}[5m]))
+                  - name: p95 latency (ms)
+                    query: histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_bucket{$$__tags}[5m])))
+              tracesToLogsV2:
+                datasourceUid: cerberus-loki
+                filterByTraceID: true
+                spanStartTimeShift: "-5m"
+                spanEndTimeShift: "5m"
+      dashboards.yaml:
+        apiVersion: 1
+        providers:
+          - name: dashboards
+            orgId: 1
+            type: file
+            folder: Cerberus
+            disableDeletion: true
+            allowUiUpdates: false
+            options:
+              path: /var/lib/grafana/dashboards
+  dashboards:
+    files: dashboards/*.json
+
+service:
+  enabled: true
+  ports:
+    http:
+      port: 80
+      targetPort: grafana
+
+deployment:
+  enabled: true
+  podSecurityContext:
+    fsGroup: 472
+    runAsGroup: 472
+    runAsNonRoot: true
+    runAsUser: 472
+  containers:
+    grafana:
+      image:
+        repository: docker.io/grafana/grafana
+        tag: 13.2.2-distroless
+      ports:
+        grafana:
+          containerPort: 3000
+      env:
+        GF_SECURITY_ADMIN_USER:
+          valueFrom:
+            secretKeyRef:
+              name: '{{ include "common.fullname" . }}-admin'
+              key: admin-user
+        GF_SECURITY_ADMIN_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: '{{ include "common.fullname" . }}-admin'
+              key: admin-password
+        GF_PATHS_DATA: /var/lib/grafana/
+        GF_PATHS_LOGS: /var/log/grafana
+        GF_PATHS_PLUGINS: /var/lib/grafana/plugins
+        GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+        GF_UNIFIED_STORAGE_INDEX_PATH: /var/lib/grafana-search/bleve
+        GOMEMLIMIT: 345MiB
+      livenessProbe:
+        httpGet:
+          path: /api/health
+          port: grafana
+        initialDelaySeconds: 60
+        timeoutSeconds: 30
+        failureThreshold: 10
+      readinessProbe:
+        httpGet:
+          path: /api/health
+          port: grafana
+      resources:
+        requests:
+          cpu: 25m
+          memory: 96Mi
+        limits:
+          memory: 384Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        privileged: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: config
+          mountPath: /etc/grafana/grafana.ini
+          subPath: grafana.ini
+        - name: config
+          mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+          subPath: datasources.yaml
+        - name: config
+          mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+          subPath: dashboards.yaml
+        - name: dashboards
+          mountPath: /var/lib/grafana/dashboards
+        - name: storage
+          mountPath: /var/lib/grafana
+        - name: search
+          mountPath: /var/lib/grafana-search
+  volumes:
+    tmp:
+      emptyDir: {}
+    storage:
+      emptyDir: {}
+    search:
+      emptyDir: {}
+    config:
+      configMap:
+        name: '{{ include "common.fullname" . }}-config'
+    dashboards:
+      configMap:
+        name: '{{ include "common.fullname" . }}-dashboards'

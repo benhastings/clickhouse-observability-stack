@@ -5,6 +5,7 @@ ignore: |
   node_modules/
   .venv/
   templates/
+  cluster-nodes/*/crds/
 
 rules:
   document-start: disable

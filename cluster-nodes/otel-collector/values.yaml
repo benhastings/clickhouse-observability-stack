@@ -1,0 +1,130 @@
+configMaps:
+  main:
+    data:
+      relay.yaml:
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: ${env:MY_POD_IP}:4317
+              http:
+                endpoint: ${env:MY_POD_IP}:4318
+        processors:
+          batch: {}
+          memory_limiter:
+            check_interval: 5s
+            limit_percentage: 80
+            spike_limit_percentage: 25
+        connectors:
+          spanmetrics:
+            histogram:
+              unit: ms
+              explicit:
+                buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
+            dimensions:
+              - name: http.request.method
+              - name: http.response.status_code
+              - name: http.route
+            exemplars:
+              enabled: true
+            metrics_flush_interval: 15s
+          servicegraph:
+            latency_histogram_buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s]
+            store:
+              ttl: 5s
+              max_items: 10000
+        exporters:
+          clickhouse:
+            endpoint: tcp://clickhouse:9000?dial_timeout=10s
+            database: otel
+            username: otel
+            password: ${env:CLICKHOUSE_PASSWORD}
+            create_schema: false
+            timeout: 10s
+            retry_on_failure:
+              enabled: true
+              max_elapsed_time: 5m
+            sending_queue:
+              enabled: true
+        extensions:
+          health_check:
+            endpoint: ${env:MY_POD_IP}:13133
+        service:
+          extensions: [health_check]
+          telemetry:
+            metrics:
+              readers:
+                - pull:
+                    exporter:
+                      prometheus:
+                        host: ${env:MY_POD_IP}
+                        port: 8888
+          pipelines:
+            traces:
+              receivers: [otlp]
+              processors: [memory_limiter, batch]
+              exporters: [clickhouse, spanmetrics, servicegraph]
+            metrics:
+              receivers: [otlp, spanmetrics, servicegraph]
+              processors: [memory_limiter, batch]
+              exporters: [clickhouse]
+            logs:
+              receivers: [otlp]
+              processors: [memory_limiter, batch]
+              exporters: [clickhouse]
+
+service:
+  enabled: true
+  ports:
+    otlp:
+      port: 4317
+      appProtocol: grpc
+    otlp-http:
+      port: 4318
+
+deployment:
+  enabled: true
+  containers:
+    otel-collector:
+      image:
+        repository: otel/opentelemetry-collector-contrib
+        tag: "0.161.0"
+      args:
+        - --config=/conf/relay.yaml
+      ports:
+        otlp:
+          containerPort: 4317
+        otlp-http:
+          containerPort: 4318
+      env:
+        MY_POD_IP:
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        GOMEMLIMIT: 204MiB
+        CLICKHOUSE_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-credentials
+              key: password
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 13133
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 13133
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+      volumeMounts:
+        - name: config
+          mountPath: /conf
+  volumes:
+    config:
+      configMap:
+        name: '{{ include "common.fullname" . }}'

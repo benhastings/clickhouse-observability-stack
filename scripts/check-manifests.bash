@@ -34,6 +34,13 @@ for file in apps/*.yaml; do
     --kube-version "$KUBE_VERSION" "${values[@]}" >"$out/$name.yaml"
 done
 
+echo "==> Rendering cluster nodes"
+for chart in cluster-nodes/*/; do
+  name="$(basename "$chart")"
+  echo "  $name"
+  helm template "$name" "$chart" --namespace observability --kube-version "$KUBE_VERSION" >"$out/node-$name.yaml"
+done
+
 echo "==> Validating rendered charts and plain manifests"
 kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" \
   -schema-location default \

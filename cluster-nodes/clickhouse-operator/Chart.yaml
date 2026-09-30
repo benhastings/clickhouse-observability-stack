@@ -1,0 +1,10 @@
+apiVersion: v2
+name: clickhouse-operator
+description: Altinity ClickHouse operator, which reconciles ClickHouseInstallation resources.
+type: application
+version: 0.1.0
+appVersion: "0.27.4"
+dependencies:
+  - name: common
+    version: 0.1.0
+    repository: file://../../helm-templates/common

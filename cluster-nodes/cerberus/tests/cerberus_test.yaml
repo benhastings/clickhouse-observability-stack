@@ -1,0 +1,47 @@
+suite: cerberus
+templates:
+  - templates/common.yaml
+release:
+  name: cerberus
+  namespace: observability
+tests:
+  - it: serves the query APIs on cerberus:8080, where Grafana points
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: cerberus
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+
+  - it: reads the ClickHouse password from clickhouse-credentials
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CERBERUS_CH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-credentials
+                key: password
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].configMapRef.name
+          value: cerberus-env
+
+  - it: owns the OTel table schema
+    documentSelector:
+      path: metadata.name
+      value: cerberus-env
+    asserts:
+      - equal:
+          path: data.CERBERUS_AUTO_CREATE_SCHEMA
+          value: "true"
+      - equal:
+          path: data.CERBERUS_CH_ADDR
+          value: clickhouse:9000
