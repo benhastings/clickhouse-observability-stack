@@ -152,11 +152,25 @@ manifests/
   clickhouse/              ClickHouseInstallation + credentials Secret
   grafana-dashboards/      Span-metrics dashboard (loaded by Grafana's sidecar)
   demo-load/               telemetrygen Deployment
-scripts/                   kind-up / port-forward / kind-down
+scripts/                   kind-up / port-forward / kind-down, plus the check scripts
+git/hooks/                 pre-commit hook that runs `make check/lint`
 kind-config.yaml           Local cluster definition
+Makefile                   setup, checks and local-cluster targets (`make help`)
+AGENTS.md                  conventions for contributors and coding agents
 ```
 
 Chart-based apps use Argo CD multi-source Applications. The chart comes from its Helm repo and the values file from this repo (`$values/values/<app>.yaml`).
+
+## Contributing
+
+```bash
+make setup      # check tools (needs Go, Python 3 and Node) and the pre-commit hook
+make check      # what CI runs: yamllint, shellcheck, Application conventions, actionlint, cspell,
+                # and every chart rendered at its pinned version and validated with kubeconform
+```
+
+[`AGENTS.md`](AGENTS.md) has the conventions every Application follows and what to update when adding or
+bumping a component.
 
 ## Troubleshooting
 

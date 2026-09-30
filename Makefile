@@ -1,0 +1,93 @@
+SHELL := bash
+.SHELLFLAGS := -euo pipefail -c
+.DEFAULT_GOAL := help
+
+HELM_VERSION := v3.22.0
+KUBECONFORM_VERSION := v0.8.0
+YQ_VERSION := v4.54.1
+ACTIONLINT_VERSION := v1.7.12
+YAMLLINT_VERSION := 1.38.0
+SHELLCHECK_VERSION := 0.11.0.1
+
+VENV := .venv
+
+SHELL_SCRIPTS := $(wildcard scripts/*.sh scripts/*.bash) git/hooks/pre-commit
+
+.PHONY: help
+help: ## Show this help
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_\/-]+:.*?##/ { printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
+
+##@ Setup
+
+.PHONY: setup
+setup: setup/tools setup/hooks ## Install every tool the checks need, plus the git hooks
+
+.PHONY: setup/tools
+setup/tools: setup/tools/go setup/tools/python setup/tools/node ## Install helm, kubeconform, yq, actionlint, yamllint, shellcheck, cspell
+
+.PHONY: setup/tools/go
+setup/tools/go:
+	go install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
+	go install github.com/yannh/kubeconform/cmd/kubeconform@$(KUBECONFORM_VERSION)
+	go install github.com/mikefarah/yq/v4@$(YQ_VERSION)
+	go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+
+.PHONY: setup/tools/python
+setup/tools/python:
+	python3 -m venv $(VENV)
+	$(VENV)/bin/pip install --quiet --disable-pip-version-check \
+		yamllint==$(YAMLLINT_VERSION) shellcheck-py==$(SHELLCHECK_VERSION)
+
+.PHONY: setup/tools/node
+setup/tools/node:
+	npm ci --no-audit --no-fund
+
+.PHONY: setup/hooks
+setup/hooks: ## Point git at git/hooks so the pre-commit check runs
+	git config core.hooksPath git/hooks
+
+##@ Checks
+
+.PHONY: check
+check: check/lint check/manifests ## The whole gate CI runs
+
+.PHONY: check/lint
+check/lint: check/yaml check/shell check/apps check/workflows check/spelling ## Offline checks, what the pre-commit hook runs
+
+.PHONY: check/yaml
+check/yaml: ## yamllint every YAML file against .yamllint.yaml
+	$(VENV)/bin/yamllint --strict .
+
+.PHONY: check/shell
+check/shell: ## shellcheck every script
+	$(VENV)/bin/shellcheck $(SHELL_SCRIPTS)
+
+.PHONY: check/apps
+check/apps: ## Enforce the Application conventions in AGENTS.md
+	scripts/check-apps.bash
+
+.PHONY: check/workflows
+check/workflows: ## actionlint the GitHub Actions workflows
+	actionlint
+
+.PHONY: check/spelling
+check/spelling: ## cspell against cspell.json (American and British English)
+	npm run --silent spell
+
+.PHONY: check/manifests
+check/manifests: ## Render every chart at its pinned version and validate all manifests with kubeconform
+	scripts/check-manifests.bash
+
+##@ Local cluster
+
+.PHONY: cluster/up
+cluster/up: ## Create the kind cluster, install Argo CD and apply the root app
+	scripts/kind-up.sh
+
+.PHONY: cluster/down
+cluster/down: ## Delete the kind cluster
+	scripts/kind-down.sh
+
+.PHONY: cluster/port-forward
+cluster/port-forward: ## Forward Grafana, Argo CD, Cerberus and OTLP to localhost
+	scripts/port-forward.sh

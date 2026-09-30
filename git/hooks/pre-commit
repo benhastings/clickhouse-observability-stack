@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+make_cmd="make"
+command -v gmake >/dev/null 2>&1 && make_cmd="gmake"
+
+"$make_cmd" check/lint
