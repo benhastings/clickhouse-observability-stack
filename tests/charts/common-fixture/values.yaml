@@ -1,0 +1,104 @@
+serviceAccount:
+  annotations:
+    example.com/role: reader
+
+rbac:
+  clusterRules:
+    - apiGroups: [""]
+      resources: [namespaces]
+      verbs: [get, list]
+  rules:
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [get]
+
+configMaps:
+  main:
+    data:
+      app.yaml:
+        listen: ":8080"
+        release: "{{ .Release.Name }}"
+      motd.txt: "hello from {{ .Release.Name }}"
+  files:
+    files: files/*.yaml
+
+secrets:
+  credentials:
+    stringData:
+      username: fixture
+      password: fixture-password
+  external:
+    create: false
+
+service:
+  enabled: true
+  ports:
+    http:
+      port: 80
+      targetPort: 8080
+      appProtocol: http
+    grpc:
+      port: 4317
+
+deployment:
+  enabled: true
+  podSecurityContext:
+    runAsNonRoot: true
+  containers:
+    app:
+      image:
+        repository: example/app
+        tag: "1.2.3"
+      args:
+        - --config=/conf/app.yaml
+        - --name={{ include "common.fullname" . }}
+      ports:
+        http:
+          containerPort: 8080
+        grpc:
+          containerPort: 4317
+      env:
+        LOG_LEVEL: info
+        REPLICAS: 3
+        PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: '{{ include "common.fullname" . }}-credentials'
+              key: password
+      envFrom:
+        - configMapRef:
+            name: "{{ include \"common.fullname\" . }}"
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: http
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+      volumeMounts:
+        - name: config
+          mountPath: /conf
+    sidecar:
+      image:
+        repository: example/sidecar
+        tag: "0.1.0"
+        pullPolicy: Always
+  volumes:
+    config:
+      configMap:
+        name: '{{ include "common.fullname" . }}'
+    scratch:
+      emptyDir: {}
+
+objects:
+  widget:
+    apiVersion: example.com/v1
+    kind: Widget
+    metadata:
+      labels:
+        extra: "yes"
+    spec:
+      owner: "{{ .Release.Name }}"

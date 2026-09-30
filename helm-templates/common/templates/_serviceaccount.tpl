@@ -1,0 +1,15 @@
+{{- define "common.serviceAccount" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- if $v.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  {{- include "common.metadata" (list . (include "common.serviceAccountName" .)) | nindent 2 }}
+  {{- with $v.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: {{ $v.serviceAccount.automountToken }}
+{{- end }}
+{{- end -}}

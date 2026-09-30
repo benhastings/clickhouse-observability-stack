@@ -1,0 +1,47 @@
+suite: common.service
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: defaults targetPort to the port name and protocol to TCP
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: grpc
+            port: 4317
+            targetPort: grpc
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: http
+            port: 80
+            targetPort: 8080
+            protocol: TCP
+            appProtocol: http
+
+  - it: selects the Deployment's pods
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: fixture
+            app.kubernetes.io/instance: fixture
+
+  - it: renders no Service when disabled
+    set:
+      service.enabled: false
+    asserts:
+      - containsDocument:
+          kind: Service
+          apiVersion: v1
+        not: true

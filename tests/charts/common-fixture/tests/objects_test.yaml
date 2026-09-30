@@ -1,0 +1,27 @@
+suite: common.objects
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: defaults name and namespace, templates the body and merges labels
+    documentSelector:
+      path: kind
+      value: Widget
+    asserts:
+      - equal:
+          path: metadata.name
+          value: fixture-widget
+      - equal:
+          path: metadata.namespace
+          value: demo
+      - equal:
+          path: spec.owner
+          value: fixture
+      - equal:
+          path: metadata.labels.extra
+          value: "yes"
+      - equal:
+          path: metadata.labels["app.kubernetes.io/part-of"]
+          value: clickhouse-observability-stack

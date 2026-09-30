@@ -24,6 +24,8 @@ scripts/kind-up.sh, kind-down.sh   create and delete the local kind cluster
 scripts/port-forward.sh            forward Grafana, Argo CD, Cerberus and OTLP to localhost
 scripts/check-apps.bash            enforces the Application conventions below
 scripts/check-manifests.bash       renders every chart and validates everything with kubeconform
+helm-templates/common/             the library chart every workload is rendered through (see its README)
+tests/charts/common-fixture/       an application chart that exercises common, with its helm-unittest suites
 kind-config.yaml                   the local cluster definition
 git/hooks/                         the pre-commit hook (`make setup/hooks`)
 ```
@@ -42,13 +44,15 @@ add a target. `make help` lists everything.
 | `make check/lint`           | offline checks: yamllint, shellcheck, `check/apps`, actionlint, cspell        |
 | `make check/apps`           | Application conventions, orphaned files, dashboard JSON                       |
 | `make check/manifests`      | `helm template` every chart at its pinned version, then kubeconform the lot   |
+| `make test`                 | every offline test; today `test/unit`                                        |
+| `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make cluster/up`           | kind cluster, Argo CD, root app (~10 min first run, ~3 GB RAM)                |
 | `make cluster/port-forward` | Grafana `:3000`, Argo CD `:8080`, Cerberus `:8081`, OTLP `:4317`/`:4318`       |
 | `make cluster/down`         | deletes the kind cluster                                                      |
 
 GNU make is required. On macOS use `gmake`, which is what `git/hooks/pre-commit` does.
 
-New targets follow the existing families: `setup/...`, `check/...`, `cluster/...`.
+New targets follow the existing families: `setup/...`, `check/...`, `test/...`, `cluster/...`.
 
 ### What the checks enforce
 
@@ -74,6 +78,16 @@ New targets follow the existing families: `setup/...`, `check/...`, `cluster/...
 
 `make check` proves the manifests are well-formed. It does not prove the stack works: ordering, health,
 ClickHouse schema compatibility and Grafana queries are only exercised by deploying to kind.
+
+### Tests
+
+- **A change to `helm-templates/common` needs a helm-unittest case** in
+  `tests/charts/common-fixture/tests/`. Turn the feature on in the fixture's `values.yaml` and assert on the
+  rendered object.
+- **Always run tests through `make test/unit`.** helm-unittest renders the packaged
+  `charts/common-<version>.tgz`, not the source directory, so a test run without `make deps` first can pass
+  against stale templates. The tarballs are gitignored; `Chart.lock` is committed.
+- **Check that a new test can fail.** Break the template it covers, watch it go red, and put the template back.
 
 ### Application conventions
 
