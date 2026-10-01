@@ -1,0 +1,22 @@
+Category,Attribute Name,Type,Example,Description
+Event Marker,main,Boolean,TRUE,Identifies the record as the canonical wide event.
+Trace Context,trace_id,String,4bf92f3577b34da6,W3C distributed trace identifier.
+,span_id,String,00f067aa0ba902b7,Active root execution span ID.
+Service Identity,service.name,String,checkout-api,Logical name of the service.
+,service.team,String,core-payments,Owning team (critical for routing alerts).
+,service.version,String,v2.4.1,Deployed version release tag.
+,service.build.git_hash,String,8f7a2b3c,"SHA of running code (answers ""what changed?"")."
+Environment,deployment.environment,String,"production, staging",Runtime environment tier.
+,cloud.region / cloud.az,String,"us-east-1, us-east-1a",Physical cloud location.
+,k8s.pod.name,String,checkout-7f8g9-2x5,Kubernetes pod identifier.
+HTTP / Execution,http.method,String,POST,HTTP request method.
+,http.route,String,/api/v1/checkout,Low-cardinality route template.
+,http.status_code,Integer,"200, 500",Standard HTTP response code.
+,duration_ms,Float,142.5,End-to-end execution latency in milliseconds.
+Customer Context,user.id,String,usr_98123,Unique user/account identifier.
+,user.team.id (Tenant),String,enterprise_corp_a,Tenant ID (crucial for isolating tenant impact).
+Work Metrics,db.query_count,Integer,4,Total DB queries run in this request.
+,db.duration_ms,Float,32.1,Aggregate time spent in DB queries.
+,cache.hit,Boolean,FALSE,Cache lookup status.
+Diagnostics,outcome,String,"success, upstream_error",High-level business outcome.
+,error.type,String,GatewayTimeout,Exception or failure class.
