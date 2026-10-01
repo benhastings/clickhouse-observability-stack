@@ -1,0 +1,66 @@
+name: Performance Issue
+description: Something is slow, uses too much memory, or no longer fits on a laptop.
+title: "perf: "
+labels: ["performance"]
+assignees: []
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - N/A
+        - clickhouse-operator
+        - clickhouse
+        - cerberus
+        - otel-collector
+        - grafana
+        - demo-load
+        - App-of-apps / environments (cluster-configs)
+        - Common library chart (helm-templates/common)
+        - Scripts / local cluster
+        - CI / workflows
+        - Docs
+      default: 0
+    validations:
+      required: true
+  - type: dropdown
+    id: perf-type
+    attributes:
+      label: Type of issue
+      multiple: true
+      options:
+        - Slow query (Grafana / Cerberus)
+        - High memory usage / OOMKilled
+        - High CPU usage
+        - Ingest lag or dropped telemetry
+        - Slow sync or startup
+        - ClickHouse storage growth
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What's slow or heavy?
+      description: Describe what you're doing when you notice the problem and what the impact is.
+    validations:
+      required: true
+  - type: textarea
+    id: measurements
+    attributes:
+      label: Measurements
+      description: Numbers if you have them — `kubectl top pods -A`, query durations, restart counts, table sizes.
+      render: shell
+  - type: input
+    id: revision
+    attributes:
+      label: Revision
+      placeholder: "e.g. main @ 99e6a9f"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, RAM and CPUs given to Docker, demo-load rates, or anything else that affects the numbers.
