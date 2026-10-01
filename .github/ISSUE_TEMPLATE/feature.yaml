@@ -1,0 +1,58 @@
+name: Feature Request
+description: Request a new capability, signal, dashboard or component.
+title: "feat: "
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Remember the whole local stack has to fit on a laptop (about 2.4 GB).
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component(s) would this apply to?
+      multiple: true
+      options:
+        - N/A
+        - clickhouse-operator
+        - clickhouse
+        - cerberus
+        - otel-collector
+        - grafana
+        - demo-load
+        - App-of-apps / environments (cluster-configs)
+        - Common library chart (helm-templates/common)
+        - Scripts / local cluster
+        - CI / workflows
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What feature do you want?
+      description: What should the stack do that it doesn't today, and why? You can also ask that we remove things.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will we know it's done? Prefer things that can be checked in ClickHouse, through Cerberus, or in Grafana.
+      placeholder: |
+        - cpu metric available in clickhouse
+        - querying logs in grafana presents correlating traces
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options considered
+      description: Approaches you've thought about and their tradeoffs (a new component vs. values on an existing one, upstream chart vs. common, etc.).
+  - type: textarea
+    id: extra
+    attributes:
+      label: Extra info
+      description: Links, screenshots, related issues.

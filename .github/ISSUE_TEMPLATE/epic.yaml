@@ -1,0 +1,39 @@
+name: EPIC
+description: A larger piece of work that will be split into several issues and PRs.
+title: "[EPIC] "
+labels: ["epic"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this epic, you wannabe PM you...
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component(s) are affected?
+      multiple: true
+      options:
+        - N/A
+        - clickhouse-operator
+        - clickhouse
+        - cerberus
+        - otel-collector
+        - grafana
+        - demo-load
+        - App-of-apps / environments (cluster-configs)
+        - Common library chart (helm-templates/common)
+        - Scripts / local cluster
+        - CI / workflows
+        - Docs
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: epic-description
+    attributes:
+      label: What do you want to see in the stack?
+      description: The outcome, and the issues you expect it to break into.
+    validations:
+      required: true

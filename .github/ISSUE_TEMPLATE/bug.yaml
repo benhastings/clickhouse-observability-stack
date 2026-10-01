@@ -1,0 +1,76 @@
+name: Bug Report
+description: Something in the stack is broken or behaves differently from the docs.
+title: "fix: "
+labels: ["bug"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more of the cluster state you paste, the faster it gets fixed.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component(s) are affected?
+      multiple: true
+      options:
+        - N/A
+        - clickhouse-operator
+        - clickhouse
+        - cerberus
+        - otel-collector
+        - grafana
+        - demo-load
+        - App-of-apps / environments (cluster-configs)
+        - Common library chart (helm-templates/common)
+        - Scripts / local cluster
+        - CI / workflows
+        - Docs
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also, what did you expect to happen?
+      placeholder: The payments panel on the span-metrics dashboard is empty...
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Where are you seeing it?
+      multiple: true
+      options:
+        - local (kind)
+        - prod overrides
+        - Other cluster
+        - CI (Check or End to end workflow)
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Revision
+      description: The commit or branch Argo CD synced (`kubectl -n argocd get application app-of-apps-local -o jsonpath='{.status.sync.revision}'`).
+      placeholder: "e.g. main @ 99e6a9f"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Make targets, queries, or Grafana panels involved.
+      placeholder: |
+        1. make cluster/up
+        2. make cluster/port-forward
+        3. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste `kubectl -n argocd get applications`, pod logs, or query responses. This will be automatically formatted into code, so no need for backticks.
+      render: shell

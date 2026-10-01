@@ -1,0 +1,62 @@
+name: Chore / Maintenance
+description: Version bumps, refactors, CI changes, tooling, cleanup — work that doesn't change what the stack does.
+title: "chore: "
+labels: ["chore"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For internal work that keeps the project healthy but doesn't add features or fix bugs.
+  - type: dropdown
+    id: chore-type
+    attributes:
+      label: Type of chore
+      multiple: false
+      options:
+        - Version bump
+        - Refactor / cleanup
+        - CI / tooling
+        - Documentation
+        - Test coverage
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: What does this touch?
+      multiple: true
+      options:
+        - N/A
+        - clickhouse-operator
+        - clickhouse
+        - cerberus
+        - otel-collector
+        - grafana
+        - demo-load
+        - App-of-apps / environments (cluster-configs)
+        - Common library chart (helm-templates/common)
+        - Scripts / local cluster
+        - CI / workflows
+        - Docs
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs doing?
+      description: Describe the work. For a version bump, link the release notes and say whether the collector or Cerberus is involved (both are coupled to the ClickHouse schema).
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why now?
+      description: Is this blocking something? Routine hygiene? Security concern? Optional but helpful.
+  - type: textarea
+    id: agent-guidance
+    attributes:
+      label: Agent guidance
+      description: Anything a coding agent should know when picking this up, beyond AGENTS.md — scope limits, related issues, things to avoid touching.

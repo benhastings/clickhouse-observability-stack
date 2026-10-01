@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a Security Vulnerability (Private)
+    url: https://github.com/benhastings/clickhouse-observability-stack/security/advisories/new
+    about: For exploitable vulnerabilities — file a private advisory, not a public issue.
