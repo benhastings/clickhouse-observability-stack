@@ -69,11 +69,11 @@ poll "PromQL: span metrics exist for checkout and payments" \
 
 poll "PromQL: payments error ratio is about 25%" \
   '.data.result[0].value[1] | tonumber | . > 0.1 and . < 0.4' \
-  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls{service_name="payments",status_code="STATUS_CODE_ERROR"}[2m])) / sum(rate(traces_span_metrics_calls{service_name="payments"}[2m]))'
+  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls{service_name="payments",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[2m])) / sum(rate(traces_span_metrics_calls{service_name="payments",span_kind="SPAN_KIND_SERVER"}[2m]))'
 
-poll "PromQL: checkout has no errors" \
+poll "PromQL: checkout serves every request without error" \
   '.data.result | length == 0' \
-  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls{service_name="checkout",status_code="STATUS_CODE_ERROR"}[2m])) > 0'
+  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls{service_name="checkout",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[2m])) > 0'
 
 poll "PromQL: service graph metrics exist" \
   '.data.result | length > 0' \
@@ -100,6 +100,30 @@ poll "TraceQL: failing payments traces are searchable" \
   '.traces | length > 0' \
   "$cerberus/api/search" --data-urlencode 'q={resource.service.name="payments" && status=error}' \
   --data-urlencode "start=$start" --data-urlencode "end=$end" --data-urlencode 'limit=5'
+
+# Correlation, both ways. Grafana asks Loki for categorized labels, which is how the trace_id
+# log attribute reaches its derived field; ask the same way here.
+step "Log to trace: a checkout log's trace_id opens a trace spanning checkout and payments"
+trace_id="$(curl -fsS -G -H 'X-Loki-Response-Encoding-Flags: categorize-labels' "$cerberus/loki/api/v1/query_range" \
+  --data-urlencode 'query={service_name="checkout"} | main="true"' \
+  --data-urlencode "start=$(((now - 300) * 1000000000))" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=1' |
+  jq -r '[.data.result[].values[][2].structuredMetadata.trace_id] | first // empty')"
+[[ -n "$trace_id" ]] || { echo "  no trace_id on recent checkout logs"; exit 1; }
+echo "  trace_id=$trace_id"
+poll "  trace $trace_id has spans from both services" \
+  '[.. | strings] | contains(["checkout", "payments"])' \
+  "$cerberus/api/traces/$trace_id"
+
+step "Trace to logs: a failing payments trace has its error log"
+trace_id="$(curl -fsS -G "$cerberus/api/search" --data-urlencode 'q={resource.service.name="payments" && status=error}' \
+  --data-urlencode "start=$((now - 300))" --data-urlencode "end=$end" --data-urlencode 'limit=1' |
+  jq -r '.traces[0].traceID // empty | (32 - length) as $n | (if $n > 0 then "0" * $n else "" end) + .')"
+[[ -n "$trace_id" ]] || { echo "  no failing payments trace found"; exit 1; }
+echo "  trace_id=$trace_id"
+poll "  payments logs for trace $trace_id include the gateway timeout" \
+  '[.data.result[].values[][1]] | index("payment gateway timed out") != null' \
+  "$cerberus/loki/api/v1/query_range" --data-urlencode "query={service_name=\"payments\"} | trace_id=\"$trace_id\"" \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=20'
 
 for uid in cerberus-prometheus cerberus-loki cerberus-tempo; do
   poll "Grafana: datasource $uid is healthy" \

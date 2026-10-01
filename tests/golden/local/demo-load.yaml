@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: demo-load-0.1.0
-    app.kubernetes.io/version: "v0.161.0"
+    app.kubernetes.io/version: "v0.1.0"
     environment: local
 automountServiceAccountToken: false
 ---
@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: demo-load-0.1.0
-    app.kubernetes.io/version: "v0.161.0"
+    app.kubernetes.io/version: "v0.1.0"
     environment: local
 spec:
   replicas: 1
@@ -49,73 +49,22 @@ spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       containers:
-        - name: checkout-ok
-          image: "ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.161.0"
+        - name: correlated-telemetrygen
+          image: "ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0"
           imagePullPolicy: IfNotPresent
           args:
-            - traces
-            - --otlp-endpoint=otel-collector:4317
-            - --otlp-insecure
-            - --service=checkout
             - --rate=2
-            - --duration=inf
-            - --child-spans=2
-            - --span-duration=40ms
-            - --otlp-attributes=deployment.environment.name="local"
-          resources:
-            limits:
-              memory: 64Mi
-            requests:
-              cpu: 10m
-              memory: 16Mi
-        - name: logs
-          image: "ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.161.0"
-          imagePullPolicy: IfNotPresent
-          args:
-            - logs
-            - --otlp-endpoint=otel-collector:4317
-            - --otlp-insecure
-            - --service=checkout
-            - --rate=2
-            - --duration=inf
-            - --body=order placed
-          resources:
-            limits:
-              memory: 64Mi
-            requests:
-              cpu: 10m
-              memory: 16Mi
-        - name: payments-errors
-          image: "ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.161.0"
-          imagePullPolicy: IfNotPresent
-          args:
-            - traces
-            - --otlp-endpoint=otel-collector:4317
-            - --otlp-insecure
-            - --service=payments
-            - --rate=1
-            - --duration=inf
-            - --span-duration=900ms
-            - --status-code=error
-            - --otlp-attributes=deployment.environment.name="local"
-          resources:
-            limits:
-              memory: 64Mi
-            requests:
-              cpu: 10m
-              memory: 16Mi
-        - name: payments-ok
-          image: "ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.161.0"
-          imagePullPolicy: IfNotPresent
-          args:
-            - traces
-            - --otlp-endpoint=otel-collector:4317
-            - --otlp-insecure
-            - --service=payments
-            - --rate=3
-            - --duration=inf
-            - --span-duration=350ms
-            - --otlp-attributes=deployment.environment.name="local"
+            - --error-ratio=0.25
+            - --environment=local
+          env:
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "k8s.pod.name=$(K8S_POD_NAME)"
           resources:
             limits:
               memory: 64Mi

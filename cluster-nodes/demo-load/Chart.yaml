@@ -1,9 +1,9 @@
 apiVersion: v2
 name: demo-load
-description: Synthetic traces and logs from telemetrygen.
+description: Synthetic checkout and payments traffic whose logs and traces correlate.
 type: application
 version: 0.1.0
-appVersion: "v0.161.0"
+appVersion: "v0.1.0"
 dependencies:
   - name: common
     version: 0.1.0

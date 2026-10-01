@@ -1,77 +1,24 @@
 deployment:
   enabled: true
   containers:
-    checkout-ok:
+    # Each request is a checkout that calls payments; every log is written inside a span of
+    # that request, so logs and traces link both ways. See the generator's README for the
+    # span tree and the wide-event attributes.
+    correlated-telemetrygen:
       image:
-        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
-        tag: v0.161.0
+        repository: ghcr.io/brandonapol/correlated-telemetrygen
+        tag: v0.1.0
       args:
-        - traces
-        - --otlp-endpoint=otel-collector:4317
-        - --otlp-insecure
-        - --service=checkout
         - --rate=2
-        - --duration=inf
-        - --child-spans=2
-        - --span-duration=40ms
-        - --otlp-attributes=deployment.environment.name="local"
-      resources:
-        requests:
-          cpu: 10m
-          memory: 16Mi
-        limits:
-          memory: 64Mi
-    payments-ok:
-      image:
-        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
-        tag: v0.161.0
-      args:
-        - traces
-        - --otlp-endpoint=otel-collector:4317
-        - --otlp-insecure
-        - --service=payments
-        - --rate=3
-        - --duration=inf
-        - --span-duration=350ms
-        - --otlp-attributes=deployment.environment.name="local"
-      resources:
-        requests:
-          cpu: 10m
-          memory: 16Mi
-        limits:
-          memory: 64Mi
-    payments-errors:
-      image:
-        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
-        tag: v0.161.0
-      args:
-        - traces
-        - --otlp-endpoint=otel-collector:4317
-        - --otlp-insecure
-        - --service=payments
-        - --rate=1
-        - --duration=inf
-        - --span-duration=900ms
-        - --status-code=error
-        - --otlp-attributes=deployment.environment.name="local"
-      resources:
-        requests:
-          cpu: 10m
-          memory: 16Mi
-        limits:
-          memory: 64Mi
-    logs:
-      image:
-        repository: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen
-        tag: v0.161.0
-      args:
-        - logs
-        - --otlp-endpoint=otel-collector:4317
-        - --otlp-insecure
-        - --service=checkout
-        - --rate=2
-        - --duration=inf
-        - --body=order placed
+        - --error-ratio=0.25
+        - --environment=local
+      env:
+        K8S_POD_NAME:
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+        OTEL_RESOURCE_ATTRIBUTES: k8s.pod.name=$(K8S_POD_NAME)
       resources:
         requests:
           cpu: 10m
