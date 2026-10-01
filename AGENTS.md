@@ -108,8 +108,8 @@ ClickHouse schema compatibility and Grafana queries are only exercised by deploy
 `.github/workflows/e2e.yml`, which runs `make test/e2e` on every pull request: a kind cluster on a
 digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at the PR's commit. It then waits
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
-for both demo services, a payments error ratio near 25%, no checkout errors, service-graph metrics, checkout
-logs, failing payments traces, healthy Grafana datasources and the provisioned dashboard. Argo CD pulls the
+for both demo services, a payments error ratio near 25%, no checkout errors, service-graph metrics, node CPU
+and memory and per-pod memory from `kubeletstats`, checkout logs, failing payments traces, healthy Grafana datasources and the provisioned dashboard. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
 ### Cluster nodes

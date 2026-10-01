@@ -44,6 +44,7 @@
     "kubeadm",
     "kubeconform",
     "kubelet",
+    "kubeletstats",
     "logtostderr",
     "lookback",
     "mikefarah",

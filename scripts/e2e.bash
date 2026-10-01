@@ -79,6 +79,18 @@ poll "PromQL: service graph metrics exist" \
   '.data.result | length > 0' \
   "$cerberus/api/v1/query" --data-urlencode 'query=traces_service_graph_request_total'
 
+poll "PromQL: node CPU usage from kubeletstats" \
+  '.data.result[0].value[1] | tonumber | . > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=sum(k8s_node_cpu_usage)'
+
+poll "PromQL: node memory working set from kubeletstats" \
+  '.data.result[0].value[1] | tonumber | . > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=sum(k8s_node_memory_working_set)'
+
+poll "PromQL: per-pod memory for more than five pods" \
+  '.data.result[0].value[1] | tonumber | . > 5' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=count(k8s_pod_memory_working_set)'
+
 poll "LogQL: checkout logs arrive" \
   '[.data.result[].values[]] | length > 0' \
   "$cerberus/loki/api/v1/query_range" --data-urlencode 'query={service_name="checkout"}' \
