@@ -1,0 +1,24 @@
+suite: demo-load
+templates:
+  - templates/common.yaml
+release:
+  name: demo-load
+  namespace: observability
+tests:
+  - it: runs the four generators
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 4
+
+  - it: sends to the collector Service
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --otlp-endpoint=otel-collector:4317

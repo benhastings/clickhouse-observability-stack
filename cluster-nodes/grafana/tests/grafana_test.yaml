@@ -1,0 +1,54 @@
+suite: grafana
+templates:
+  - templates/common.yaml
+release:
+  name: grafana
+  namespace: observability
+tests:
+  - it: points every datasource at Cerberus
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["datasources.yaml"]
+          pattern: "uid: cerberus-prometheus"
+      - notMatchRegex:
+          path: data["datasources.yaml"]
+          pattern: "url: https?://([^c]|c[^e])"
+
+  - it: provisions the span-metrics dashboard from files
+    documentSelector:
+      path: metadata.name
+      value: grafana-dashboards
+    asserts:
+      - exists:
+          path: data["span-metrics.json"]
+
+  - it: reads the admin login from grafana-admin
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_SECURITY_ADMIN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: grafana-admin
+                key: admin-password
+
+  - it: listens on grafana:80
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 80
+      - equal:
+          path: spec.ports[0].targetPort
+          value: grafana

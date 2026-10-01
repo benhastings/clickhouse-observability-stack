@@ -24,6 +24,7 @@ scripts/kind-up.sh, kind-down.sh   create and delete the local kind cluster
 scripts/port-forward.sh            forward Grafana, Argo CD, Cerberus and OTLP to localhost
 scripts/check-apps.bash            enforces the Application conventions below
 scripts/check-manifests.bash       renders every chart and validates everything with kubeconform
+cluster-nodes/<app>/               one chart per installed app, rendered entirely through helm-templates/common
 helm-templates/common/             the library chart every workload is rendered through (see its README)
 tests/charts/common-fixture/       an application chart that exercises common, with its helm-unittest suites
 kind-config.yaml                   the local cluster definition
@@ -78,6 +79,35 @@ New targets follow the existing families: `setup/...`, `check/...`, `test/...`, 
 
 `make check` proves the manifests are well-formed. It does not prove the stack works: ordering, health,
 ClickHouse schema compatibility and Grafana queries are only exercised by deploying to kind.
+
+### Cluster nodes
+
+`cluster-nodes/<app>/` is one Helm chart per app: `clickhouse-operator`, `clickhouse`, `cerberus`,
+`otel-collector`, `grafana` and `demo-load`. Each has the same shape:
+
+```text
+Chart.yaml               depends on file://../../helm-templates/common; appVersion is the app's version
+Chart.lock               committed; charts/*.tgz is gitignored and rebuilt by make deps
+values.yaml              the whole workload, in the schema helm-templates/common/README.md documents
+templates/common.yaml    {{ include "common.all" . }} and nothing else
+tests/*_test.yaml        helm-unittest suites
+```
+
+- **Never add a template to a node.** If a node needs something `common` can't express, add it to `common`
+  with a fixture test, or use `objects` for a one-off manifest such as a custom resource.
+- **A node's `values.yaml` is environment-neutral.** It holds what every environment shares, sized for the
+  laptop profile that is actually tested. Credentials are never in a node: a Secret there is `create: false`,
+  and an environment turns it on or pre-creates it.
+- **Content with literal `{{` goes in a file, not in values**: Grafana dashboards live in
+  `cluster-nodes/grafana/dashboards/*.json`, and the operator's ClickHouse config in
+  `cluster-nodes/clickhouse-operator/files/`. Both are loaded with a `files` glob.
+- **Vendored upstream files are copied verbatim at the pinned version**: the operator's CRDs in
+  `cluster-nodes/clickhouse-operator/crds/` and its config files. yamllint and cspell skip them. Bumping the
+  operator means replacing them from the new release.
+- **Node tests pin the contracts between apps**: the Secret name the others read (`clickhouse-credentials`),
+  the Service names and ports they dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`), and the
+  schema ownership rule (`create_schema: false`, `CERBERUS_AUTO_CREATE_SCHEMA: "true"`). Keep them when you
+  change a node.
 
 ### Tests
 

@@ -1,0 +1,520 @@
+serviceAccount:
+  automountToken: true
+rbac:
+  clusterRules:
+  - apiGroups:
+    - ''
+    resources:
+    - configmaps
+    - services
+    - persistentvolumeclaims
+    - secrets
+    verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    - create
+    - delete
+  - apiGroups:
+    - ''
+    resources:
+    - endpoints
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ''
+    resources:
+    - events
+    verbs:
+    - create
+  - apiGroups:
+    - ''
+    resources:
+    - persistentvolumes
+    verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  - apiGroups:
+    - ''
+    resources:
+    - pods
+    verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    - delete
+  - apiGroups:
+    - ''
+    resources:
+    - secrets
+    verbs:
+    - get
+    - list
+  - apiGroups:
+    - apps
+    resources:
+    - statefulsets
+    verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    - create
+    - delete
+  - apiGroups:
+    - apps
+    resources:
+    - replicasets
+    verbs:
+    - get
+    - patch
+    - update
+    - delete
+  - apiGroups:
+    - apps
+    resources:
+    - deployments
+    resourceNames:
+    - clickhouse-operator-altinity-clickhouse-operator
+    verbs:
+    - get
+    - patch
+    - update
+    - delete
+  - apiGroups:
+    - policy
+    resources:
+    - poddisruptionbudgets
+    verbs:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    - create
+    - delete
+  - apiGroups:
+    - discovery.k8s.io
+    resources:
+    - endpointslices
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - apiextensions.k8s.io
+    resources:
+    - customresourcedefinitions
+    verbs:
+    - get
+    - list
+  - apiGroups:
+    - clickhouse.altinity.com
+    resources:
+    - clickhouseinstallations
+    verbs:
+    - get
+    - list
+    - watch
+    - patch
+    - update
+    - delete
+  - apiGroups:
+    - clickhouse.altinity.com
+    resources:
+    - clickhouseinstallationtemplates
+    - clickhouseoperatorconfigurations
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - clickhouse.altinity.com
+    resources:
+    - clickhouseinstallations/finalizers
+    - clickhouseinstallationtemplates/finalizers
+    - clickhouseoperatorconfigurations/finalizers
+    verbs:
+    - update
+  - apiGroups:
+    - clickhouse.altinity.com
+    resources:
+    - clickhouseinstallations/status
+    - clickhouseinstallationtemplates/status
+    - clickhouseoperatorconfigurations/status
+    verbs:
+    - get
+    - update
+    - patch
+    - create
+    - delete
+  - apiGroups:
+    - clickhouse-keeper.altinity.com
+    resources:
+    - clickhousekeeperinstallations
+    verbs:
+    - get
+    - list
+    - watch
+    - patch
+    - update
+    - delete
+  - apiGroups:
+    - clickhouse-keeper.altinity.com
+    resources:
+    - clickhousekeeperinstallations/finalizers
+    verbs:
+    - update
+  - apiGroups:
+    - clickhouse-keeper.altinity.com
+    resources:
+    - clickhousekeeperinstallations/status
+    verbs:
+    - get
+    - update
+    - patch
+    - create
+    - delete
+secrets:
+  credentials:
+    stringData:
+      username: clickhouse_operator
+      password: clickhouse_operator_password
+configMaps:
+  files:
+    data:
+      config.yaml:
+        annotation:
+          exclude: []
+          include: []
+        clickhouse:
+          access:
+            password: ''
+            port: 8123
+            rootCA: ''
+            rootCASecretRef:
+              key: ''
+              name: ''
+            scheme: Auto
+            secret:
+              name: '{{ include "common.fullname" . }}-credentials'
+              namespace: ''
+            timeouts:
+              connect: 5
+              query: 4
+            username: ''
+          addons:
+            rules:
+            - spec:
+                configuration:
+                  files: null
+                  profiles: null
+                  quotas: null
+                  settings: null
+                  users: null
+              version: '*'
+            - spec:
+                configuration:
+                  files: null
+                  profiles: null
+                  quotas: null
+                  settings: null
+                  users:
+                    '{clickhouseOperatorUser}/access_management': 1
+                    '{clickhouseOperatorUser}/named_collection_control': 1
+                    '{clickhouseOperatorUser}/show_named_collections': 1
+                    '{clickhouseOperatorUser}/show_named_collections_secrets': 1
+              version: '>= 23.3'
+            - spec:
+                configuration:
+                  files: null
+                  profiles:
+                    clickhouse_operator/format_display_secrets_in_show_and_select: 1
+                  quotas: null
+                  settings:
+                    display_secrets_in_show_and_select: 1
+                  users: null
+              version: '>= 23.5'
+          configuration:
+            file:
+              path:
+                common: chi/config.d
+                host: chi/conf.d
+                user: chi/users.d
+            network:
+              hostRegexpTemplate: (chi-{chi}-[^.]+\d+-\d+|clickhouse\-{chi})\.{namespace}\.svc\.cluster\.local$
+            user:
+              default:
+                networksIP:
+                - ::1
+                - 127.0.0.1
+                password: default
+                profile: default
+                quota: default
+          configurationRestartPolicy:
+            rules:
+            - rules:
+              - settings/*: 'yes'
+              - settings/access_control_path: 'no'
+              - settings/dictionaries_config: 'no'
+              - settings/max_server_memory_*: 'no'
+              - settings/max_*_to_drop: 'no'
+              - settings/max_concurrent_queries: 'no'
+              - settings/models_config: 'no'
+              - settings/user_defined_executable_functions_config: 'no'
+              - settings/logger/*: 'no'
+              - settings/macros/*: 'no'
+              - settings/remote_servers/*: 'no'
+              - settings/user_directories/*: 'no'
+              - settings/display_secrets_in_show_and_select: 'no'
+              - zookeeper/*: 'no'
+              - files/*.xml: 'yes'
+              - files/config.d/*.xml: 'yes'
+              - files/config.d/*dict*.xml: 'no'
+              - files/config.d/*no_restart*: 'no'
+              - profiles/default/background_*_pool_size: 'yes'
+              - profiles/default/max_*_for_server: 'yes'
+              version: '*'
+            - rules:
+              - settings/logger: 'yes'
+              version: 21.*
+          metrics:
+            excludeRegexp:
+            - ^metric\.(OS.*CPU[0-9]+|CPUFrequencyMHz_[0-9]+)$
+            tablesRegexp: ^(metrics|custom_metrics)$
+            timeouts:
+              collect: 9
+        keeper:
+          configuration:
+            file:
+              path:
+                common: chk/keeper_config.d
+                host: chk/conf.d
+                user: chk/users.d
+        label:
+          appendScope: 'no'
+          exclude: []
+          include: []
+        logger:
+          alsologtostderr: 'false'
+          log_backtrace_at: ''
+          logtostderr: 'true'
+          stderrthreshold: ''
+          v: '1'
+          vmodule: ''
+        metrics:
+          labels:
+            exclude: []
+        pod:
+          terminationGracePeriod: 30
+        reconcile:
+          coordination:
+            keeper:
+              onKeeperResourceUpdate: none
+              readyTimeout: 120
+          host:
+            drop:
+              replicas:
+                active: false
+                onDelete: true
+                onLostVolume: true
+            wait:
+              exclude: true
+              include: false
+              probes:
+                readiness: true
+                startup: false
+              queries: true
+              replicas:
+                all: false
+                delay: 10
+                new: true
+          recovery:
+            onStatus:
+              aborted:
+                onPodReady: retry
+              completed:
+                onPodNotReady: none
+                onPodNotReadyThreshold: 5m
+          runtime:
+            reconcileCHIsThreadsNumber: 10
+            reconcileCHKsThreadsNumber: 1
+            reconcileShardsMaxConcurrencyPercent: 50
+            reconcileShardsThreadsNumber: 5
+          statefulSet:
+            create:
+              onFailure: ignore
+            recreate:
+              onDataLoss: recreate
+              onUpdateFailure: recreate
+            update:
+              onFailure: abort
+              pollInterval: 5
+              timeout: 300
+        security:
+          clickhouse:
+            tls:
+              minVersion: ''
+              rootCA: ''
+              rootCASecretRef:
+                key: ''
+                name: ''
+              serverName: ''
+              verify: ''
+          fips:
+            enforced: false
+          images:
+            policy: Permissive
+          ipc:
+            bindHost: ''
+            mode: Plain
+            tokenPath: ''
+          kubernetes:
+            tls:
+              minVersion: ''
+              verify: ''
+          policy: Permissive
+          zookeeper:
+            tls:
+              minVersion: ''
+              verify: ''
+        statefulSet:
+          revisionHistoryLimit: 0
+        status:
+          fields:
+            action: false
+            actions: false
+            error: true
+            errors: true
+        template:
+          chi:
+            path: chi/templates.d
+            policy: ApplyOnNextReconcile
+        watch:
+          configuration:
+            onChange: restart
+          namespaces:
+            exclude: []
+            include:
+            - observability
+  chi-configd:
+    files: files/chi-config.d/*
+  chi-usersd:
+    files: files/chi-users.d/*
+  chk-configd:
+    files: files/chk-keeper_config.d/*
+deployment:
+  enabled: true
+  containers:
+    clickhouse-operator:
+      image:
+        repository: altinity/clickhouse-operator
+        tag: 0.27.4
+      ports:
+        op-metrics:
+          containerPort: 9999
+      env:
+        OPERATOR_POD_NODE_NAME:
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        OPERATOR_POD_NAME:
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        OPERATOR_POD_NAMESPACE:
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        OPERATOR_POD_IP:
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        OPERATOR_POD_SERVICE_ACCOUNT:
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
+        OPERATOR_CONTAINER_CPU_REQUEST:
+          valueFrom:
+            resourceFieldRef:
+              resource: requests.cpu
+              divisor: 1m
+        OPERATOR_CONTAINER_CPU_LIMIT:
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.cpu
+              divisor: 1m
+        OPERATOR_CONTAINER_MEM_REQUEST:
+          valueFrom:
+            resourceFieldRef:
+              resource: requests.memory
+              divisor: 1Mi
+        OPERATOR_CONTAINER_MEM_LIMIT:
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
+              divisor: 1Mi
+      resources:
+        requests:
+          cpu: 25m
+          memory: 48Mi
+        limits:
+          memory: 192Mi
+      volumeMounts:
+      - name: config
+        mountPath: /etc/clickhouse-operator
+      - name: chi-confd
+        mountPath: /etc/clickhouse-operator/chi/conf.d
+      - name: chi-configd
+        mountPath: /etc/clickhouse-operator/chi/config.d
+      - name: chi-templatesd
+        mountPath: /etc/clickhouse-operator/chi/templates.d
+      - name: chi-usersd
+        mountPath: /etc/clickhouse-operator/chi/users.d
+      - name: chk-confd
+        mountPath: /etc/clickhouse-operator/chk/conf.d
+      - name: chk-configd
+        mountPath: /etc/clickhouse-operator/chk/keeper_config.d
+      - name: chk-templatesd
+        mountPath: /etc/clickhouse-operator/chk/templates.d
+      - name: chk-usersd
+        mountPath: /etc/clickhouse-operator/chk/users.d
+      - name: ipc
+        mountPath: /etc/clickhouse-operator-ipc
+  volumes:
+    config:
+      configMap:
+        name: '{{ include "common.fullname" . }}-files'
+    chi-confd:
+      emptyDir: {}
+    chi-configd:
+      configMap:
+        name: '{{ include "common.fullname" . }}-chi-configd'
+    chi-templatesd:
+      emptyDir: {}
+    chi-usersd:
+      configMap:
+        name: '{{ include "common.fullname" . }}-chi-usersd'
+    chk-confd:
+      emptyDir: {}
+    chk-configd:
+      configMap:
+        name: '{{ include "common.fullname" . }}-chk-configd'
+    chk-templatesd:
+      emptyDir: {}
+    chk-usersd:
+      emptyDir: {}
+    ipc:
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Mi

@@ -87,7 +87,7 @@ check/spelling: ## cspell against cspell.json (American and British English)
 	npm run --silent spell
 
 .PHONY: check/manifests
-check/manifests: ## Render every chart at its pinned version and validate all manifests with kubeconform
+check/manifests: deps ## Render every chart at its pinned version and validate all manifests with kubeconform
 	scripts/check-manifests.bash
 
 ##@ Tests

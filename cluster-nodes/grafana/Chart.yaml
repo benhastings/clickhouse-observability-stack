@@ -1,0 +1,10 @@
+apiVersion: v2
+name: grafana
+description: Grafana with Cerberus datasources and the span-metrics dashboard.
+type: application
+version: 0.1.0
+appVersion: "13.2.2"
+dependencies:
+  - name: common
+    version: 0.1.0
+    repository: file://../../helm-templates/common

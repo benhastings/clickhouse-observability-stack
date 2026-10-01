@@ -1,0 +1,66 @@
+suite: clickhouse
+templates:
+  - templates/common.yaml
+release:
+  name: clickhouse
+  namespace: observability
+tests:
+  - it: keeps the installation named otel so its Service and pods keep their names
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: metadata.name
+          value: otel
+      - equal:
+          path: metadata.namespace
+          value: observability
+      - equal:
+          path: spec.templates.serviceTemplates[0].generateName
+          value: clickhouse
+
+  - it: reads the otel user's password from the clickhouse-credentials Secret
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.users["otel/password"].valueFrom.secretKeyRef
+          value:
+            name: clickhouse-credentials
+            key: password
+
+  - it: expects the credentials Secret to exist unless an environment creates it
+    asserts:
+      - containsDocument:
+          kind: Secret
+          apiVersion: v1
+        not: true
+
+  - it: creates clickhouse-credentials when an environment supplies it
+    set:
+      secrets.credentials.create: true
+      secrets.credentials.stringData.password: example
+    documentSelector:
+      path: kind
+      value: Secret
+    asserts:
+      - equal:
+          path: metadata.name
+          value: clickhouse-credentials
+      - equal:
+          path: stringData
+          value:
+            username: otel
+            password: example
+
+  - it: lets an environment drop the low-memory tuning
+    set:
+      objects.installation.spec.configuration.files: null
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - notExists:
+          path: spec.configuration.files

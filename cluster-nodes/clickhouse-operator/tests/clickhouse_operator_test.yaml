@@ -1,0 +1,78 @@
+suite: clickhouse-operator
+templates:
+  - templates/common.yaml
+release:
+  name: clickhouse-operator
+  namespace: clickhouse-operator
+tests:
+  - it: watches the namespace the installation lives in
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-operator-files
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "include:\\n\\s+- observability"
+
+  - it: points its own ClickHouse login at the Secret it renders
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: '?clickhouse-operator-credentials'?"
+        documentSelector:
+          path: metadata.name
+          value: clickhouse-operator-files
+      - isKind:
+          of: Secret
+        documentSelector:
+          path: metadata.name
+          value: clickhouse-operator-credentials
+
+  - it: mounts every ConfigMap it renders
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: chi-configd
+            configMap:
+              name: clickhouse-operator-chi-configd
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: chk-configd
+            configMap:
+              name: clickhouse-operator-chk-configd
+
+  - it: binds its cluster-wide RBAC to its ServiceAccount
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal:
+          path: subjects[0].namespace
+          value: clickhouse-operator
+
+  - it: resolves resource env vars against its own container
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OPERATOR_CONTAINER_CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                resource: requests.cpu
+                divisor: 1m
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OPERATOR_CONTAINER_MEM_LIMIT
+            valueFrom:
+              resourceFieldRef:
+                resource: limits.memory
+                divisor: 1Mi
