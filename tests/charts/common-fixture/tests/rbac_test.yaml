@@ -1,0 +1,43 @@
+suite: common.rbac and common.serviceAccount
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: binds the ClusterRole to the chart's ServiceAccount
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: fixture
+              namespace: demo
+      - notExists:
+          path: metadata.namespace
+
+  - it: binds the Role in the release namespace
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: demo
+      - equal:
+          path: roleRef.name
+          value: fixture
+
+  - it: uses the default ServiceAccount when none is created
+    set:
+      serviceAccount.create: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: default

@@ -1,0 +1,54 @@
+suite: naming and global values
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renames every object with nameOverride
+    set:
+      nameOverride: renamed
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: metadata.name
+          value: renamed
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: renamed
+
+  - it: moves every namespaced object with global.namespace
+    set:
+      global.namespace: elsewhere
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: elsewhere
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: metadata.namespace
+          value: elsewhere
+        documentSelector:
+          path: kind
+          value: Widget
+
+  - it: adds global.labels to every object
+    set:
+      global.labels.environment: test
+    asserts:
+      - equal:
+          path: metadata.labels.environment
+          value: test
+        documentSelector:
+          path: kind
+          value: Service
+      - equal:
+          path: metadata.labels.environment
+          value: test
+        documentSelector:
+          path: kind
+          value: ClusterRole

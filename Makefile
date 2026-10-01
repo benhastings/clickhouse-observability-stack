@@ -8,6 +8,11 @@ YQ_VERSION := v4.54.1
 ACTIONLINT_VERSION := v1.7.12
 YAMLLINT_VERSION := 1.38.0
 SHELLCHECK_VERSION := 0.11.0.1
+HELM_UNITTEST_VERSION := v1.1.2
+KUBE_VERSION := 1.34.0
+
+LOCAL_CHARTS := $(patsubst %/Chart.yaml,%,$(wildcard cluster-nodes/*/Chart.yaml tests/charts/*/Chart.yaml))
+UNIT_TEST_CHARTS := $(patsubst %/tests/,%,$(dir $(wildcard cluster-nodes/*/tests/*_test.yaml tests/charts/*/tests/*_test.yaml)))
 
 VENV := .venv
 
@@ -23,7 +28,7 @@ help: ## Show this help
 setup: setup/tools setup/hooks ## Install every tool the checks need, plus the git hooks
 
 .PHONY: setup/tools
-setup/tools: setup/tools/go setup/tools/python setup/tools/node ## Install helm, kubeconform, yq, actionlint, yamllint, shellcheck, cspell
+setup/tools: setup/tools/go setup/tools/helm-unittest setup/tools/python setup/tools/node ## Install helm, helm-unittest, kubeconform, yq, actionlint, yamllint, shellcheck, cspell
 
 .PHONY: setup/tools/go
 setup/tools/go:
@@ -31,6 +36,13 @@ setup/tools/go:
 	go install github.com/yannh/kubeconform/cmd/kubeconform@$(KUBECONFORM_VERSION)
 	go install github.com/mikefarah/yq/v4@$(YQ_VERSION)
 	go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+
+.PHONY: setup/tools/helm-unittest
+setup/tools/helm-unittest:
+	tmp="$$(mktemp -d)" && \
+	git clone -q --depth 1 --branch $(HELM_UNITTEST_VERSION) https://github.com/helm-unittest/helm-unittest "$$tmp" && \
+	(cd "$$tmp" && go build -o "$$(go env GOPATH)/bin/helm-unittest" ./cmd/helm-unittest) && \
+	rm -rf "$$tmp"
 
 .PHONY: setup/tools/python
 setup/tools/python:
@@ -77,6 +89,21 @@ check/spelling: ## cspell against cspell.json (American and British English)
 .PHONY: check/manifests
 check/manifests: ## Render every chart at its pinned version and validate all manifests with kubeconform
 	scripts/check-manifests.bash
+
+##@ Tests
+
+.PHONY: deps
+deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
+	@for chart in $(sort $(LOCAL_CHARTS)); do \
+		helm dependency build "$$chart" >/dev/null || exit 1; \
+	done
+
+.PHONY: test
+test: test/unit ## Every offline test
+
+.PHONY: test/unit
+test/unit: deps ## helm-unittest suites for the common library and every cluster node
+	helm-unittest --strict $(sort $(UNIT_TEST_CHARTS))
 
 ##@ Local cluster
 

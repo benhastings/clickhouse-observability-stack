@@ -1,0 +1,67 @@
+suite: common.configMaps and common.secrets
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: names the main ConfigMap after the release and templates its data
+    documentSelector:
+      path: data["motd.txt"]
+      value: hello from fixture
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: fixture
+      - equal:
+          path: data["motd.txt"]
+          value: hello from fixture
+      - equal:
+          path: data["app.yaml"]
+          value: |-
+            listen: :8080
+            release: 'fixture'
+
+  - it: builds a ConfigMap from files matched by a glob
+    documentSelector:
+      path: metadata.name
+      value: fixture-files
+    asserts:
+      - equal:
+          path: data
+          value:
+            alpha.yaml: |
+              alpha: 1
+            beta.yaml: |
+              beta: 2
+
+  - it: renders Secrets with a suffixed name
+    documentSelector:
+      path: metadata.name
+      value: fixture-credentials
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: stringData.password
+          value: fixture-password
+
+  - it: skips a Secret marked create false
+    asserts:
+      - hasDocuments:
+          count: 11
+      - notFailedTemplate: {}
+
+  - it: creates a skipped Secret once create is true
+    set:
+      secrets.external.create: true
+      secrets.external.stringData.token: abc
+    documentSelector:
+      path: metadata.name
+      value: fixture-external
+    asserts:
+      - equal:
+          path: stringData.token
+          value: abc

@@ -4,6 +4,7 @@ ignore: |
   .git/
   node_modules/
   .venv/
+  templates/
 
 rules:
   document-start: disable

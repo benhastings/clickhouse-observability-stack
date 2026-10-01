@@ -1,0 +1,142 @@
+suite: common.deployment
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renders containers sorted by name with image defaults
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: app
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: example/app:1.2.3
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+      - equal:
+          path: spec.template.spec.containers[1].imagePullPolicy
+          value: Always
+
+  - it: turns the env map into a list, keeping valueFrom entries and templating values
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REPLICAS
+            value: "3"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: fixture-credentials
+                key: password
+
+  - it: templates args, envFrom and volumes
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --name=fixture
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].configMapRef.name
+          value: fixture
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: fixture
+
+  - it: turns the ports map into named container ports
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: http
+            containerPort: 8080
+            protocol: TCP
+
+  - it: drops a container an override sets to null
+    set:
+      deployment.containers.sidecar: null
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+
+  - it: lets an override change one nested field without restating the rest
+    set:
+      deployment.containers.app.resources.limits.memory: 64Mi
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+
+  - it: selects pods by name and instance only
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: fixture
+            app.kubernetes.io/instance: fixture
+
+  - it: changes the config checksum when a ConfigMap changes
+    set:
+      configMaps.main.data.motd\.txt: changed
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: f56c5fdb1163213c1d4a1c0369ed84a75ee8a444e96834d0f04524c8c78bf8be
+
+  - it: renders no Deployment when disabled
+    set:
+      deployment.enabled: false
+    asserts:
+      - containsDocument:
+          kind: Deployment
+          apiVersion: apps/v1
+        not: true
+
+  - it: fails when enabled without containers
+    set:
+      deployment.containers: null
+    asserts:
+      - failedTemplate:
+          errorPattern: deployment.containers is empty
+
+  - it: fails when a container has no image tag
+    set:
+      deployment.containers.app.image.tag: null
+    asserts:
+      - failedTemplate:
+          errorPattern: deployment.containers.app.image.tag is required
