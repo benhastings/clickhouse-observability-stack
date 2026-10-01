@@ -1,0 +1,11 @@
+{
+  "name": "clickhouse-observability-stack",
+  "private": true,
+  "scripts": {
+    "spell": "cspell --no-progress --gitignore ."
+  },
+  "devDependencies": {
+    "@cspell/dict-en-gb": "5.0.34",
+    "cspell": "10.3.6"
+  }
+}

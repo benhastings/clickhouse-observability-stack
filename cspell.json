@@ -1,0 +1,42 @@
+{
+  "version": "0.2",
+  "language": "en,en-GB",
+  "import": [
+    "@cspell/dict-en-gb/cspell-ext.json"
+  ],
+  "ignorePaths": [
+    "node_modules/**",
+    "package-lock.json",
+    ".git/**"
+  ],
+  "ignoreRegExpList": [
+    "/sha256:[0-9a-f]+/g"
+  ],
+  "words": [
+    "altinity",
+    "btrfs",
+    "clickhouse",
+    "clickhouseexporter",
+    "clickhouseinstallation",
+    "datreeio",
+    "finalizer",
+    "finalizers",
+    "kubeadm",
+    "kubeconform",
+    "kubelet",
+    "lookback",
+    "mikefarah",
+    "percentunit",
+    "pipefail",
+    "pipx",
+    "reqps",
+    "rhysd",
+    "servicegraph",
+    "shellcheck",
+    "spanmetrics",
+    "telemetrygen",
+    "tsouza",
+    "venv",
+    "yannh"
+  ]
+}

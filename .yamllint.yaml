@@ -1,0 +1,22 @@
+extends: default
+
+ignore: |
+  .git/
+  node_modules/
+  .venv/
+
+rules:
+  document-start: disable
+  line-length: disable
+  truthy:
+    allowed-values: ["true", "false", "on"]
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  comments:
+    min-spaces-from-content: 1
+  indentation:
+    indent-sequences: consistent
