@@ -56,3 +56,36 @@ tests:
       - equal:
           path: spec.template.spec.volumes[0].configMap.name
           value: otel-collector
+
+  - it: may read kubelet stats for system metrics
+    documentSelector:
+      path: kind
+      value: ClusterRole
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [nodes/stats]
+              verbs: [get]
+
+  - it: mounts the ServiceAccount token the kubelet authenticates
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: sends kubelet stats down the metrics pipeline to ClickHouse
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "endpoint: https://\\$\\{env:K8S_NODE_IP\\}:10250"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- spanmetrics"

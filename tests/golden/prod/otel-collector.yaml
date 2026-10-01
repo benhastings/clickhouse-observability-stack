@@ -13,7 +13,7 @@ metadata:
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
     environment: prod
-automountServiceAccountToken: false
+automountServiceAccountToken: true
 ---
 # Source: otel-collector/templates/common.yaml
 apiVersion: v1
@@ -91,6 +91,11 @@ data:
         limit_percentage: 80
         spike_limit_percentage: 25
     receivers:
+      kubeletstats:
+        auth_type: serviceAccount
+        collection_interval: 30s
+        endpoint: https://${env:K8S_NODE_IP}:10250
+        insecure_skip_verify: true
       otlp:
         protocols:
           grpc:
@@ -117,6 +122,7 @@ data:
           - batch
           receivers:
           - otlp
+          - kubeletstats
           - spanmetrics
           - servicegraph
         traces:
@@ -137,6 +143,49 @@ data:
                 prometheus:
                   host: ${env:MY_POD_IP}
                   port: 8888
+---
+# Source: otel-collector/templates/common.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: prod
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - nodes/stats
+    verbs:
+    - get
+---
+# Source: otel-collector/templates/common.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: observability
 ---
 # Source: otel-collector/templates/common.yaml
 apiVersion: v1
@@ -196,10 +245,10 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 7a29d4eb72971eeff824f1142f67f0a75077b8b60d0494d5ecdc0870f600da97
+        checksum/config: 3c050f8e8505bc081584dca681fa2df7db5db579096fa9d327b6a3e359813539
     spec:
       serviceAccountName: otel-collector
-      automountServiceAccountToken: false
+      automountServiceAccountToken: true
       terminationGracePeriodSeconds: 30
       containers:
         - name: otel-collector
@@ -222,6 +271,10 @@ spec:
                   name: clickhouse-credentials
             - name: GOMEMLIMIT
               value: "1638MiB"
+            - name: K8S_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:

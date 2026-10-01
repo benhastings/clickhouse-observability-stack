@@ -9,6 +9,15 @@ configMaps:
                 endpoint: ${env:MY_POD_IP}:4317
               http:
                 endpoint: ${env:MY_POD_IP}:4318
+          # CPU, memory, filesystem and network for the node, every pod and every container,
+          # read from this node's kubelet. A Deployment only reaches its own node, which is the
+          # whole cluster on kind; a multi-node cluster needs a DaemonSet of collectors for it.
+          kubeletstats:
+            auth_type: serviceAccount
+            endpoint: https://${env:K8S_NODE_IP}:10250
+            # The kubelet's serving certificate is self-signed on kind.
+            insecure_skip_verify: true
+            collection_interval: 30s
         processors:
           batch: {}
           memory_limiter:
@@ -65,13 +74,23 @@ configMaps:
               processors: [memory_limiter, batch]
               exporters: [clickhouse, spanmetrics, servicegraph]
             metrics:
-              receivers: [otlp, spanmetrics, servicegraph]
+              receivers: [otlp, kubeletstats, spanmetrics, servicegraph]
               processors: [memory_limiter, batch]
               exporters: [clickhouse]
             logs:
               receivers: [otlp]
               processors: [memory_limiter, batch]
               exporters: [clickhouse]
+
+# kubeletstats authenticates to the kubelet with this ServiceAccount's token.
+serviceAccount:
+  automountToken: true
+
+rbac:
+  clusterRules:
+    - apiGroups: [""]
+      resources: [nodes/stats]
+      verbs: [get]
 
 service:
   enabled: true
@@ -101,6 +120,10 @@ deployment:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        K8S_NODE_IP:
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
         GOMEMLIMIT: 204MiB
         CLICKHOUSE_PASSWORD:
           valueFrom:
