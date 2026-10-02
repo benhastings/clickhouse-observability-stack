@@ -77,6 +77,14 @@ data:
       url: http://cerberus:8080
     - access: proxy
       editable: false
+      jsonData:
+        derivedFields:
+        - datasourceUid: cerberus-tempo
+          matcherRegex: trace_id
+          matcherType: label
+          name: TraceID
+          url: $${__value.raw}
+          urlDisplayLabel: View trace
       name: Loki (Cerberus)
       type: loki
       uid: cerberus-loki
@@ -89,10 +97,14 @@ data:
         serviceMap:
           datasourceUid: cerberus-prometheus
         tracesToLogsV2:
+          customQuery: true
           datasourceUid: cerberus-loki
-          filterByTraceID: true
+          query: '{$${__tags}} | trace_id="$${__trace.traceId}"'
           spanEndTimeShift: 5m
           spanStartTimeShift: -5m
+          tags:
+          - key: service.name
+            value: service_name
         tracesToMetrics:
           datasourceUid: cerberus-prometheus
           queries:
@@ -241,7 +253,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "expr": "sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[$__rate_interval]))",
+              "expr": "sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
               "legendFormat": "{{service_name}}",
               "exemplar": true
             }
@@ -293,7 +305,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "expr": "(sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) or sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[$__rate_interval])) * 0) / sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[$__rate_interval]))",
+              "expr": "(sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) or sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])) * 0) / sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
               "legendFormat": "{{service_name}}",
               "exemplar": true
             }
@@ -343,7 +355,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+              "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
               "legendFormat": "{{service_name}} p50",
               "exemplar": true
             },
@@ -353,7 +365,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+              "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
               "legendFormat": "{{service_name}} p95",
               "exemplar": true
             },
@@ -363,7 +375,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\"}[$__rate_interval])))",
+              "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
               "legendFormat": "{{service_name}} p99",
               "exemplar": true
             }
@@ -573,7 +585,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 498e3c9d67817c51d40c65d29b9a6df81cbb6a7b34ee81aebf305bdb06d0fa35
+        checksum/config: 9eb1e23f0b772c02ac3f52c71ad139a288aa1306cb7522e686b3fa4484ec290c
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

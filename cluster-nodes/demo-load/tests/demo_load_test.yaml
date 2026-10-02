@@ -5,14 +5,17 @@ release:
   name: demo-load
   namespace: observability
 tests:
-  - it: runs the four generators
+  - it: runs the correlated generator
     documentSelector:
       path: kind
       value: Deployment
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers
-          count: 4
+          count: 1
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0
 
   - it: sends to the collector Service
     documentSelector:
@@ -20,5 +23,21 @@ tests:
       value: Deployment
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].args
-          content: --otlp-endpoint=otel-collector:4317
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://otel-collector:4317
+
+  - it: defines the pod name before the resource attributes that expand it
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: K8S_POD_NAME
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_RESOURCE_ATTRIBUTES
+            value: k8s.pod.name=$(K8S_POD_NAME)

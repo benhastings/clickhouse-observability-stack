@@ -23,7 +23,7 @@ flowchart LR
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. Also creates the OTel tables. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that all point at Cerberus, plus a span-metrics dashboard. |
-| `demo-load` | `telemetrygen:v0.161.0` | Optional synthetic traces and logs. |
+| `demo-load` | `ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen): a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. |
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
 
@@ -57,11 +57,13 @@ With the default demo load:
 
 | service | requests/s | error rate | p95 latency |
 |---|---|---|---|
-| `checkout` | 2 | 0% | under 100 ms |
-| `payments` | 4 | ~25% | ~900 ms |
+| `checkout` | 2 | 0% | ~950 ms (it waits on payments) |
+| `payments` | 2 | ~25% | ~900 ms |
 
-- **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics.
-- **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines.
+A quarter of charges time out at the payment gateway. Payments fails those requests, and checkout accepts the order with payment pending, so only payments shows errors. The dashboard's request, error and latency panels count server spans only. The operations table also lists the cache, database and outbound-call client spans.
+
+- **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
+- **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
 
 ### Sending your own telemetry
