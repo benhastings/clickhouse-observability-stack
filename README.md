@@ -243,6 +243,7 @@ These problems all came up while building this, and the fixes are already in the
   - The Altinity operator only watches its own namespace by default. `cluster-nodes/clickhouse-operator/values.yaml` sets `watch.namespaces.include: [observability]` in its `config.yaml`.
   - Check `kubectl -n observability get chi otel -o jsonpath='{.status.status} {.status.errors}'`.
 - **Installation `Aborted` with `RemovedSecretRefSyntax`:** operator 0.27.4 removed `user/k8s_secret_password`. Use `user/password: {valueFrom: {secretKeyRef: ...}}` instead, as this repo does.
+- **Grafana restarts and never becomes Ready:** Grafana 13 downloads its bundled app plugins from grafana.com on every start (its storage is an emptyDir), and on a slow machine or network that outlasts the liveness probe. `cluster-nodes/grafana/values.yaml` sets `preinstall_disabled = true`; the stack only uses the three Cerberus datasources.
 - **Cerberus stays `0/1 Ready`:** it reports not-ready until it has created the schema. Check `kubectl -n observability logs deploy/cerberus`.
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
