@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/apps.bash
+source scripts/apps.bash
 
 KUBE_VERSION=${KUBE_VERSION:?KUBE_VERSION must be set}
 out=${1:?usage: render.bash <output-dir>}
@@ -13,16 +15,11 @@ for overrides in cluster-configs/overrides/values-*.yaml; do
   env="${env#values-}"
   mkdir -p "$out/$env"
 
-  helm template app-of-apps cluster-configs/app-of-apps --namespace argocd \
-    --kube-version "$KUBE_VERSION" -f "$overrides" >"$out/$env/app-of-apps.yaml"
+  render_app_of_apps "$env" --kube-version "$KUBE_VERSION" >"$out/$env/app-of-apps.yaml"
 
   while IFS= read -r app; do
-    yq "select(.metadata.name == \"$app\") | .spec.source.helm.valuesObject" "$out/$env/app-of-apps.yaml" >"$work/values.yaml"
-    path="$(yq "select(.metadata.name == \"$app\") | .spec.source.path" "$out/$env/app-of-apps.yaml")"
-    release="$(yq "select(.metadata.name == \"$app\") | .spec.source.helm.releaseName" "$out/$env/app-of-apps.yaml")"
-    namespace="$(yq "select(.metadata.name == \"$app\") | .spec.destination.namespace" "$out/$env/app-of-apps.yaml")"
-
-    helm template "$release" "$path" --namespace "$namespace" --kube-version "$KUBE_VERSION" \
-      -f "$work/values.yaml" >"$out/$env/$release.yaml"
-  done < <(yq ea '[select(.kind == "Application") | .metadata.name] | .[]' "$out/$env/app-of-apps.yaml")
+    load_app "$out/$env/app-of-apps.yaml" "$app" "$work/values.yaml"
+    helm template "$app_release" "$app_path" --namespace "$app_namespace" --kube-version "$KUBE_VERSION" \
+      -f "$work/values.yaml" >"$out/$env/$app_release.yaml"
+  done < <(app_names "$out/$env/app-of-apps.yaml")
 done

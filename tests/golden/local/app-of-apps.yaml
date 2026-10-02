@@ -170,6 +170,19 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
+        configMaps:
+          config:
+            data:
+              dashboards.yaml:
+                providers:
+                - allowUiUpdates: true
+                  disableDeletion: true
+                  folder: Cerberus
+                  name: dashboards
+                  options:
+                    path: /var/lib/grafana/dashboards
+                  orgId: 1
+                  type: file
         global:
           labels:
             environment: local

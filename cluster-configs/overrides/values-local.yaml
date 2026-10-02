@@ -16,6 +16,23 @@ applications:
             password: otel-local-dev
   grafana:
     values:
+      configMaps:
+        config:
+          data:
+            # Dashboards can be saved from the UI, then exported to
+            # cluster-nodes/grafana/dashboards/. UI edits live in Grafana's
+            # emptyDir and are lost when the pod restarts. Lists replace whole,
+            # so the provider is repeated in full.
+            dashboards.yaml:
+              providers:
+                - name: dashboards
+                  orgId: 1
+                  type: file
+                  folder: Cerberus
+                  disableDeletion: true
+                  allowUiUpdates: true
+                  options:
+                    path: /var/lib/grafana/dashboards
       secrets:
         admin:
           create: true

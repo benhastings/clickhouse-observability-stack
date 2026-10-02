@@ -76,7 +76,32 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 OTEL_SERVICE_NAME=my-app ./my-
 
 Inside the cluster, use `otel-collector.observability:4317`.
 
-To stop the demo load, set `applications.demo-load.enabled: false` in `cluster-configs/overrides/values-local.yaml` and push. The app-of-apps prunes it.
+To stop the demo load, set `applications.demo-load.enabled: false` in `cluster-configs/overrides/values-local.yaml` and push. The app-of-apps prunes it. In a `make dev/up` cluster, run `make dev/load/stop` instead.
+
+## Local development (no Argo CD)
+
+The quick start above deploys the way a real cluster does: Argo CD pulls a pushed revision from GitHub. To
+iterate on dashboards, collector config or any other value, `make dev/up` skips Argo CD and installs each
+chart with `helm`, straight from your working tree. It uses the same releases, namespaces and values as the
+`local` environment, in sync-wave order, and it leaves out the demo load so you choose what data arrives.
+
+Needs `kind`, `kubectl`, `helm` and `yq` (for example `mise use -g kind kubectl helm yq`).
+
+```bash
+make dev/up                      # kind + every app except demo-load
+make dev/port-forward            # Grafana :3000, Cerberus :8081, OTLP :4317 / :4318 (leave running)
+make dev/load                    # start the demo load; make dev/load/stop stops it
+make dev/apply APP=grafana       # redeploy one app after editing cluster-nodes/<app> or values-local.yaml
+make dev/down                    # delete the cluster
+```
+
+`make dev/up` refuses a cluster that already runs Argo CD, because Argo CD would revert whatever helm
+installs. Run `make cluster/down` first.
+
+**Editing dashboards:** in `local`, Grafana lets you save provisioned dashboards from the UI. Saved changes
+last only until the Grafana pod restarts, and `make dev/apply APP=grafana` restarts it. To keep a change,
+export the dashboard as JSON (**Export → Export as JSON**) into `cluster-nodes/grafana/dashboards/`, then run
+`make dev/apply APP=grafana` and `make generate`.
 
 ## Design decisions
 
@@ -166,7 +191,7 @@ helm-templates/common/         Library chart: Deployment, Service, RBAC, ConfigM
 tests/
   charts/common-fixture/       Exercises the library in unit tests
   golden/<env>/                Every node rendered as Argo CD deploys it (generated, checked in CI)
-scripts/                       kind-up / port-forward / kind-down, render, and the check scripts
+scripts/                       kind-up / dev / port-forward / kind-down, render, and the check scripts
 git/hooks/                     pre-commit hook that runs `make check/lint`
 kind-config.yaml               Local cluster definition
 Makefile                       setup, generate, checks, tests and local-cluster targets (`make help`)
