@@ -59,6 +59,7 @@ stringData:
 {{- range $key, $object := $v.objects }}
 {{- if $object }}
 {{- $rendered := tpl (toYaml $object) $ | fromYaml -}}
+{{- if $rendered }}
 {{- $metadata := default dict $rendered.metadata -}}
 {{- $_ := set $metadata "name" (default (include "common.resourceName" (list $ $key)) $metadata.name) -}}
 {{- if not (hasKey $metadata "namespace") }}
@@ -68,6 +69,7 @@ stringData:
 {{- $_ := set $rendered "metadata" $metadata }}
 ---
 {{ toYaml $rendered }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end -}}

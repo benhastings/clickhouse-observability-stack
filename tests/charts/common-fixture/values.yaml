@@ -87,6 +87,14 @@ deployment:
         tag: "0.1.0"
         pullPolicy: Always
   volumes:
+    # A string is templated and used as the whole volume source.
+    gated: |-
+      {{- if .Values.ghostEnabled }}
+      emptyDir:
+        medium: Memory
+      {{- else }}
+      emptyDir: {}
+      {{- end }}
     config:
       configMap:
         name: '{{ include "common.fullname" . }}'
@@ -131,3 +139,7 @@ objects:
         extra: "yes"
     spec:
       owner: "{{ .Release.Name }}"
+  # Renders to nothing unless ghostEnabled is set, which common.objects must skip.
+  ghost: '--{{ "-" }}{{ if .Values.ghostEnabled }}{{ dict "apiVersion" "example.com/v1" "kind" "Ghost" | toYaml }}{{ end }}'
+
+ghostEnabled: false

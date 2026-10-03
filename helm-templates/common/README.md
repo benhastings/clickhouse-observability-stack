@@ -53,7 +53,7 @@ so the output is deterministic.
 | `deployment.runtimeClassName` | `""` | omitted when empty |
 | `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; omitted when empty |
 | `deployment.containers.<name>` | | see Containers below |
-| `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated |
+| `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated. A string is templated and used as the whole source, so it can hold an `if` |
 | `daemonset.enabled` | `false` | render a DaemonSet; see DaemonSet below |
 | `daemonset.updateStrategy` | `RollingUpdate` | |
 | `daemonset.selectorLabels` | `{}` | merged over the base selector labels on the DaemonSet's selector and pods |
@@ -71,7 +71,7 @@ so the output is deterministic.
 | `service.ports.<name>` | | `port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol` |
 | `configMaps.<key>` | | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
 | `secrets.<key>` | | a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`) |
-| `objects.<key>` | | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in |
+| `objects.<key>` | | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |
 
 A ConfigMap, Secret or object keyed `main` takes the chart's name; any other key is appended, so
 `secrets.credentials` in the `clickhouse` node is the Secret `clickhouse-credentials`.
