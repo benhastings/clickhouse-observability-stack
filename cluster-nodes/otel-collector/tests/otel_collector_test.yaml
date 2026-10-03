@@ -1,3 +1,4 @@
+# cspell:words bearertokenauth
 suite: otel-collector
 templates:
   - templates/common.yaml
@@ -126,3 +127,43 @@ tests:
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "traces:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+telemetry:"
+
+  - it: has no bearer token auth by default
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "bearertokenauth|auth:|OTLP_BEARER_TOKEN"
+
+  - it: never creates the bearer token Secret
+    asserts:
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: kind
+          value: Secret
+          skipEmptyTemplates: true
+
+  - it: checks a bearer token from the environment on both OTLP protocols when auth is enabled
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    set:
+      collector:
+        auth:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "extensions:\\n  bearertokenauth:\\n    token: \\$\\{env:OTLP_BEARER_TOKEN\\}\\n  health_check:"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "grpc:\\n        auth:\\n          authenticator: bearertokenauth\\n        endpoint: \\$\\{env:MY_POD_IP\\}:4317\\n      http:\\n        auth:\\n          authenticator: bearertokenauth\\n        endpoint: \\$\\{env:MY_POD_IP\\}:4318\\n"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "service:\\n  extensions:\\n  - bearertokenauth\\n  - health_check\\n"
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "token: [^$]"
