@@ -84,6 +84,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
+  ignoreDifferences:
+    - group: clickhouse.altinity.com
+      jsonPointers:
+      - /status
+      kind: ClickHouseInstallation
   syncPolicy:
     automated:
       prune: true

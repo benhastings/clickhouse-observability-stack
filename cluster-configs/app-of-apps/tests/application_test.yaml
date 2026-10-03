@@ -95,3 +95,39 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: applications.extra.syncWave is required
+
+  - it: ignores ClickHouseInstallation status, and only status, on clickhouse
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-test
+    asserts:
+      - equal:
+          path: spec.ignoreDifferences
+          value:
+            - group: clickhouse.altinity.com
+              kind: ClickHouseInstallation
+              jsonPointers:
+                - /status
+      - notContains:
+          path: spec.ignoreDifferences[0].jsonPointers
+          content: /spec
+      - notExists:
+          path: spec.ignoreDifferences[0].jqPathExpressions
+
+  - it: renders no ignoreDifferences for an app without the key
+    documentSelector:
+      path: metadata.name
+      value: cerberus-test
+    asserts:
+      - notExists:
+          path: spec.ignoreDifferences
+
+  - it: renders no ignoreDifferences for an empty list
+    set:
+      applications.cerberus.ignoreDifferences: []
+    documentSelector:
+      path: metadata.name
+      value: cerberus-test
+    asserts:
+      - notExists:
+          path: spec.ignoreDifferences
