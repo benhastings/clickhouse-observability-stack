@@ -25,3 +25,15 @@ tests:
       - equal:
           path: metadata.labels["app.kubernetes.io/part-of"]
           value: clickhouse-observability-stack
+
+  - it: skips an object whose body renders empty
+    asserts:
+      - hasDocuments:
+          count: 11
+
+  - it: renders that object once its body is not empty
+    set:
+      ghostEnabled: true
+    asserts:
+      - hasDocuments:
+          count: 12
