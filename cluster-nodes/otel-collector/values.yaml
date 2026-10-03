@@ -1,3 +1,4 @@
+# cspell:words bearertokenauth
 # relay.yaml is one string template, not a map, so it can append the extras below to the default
 # pipelines. That means an environment can no longer deep-merge a single nested key into it:
 #   - add a receiver with collector.extraReceivers.<name>, which is appended under receivers:
@@ -13,9 +14,30 @@
 #     extraPipelines:
 #       logs:
 #         receivers: [syslog]
+#
+# collector.auth.enabled makes the OTLP receiver require a bearer token on both gRPC and HTTP, checked by
+# the bearertokenauth extension against ${env:OTLP_BEARER_TOKEN}. The token is never in git: an
+# environment that turns auth on pre-creates the Secret otel-collector-auth with key token (or sets
+# secrets.auth.create: true with stringData.token, local only) and adds this to the collector's env:
+#   deployment:
+#     containers:
+#       otel-collector:
+#         env:
+#           OTLP_BEARER_TOKEN:
+#             valueFrom:
+#               secretKeyRef:
+#                 name: otel-collector-auth
+#                 key: token
+# Clients then send "Authorization: Bearer <token>".
 collector:
+  auth:
+    enabled: false
   extraReceivers: {}
   extraPipelines: {}
+
+secrets:
+  auth:
+    create: false
 
 # The kubeletstats receiver reads CPU, memory, filesystem and network for the node, every pod and
 # every container from this node's kubelet. A Deployment only reaches its own node, which is the
@@ -26,7 +48,8 @@ configMaps:
     data:
       relay.yaml: |-
         {{- $collector := .Values.collector | default dict }}
-        {{- $pipelines := $collector.extraPipelines | default dict -}}
+        {{- $pipelines := $collector.extraPipelines | default dict }}
+        {{- $auth := dig "auth" "enabled" false $collector -}}
         connectors:
           servicegraph:
             latency_histogram_buckets:
@@ -78,6 +101,10 @@ configMaps:
             timeout: 10s
             username: otel
         extensions:
+          {{- if $auth }}
+          bearertokenauth:
+            token: ${env:OTLP_BEARER_TOKEN}
+          {{- end }}
           health_check:
             endpoint: ${env:MY_POD_IP}:13133
         processors:
@@ -95,14 +122,25 @@ configMaps:
           otlp:
             protocols:
               grpc:
+                {{- if $auth }}
+                auth:
+                  authenticator: bearertokenauth
+                {{- end }}
                 endpoint: ${env:MY_POD_IP}:4317
               http:
+                {{- if $auth }}
+                auth:
+                  authenticator: bearertokenauth
+                {{- end }}
                 endpoint: ${env:MY_POD_IP}:4318
           {{- with $collector.extraReceivers }}
           {{- toYaml . | nindent 2 }}
           {{- end }}
         service:
           extensions:
+          {{- if $auth }}
+          - bearertokenauth
+          {{- end }}
           - health_check
           pipelines:
             logs:
