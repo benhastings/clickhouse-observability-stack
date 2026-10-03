@@ -7,6 +7,13 @@ global:
     environment: local
 
 applications:
+  otel-collector:
+    values:
+      collector:
+        agent:
+          kubelet:
+            # kind's kubelet serving certificate is self-signed.
+            insecureSkipVerify: true
   clickhouse:
     values:
       secrets:

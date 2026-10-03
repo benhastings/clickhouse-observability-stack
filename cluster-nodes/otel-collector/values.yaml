@@ -29,27 +29,51 @@
 #                 name: otel-collector-auth
 #                 key: token
 # Clients then send "Authorization: Bearer <token>".
+#
+# The collector runs as two workloads. The gateway, the Deployment below, receives OTLP, runs the
+# spanmetrics and servicegraph connectors (which keep counters in memory, so want a single writer) and
+# writes to ClickHouse. The agent, the DaemonSet below, runs only kubeletstats, so every node's kubelet
+# is scraped. The agent is off: a Deployment only reaches the kubelet of the node it landed on, which
+# is the whole cluster on kind, so until the agent is on the gateway scrapes kubeletstats itself.
+# common reads daemonset.enabled literally, so a site turns the agent on with both keys; the render
+# fails when they disagree:
+#   collector:
+#     agent:
+#       enabled: true
+#   daemonset:
+#     enabled: true
+# The gateway then drops kubeletstats. The agent's config is the OTELCOL_AGENT_CONFIG env var rather
+# than a ConfigMap key, so it adds nothing to the render while it is off.
+#
+# kubeletstats verifies the kubelet's serving certificate unless agent.kubelet.insecureSkipVerify is
+# true. Only values-local.yaml sets it, because kind's kubelet certificate is self-signed.
 collector:
   auth:
     enabled: false
   extraReceivers: {}
   extraPipelines: {}
+  agent:
+    enabled: false
+    kubelet:
+      insecureSkipVerify: false
 
 secrets:
   auth:
     create: false
 
 # The kubeletstats receiver reads CPU, memory, filesystem and network for the node, every pod and
-# every container from this node's kubelet. A Deployment only reaches its own node, which is the
-# whole cluster on kind; a multi-node cluster needs a DaemonSet of collectors for it. The kubelet's
-# serving certificate is self-signed on kind, hence insecure_skip_verify.
+# every container from this node's kubelet. The gateway runs it only while the agent is off.
 configMaps:
   main:
     data:
       relay.yaml: |-
         {{- $collector := .Values.collector | default dict }}
         {{- $pipelines := $collector.extraPipelines | default dict }}
-        {{- $auth := dig "auth" "enabled" false $collector -}}
+        {{- $auth := dig "auth" "enabled" false $collector }}
+        {{- $agent := dig "agent" "enabled" false $collector }}
+        {{- if ne $agent (dig "daemonset" "enabled" false .Values.AsMap) }}
+        {{- fail "collector.agent.enabled and daemonset.enabled must be set together" }}
+        {{- end -}}
         connectors:
           servicegraph:
             latency_histogram_buckets:
@@ -114,11 +138,13 @@ configMaps:
             limit_percentage: 80
             spike_limit_percentage: 25
         receivers:
+          {{- if not $agent }}
           kubeletstats:
             auth_type: serviceAccount
             collection_interval: 30s
             endpoint: https://${env:K8S_NODE_IP}:10250
-            insecure_skip_verify: true
+            insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false $collector }}
+          {{- end }}
           otlp:
             protocols:
               grpc:
@@ -174,7 +200,9 @@ configMaps:
               {{- end }}
               receivers:
               - otlp
+              {{- if not $agent }}
               - kubeletstats
+              {{- end }}
               - spanmetrics
               - servicegraph
               {{- range dig "metrics" "receivers" list $pipelines }}
@@ -208,7 +236,7 @@ configMaps:
                       host: ${env:MY_POD_IP}
                       port: 8888
 
-# kubeletstats authenticates to the kubelet with this ServiceAccount's token.
+# kubeletstats authenticates to the kubelet with this ServiceAccount's token, in the gateway or the agent.
 serviceAccount:
   automountToken: true
 
@@ -231,7 +259,7 @@ deployment:
   enabled: true
   containers:
     otel-collector:
-      image:
+      image: &image
         repository: otel/opentelemetry-collector-contrib
         tag: "0.161.0"
       args:
@@ -256,14 +284,11 @@ deployment:
             secretKeyRef:
               name: clickhouse-credentials
               key: password
-      livenessProbe:
+      livenessProbe: &probe
         httpGet:
           path: /
           port: 13133
-      readinessProbe:
-        httpGet:
-          path: /
-          port: 13133
+      readinessProbe: *probe
       resources:
         requests:
           cpu: 25m
@@ -277,3 +302,87 @@ deployment:
     config:
       configMap:
         name: '{{ include "common.fullname" . }}'
+
+# The agent: kubeletstats only, one pod per node. Its own name label keeps it off the otel-collector
+# Service, since it has no OTLP receiver, and apart from the gateway's selector.
+daemonset:
+  enabled: false
+  selectorLabels:
+    app.kubernetes.io/name: otel-collector-agent
+  containers:
+    otel-collector:
+      image: *image
+      args:
+        - --config=env:OTELCOL_AGENT_CONFIG
+      env:
+        MY_POD_IP:
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        K8S_NODE_IP:
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        GOMEMLIMIT: 102MiB
+        CLICKHOUSE_PASSWORD:
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-credentials
+              key: password
+        OTELCOL_AGENT_CONFIG: |-
+          exporters:
+            clickhouse:
+              create_schema: false
+              database: otel
+              endpoint: tcp://clickhouse:9000?dial_timeout=10s
+              password: ${env:CLICKHOUSE_PASSWORD}
+              retry_on_failure:
+                enabled: true
+                max_elapsed_time: 5m
+              sending_queue:
+                enabled: true
+              timeout: 10s
+              username: otel
+          extensions:
+            health_check:
+              endpoint: ${env:MY_POD_IP}:13133
+          processors:
+            batch: {}
+            memory_limiter:
+              check_interval: 5s
+              limit_percentage: 80
+              spike_limit_percentage: 25
+          receivers:
+            kubeletstats:
+              auth_type: serviceAccount
+              collection_interval: 30s
+              endpoint: https://${env:K8S_NODE_IP}:10250
+              insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false (.Values.collector | default dict) }}
+          service:
+            extensions:
+            - health_check
+            pipelines:
+              metrics:
+                exporters:
+                - clickhouse
+                processors:
+                - memory_limiter
+                - batch
+                receivers:
+                - kubeletstats
+            telemetry:
+              metrics:
+                readers:
+                - pull:
+                    exporter:
+                      prometheus:
+                        host: ${env:MY_POD_IP}
+                        port: 8888
+      livenessProbe: *probe
+      readinessProbe: *probe
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
