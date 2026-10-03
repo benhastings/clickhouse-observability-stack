@@ -1,0 +1,103 @@
+suite: app-project
+templates:
+  - templates/app-project.yaml
+  - templates/application.yaml
+release:
+  name: app-of-apps
+  namespace: argocd
+set:
+  environment: test
+  repoURL: https://example.com/repo.git
+tests:
+  - it: renders an AppProject named for the environment
+    template: templates/app-project.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: AppProject
+      - equal:
+          path: metadata.name
+          value: observability-test
+      - equal:
+          path: metadata.namespace
+          value: argocd
+
+  - it: puts every child Application in that project
+    template: templates/application.yaml
+    asserts:
+      - equal:
+          path: spec.project
+          value: observability-test
+
+  - it: uses an explicit project name for the AppProject and the children
+    set:
+      project: platform-observability
+    asserts:
+      - equal:
+          path: metadata.name
+          value: platform-observability
+        template: templates/app-project.yaml
+      - equal:
+          path: spec.project
+          value: platform-observability
+        template: templates/application.yaml
+
+  - it: allows only the environment's repository
+    template: templates/app-project.yaml
+    asserts:
+      - equal:
+          path: spec.sourceRepos
+          value:
+            - https://example.com/repo.git
+
+  - it: allows argocd and the namespaces the enabled applications use
+    template: templates/app-project.yaml
+    set:
+      applications.demo-load.namespace: demo
+      applications.demo-load.enabled: false
+    asserts:
+      - equal:
+          path: spec.destinations
+          value:
+            - server: https://kubernetes.default.svc
+              namespace: argocd
+            - server: https://kubernetes.default.svc
+              namespace: clickhouse-operator
+            - server: https://kubernetes.default.svc
+              namespace: observability
+
+  - it: allows only the cluster-scoped kinds the nodes render
+    template: templates/app-project.yaml
+    asserts:
+      - equal:
+          path: spec.clusterResourceWhitelist
+          value:
+            - group: ""
+              kind: Namespace
+            - group: apiextensions.k8s.io
+              kind: CustomResourceDefinition
+            - group: rbac.authorization.k8s.io
+              kind: ClusterRole
+            - group: rbac.authorization.k8s.io
+              kind: ClusterRoleBinding
+
+  - it: renders before the wave 0 Applications
+    template: templates/app-project.yaml
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "-1"
+
+  - it: renders no AppProject when projectCreate is false, and children keep the project name
+    set:
+      projectCreate: false
+      project: platform-observability
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/app-project.yaml
+      - equal:
+          path: spec.project
+          value: platform-observability
+        template: templates/application.yaml

@@ -17,7 +17,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ $.Values.project }}
+  project: {{ include "app-of-apps.project" $ }}
   source:
     repoURL: {{ $repoURL }}
     targetRevision: {{ $.Values.targetRevision }}

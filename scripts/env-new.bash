@@ -72,7 +72,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-$name
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main

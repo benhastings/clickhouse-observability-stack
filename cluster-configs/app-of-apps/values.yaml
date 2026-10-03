@@ -1,7 +1,11 @@
 environment: ""
 repoURL: ""
 targetRevision: main
-project: default
+# The Argo CD project of every child Application and of the bootstrap app-of-apps-<env>.yaml,
+# which must name the same project. Empty means observability-<environment>.
+project: ""
+# Render that AppProject. Set false to use a project a platform team already manages.
+projectCreate: true
 destinationServer: https://kubernetes.default.svc
 namespace: observability
 
