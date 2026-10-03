@@ -1,6 +1,16 @@
 secrets:
   admin:
     create: false
+  # grafana-oauth, key client-secret: the generic OAuth client secret. Never created here; an
+  # environment that turns OAuth on pre-creates it and adds this to the grafana container's env:
+  #   GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+  #     valueFrom:
+  #       secretKeyRef:
+  #         name: grafana-oauth
+  #         key: client-secret
+  # grafana.ini then reads it with $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}.
+  oauth:
+    create: false
 
 # Sign-in through any OpenID Connect provider, rendered into grafana.ini below. Off by default;
 # an environment turns it on and sets the URLs. Keycloak is the worked example, with
@@ -8,10 +18,15 @@ secrets:
 #   authUrl:  https://keycloak.example.com/realms/<realm>/protocol/openid-connect/auth
 #   tokenUrl: https://keycloak.example.com/realms/<realm>/protocol/openid-connect/token
 #   apiUrl:   https://keycloak.example.com/realms/<realm>/protocol/openid-connect/userinfo
-# The client secret is not set here and never goes in git.
+# rootUrl is Grafana's public URL, which the redirect back from the provider must match. The client
+# secret is not set here and never goes in git; see secrets.oauth above.
 auth:
+  # Hides the username and password form on the login page. Requires genericOauth.enabled, or the
+  # render fails. The admin user and its secret are unchanged.
+  disableLoginForm: false
   genericOauth:
     enabled: false
+    rootUrl: ""
     name: Keycloak
     clientId: ""
     authUrl: ""
@@ -42,11 +57,21 @@ configMaps:
         preinstall_disabled = true
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
+        {{- if .Values.auth.disableLoginForm }}
+        {{- if not .Values.auth.genericOauth.enabled }}{{ fail "auth.disableLoginForm requires auth.genericOauth.enabled, or nobody can sign in" }}{{ end }}
+        [auth]
+        disable_login_form = true
+        {{- end }}
         {{- with .Values.auth.genericOauth }}{{ if .enabled }}
+        [server]
+        root_url = {{ required "auth.genericOauth.rootUrl is required when auth.genericOauth.enabled" .rootUrl }}
         [auth.generic_oauth]
         enabled = true
         name = {{ required "auth.genericOauth.name is required when auth.genericOauth.enabled" .name }}
         client_id = {{ required "auth.genericOauth.clientId is required when auth.genericOauth.enabled" .clientId }}
+        {{- if hasKey $.Values.deployment.containers.grafana.env "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" }}
+        client_secret = $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
+        {{- end }}
         scopes = {{ .scopes }}
         auth_url = {{ required "auth.genericOauth.authUrl is required when auth.genericOauth.enabled" .authUrl }}
         token_url = {{ required "auth.genericOauth.tokenUrl is required when auth.genericOauth.enabled" .tokenUrl }}

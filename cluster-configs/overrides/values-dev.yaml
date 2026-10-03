@@ -1,0 +1,82 @@
+environment: dev
+repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+targetRevision: main
+
+# The mesh default is a later change; until then dev matches prod.
+global:
+  labels:
+    environment: dev
+
+applications:
+  clickhouse-operator:
+    values:
+      secrets:
+        credentials:
+          create: false
+      deployment:
+        containers:
+          clickhouse-operator:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
+
+  clickhouse:
+    values:
+      clickhouse:
+        storage: 200Gi
+        lowMemory: false
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            memory: 8Gi
+
+  cerberus:
+    values:
+      deployment:
+        replicas: 2
+        containers:
+          cerberus:
+            env:
+              GOMEMLIMIT: 1717986918B
+            resources:
+              requests:
+                cpu: 250m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+
+  otel-collector:
+    values:
+      deployment:
+        containers:
+          otel-collector:
+            env:
+              GOMEMLIMIT: 1638MiB
+            resources:
+              requests:
+                cpu: 500m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+
+  grafana:
+    values:
+      deployment:
+        containers:
+          grafana:
+            env:
+              GOMEMLIMIT: 921MiB
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+
+  demo-load:
+    enabled: false
