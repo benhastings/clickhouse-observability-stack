@@ -69,6 +69,7 @@ tests:
     set:
       auth.genericOauth:
         enabled: true
+        rootUrl: https://grafana.example.com/
         clientId: grafana
         authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
         tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
@@ -91,9 +92,90 @@ tests:
     set:
       auth.genericOauth:
         enabled: true
+        rootUrl: https://grafana.example.com/
         clientId: grafana
         tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
         apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
     asserts:
       - failedTemplate:
           errorPattern: auth.genericOauth.authUrl is required
+
+  - it: fails the render when generic OAuth is enabled without a root URL
+    set:
+      auth.genericOauth:
+        enabled: true
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - failedTemplate:
+          errorPattern: auth.genericOauth.rootUrl is required
+
+  - it: leaves root_url, client_secret and the OAuth secret env out by default
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: (root_url|client_secret)
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: reads the OAuth client secret from grafana-oauth through the environment
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+      deployment.containers.grafana.env.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+        valueFrom:
+          secretKeyRef:
+            name: grafana-oauth
+            key: client-secret
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[server\]\nroot_url = https://grafana\.example\.com/$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = \$__env\{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET\}$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = [^$]'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: grafana-oauth
+                key: client-secret
+        documentSelector:
+          path: kind
+          value: Deployment
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: kind
+          value: Secret
+          skipEmptyTemplates: true
