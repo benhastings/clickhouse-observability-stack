@@ -70,6 +70,7 @@ add a target. `make help` lists everything.
 | `make dev/up`               | kind and every app but demo-load, helm-installed from the working tree; no Argo CD |
 | `make dev/apply APP=<app>`  | redeploys one app from the working tree into the `dev/up` cluster              |
 | `make dev/load`, `dev/load/stop` | starts or stops the demo load in the `dev/up` cluster                    |
+| `make dev/dashboards`       | saves every dashboard in the `dev/up` Grafana to `cluster-nodes/grafana/dashboards/` |
 | `make dev/port-forward`, `dev/down` | the `cluster/...` equivalents for the `dev/up` cluster                |
 
 GNU make is required. On macOS use `gmake`, which is what `git/hooks/pre-commit` does.
@@ -145,6 +146,8 @@ tests/*_test.yaml        helm-unittest suites
 - **Content with literal `{{` goes in a file, not in values**: Grafana dashboards live in
   `cluster-nodes/grafana/dashboards/*.json`, and the operator's ClickHouse config in
   `cluster-nodes/clickhouse-operator/files/`. Both are loaded with a `files` glob.
+- **Dashboards are the JSON files, not Grafana's database**, which is an emptyDir. Edit in the `dev/up`
+  Grafana, save, then `make dev/dashboards` writes them back to the repo for review and commit.
 - **Vendored upstream files are copied verbatim at the pinned version**: the operator's CRDs in
   `cluster-nodes/clickhouse-operator/crds/` and its config files. yamllint and cspell skip them. Bumping the
   operator means replacing them from the new release.
@@ -221,6 +224,9 @@ table, and `tests/golden` in the same commit. Bump one component per PR unless t
   [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen), released from its own repo
   by pushing a `v*` tag. Bump its image tag and the node's `appVersion` together. The Grafana log/trace links
   depend on its `trace_id` log attribute.
+- **Grafana's Drilldown apps** are pinned in `grafana.ini` (`preinstall = <id>@<version>`). Bumping the
+  Grafana image means checking each app's `grafanaDependency` on grafana.com, and bumping an app is the same
+  change as any other version bump.
 
 ### Secrets
 

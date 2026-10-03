@@ -4,6 +4,7 @@
 #   dev.bash up             kind cluster, then every app except demo-load, in sync-wave order
 #   dev.bash apply <app>    install or upgrade one app from cluster-nodes/<app>
 #   dev.bash remove <app>   uninstall one app
+#   dev.bash dashboards     save every dashboard in Grafana to cluster-nodes/grafana/dashboards/
 #
 # Each app gets the release, namespace and values Argo CD would give it in the
 # local environment (see apps.bash). Sync waves become install order: helm
@@ -17,8 +18,10 @@ source scripts/apps.bash
 ENV=local
 CLUSTER=clickhouse-obs
 
+DASHBOARDS=cluster-nodes/grafana/dashboards
+
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; kill $(jobs -p) 2>/dev/null || true' EXIT
 
 use_cluster() {
   kubectl config use-context "kind-$CLUSTER" >/dev/null
@@ -48,6 +51,27 @@ wait_for_clickhouse() {
     echo "    waiting for $chi to be Completed"
     kubectl -n "$2" wait "$chi" --for=jsonpath='{.status.status}'=Completed --timeout=10m
   done
+}
+
+# Write each dashboard over the file with the same uid, or to <uid>.json if it's
+# new, with sorted keys so diffs show only real changes. id and version belong
+# to this Grafana's database, not the dashboard.
+export_dashboards() {
+  local grafana=http://localhost:13000 auth uid file existing
+  auth="$(kubectl -n observability get secret grafana-admin -o json |
+    jq -r '.data | "\(."admin-user" | @base64d):\(."admin-password" | @base64d)"')"
+  kubectl -n observability port-forward svc/grafana 13000:80 >/dev/null &
+  sleep 3
+  for uid in $(curl -fsS -u "$auth" "$grafana/api/search?type=dash-db" | jq -r '.[].uid'); do
+    file="$DASHBOARDS/$uid.json"
+    for existing in "$DASHBOARDS"/*.json; do
+      [[ "$(jq -r .uid "$existing")" == "$uid" ]] && file="$existing"
+    done
+    curl -fsS -u "$auth" "$grafana/api/dashboards/uid/$uid" | jq -S '.dashboard | del(.id, .version)' >"$work/dashboard.json"
+    mv "$work/dashboard.json" "$file"
+    echo "  $uid -> $file"
+  done
+  echo "Review with git diff $DASHBOARDS, then make dev/apply APP=grafana to load them as files."
 }
 
 render_app_of_apps "$ENV" >"$work/app-of-apps.yaml"
@@ -80,8 +104,12 @@ MSG
     load_app "$work/app-of-apps.yaml" "${2:?usage: dev.bash remove <app>}-$ENV" "$work/values.yaml"
     helm uninstall "$app_release" --namespace "$app_namespace" --wait
     ;;
+  dashboards)
+    use_cluster
+    export_dashboards
+    ;;
   *)
-    sed -n '2,6p' "$0"
+    sed -n '2,7p' "$0"
     exit 1
     ;;
 esac

@@ -110,7 +110,7 @@ spec:
         {{- range $name, $volume := . }}
         {{- if $volume }}
         - name: {{ $name }}
-          {{- tpl (toYaml $volume) $ | nindent 10 }}
+          {{- tpl (ternary $volume (toYaml $volume) (kindIs "string" $volume)) $ | trim | nindent 10 }}
         {{- end }}
         {{- end }}
       {{- end }}

@@ -22,7 +22,7 @@ flowchart LR
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. Also creates the OTel tables. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
-| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that all point at Cerberus, plus a span-metrics dashboard. |
+| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that all point at Cerberus, a span-metrics dashboard, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `demo-load` | `ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen): a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. |
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
@@ -98,10 +98,17 @@ make dev/down                    # delete the cluster
 `make dev/up` refuses a cluster that already runs Argo CD, because Argo CD would revert whatever helm
 installs. Run `make cluster/down` first.
 
-**Editing dashboards:** in `local`, Grafana lets you save provisioned dashboards from the UI. Saved changes
-last only until the Grafana pod restarts, and `make dev/apply APP=grafana` restarts it. To keep a change,
-export the dashboard as JSON (**Export → Export as JSON**) into `cluster-nodes/grafana/dashboards/`, then run
-`make dev/apply APP=grafana` and `make generate`.
+**Editing dashboards:** the files in `cluster-nodes/grafana/dashboards/` are the dashboards; Grafana's
+database is thrown away when its pod restarts. In `local`, Grafana lets you save provisioned dashboards from
+the UI, so the loop is:
+
+1. Edit and save in Grafana. New dashboards work too.
+2. `make dev/dashboards` writes every dashboard in Grafana to `cluster-nodes/grafana/dashboards/`: over the
+   file with the same `uid`, or to `<uid>.json` for a new one. Keys are sorted, so a diff shows only what
+   changed.
+3. Review `git diff`, then `make generate` and commit.
+
+Export before the pod restarts (`make dev/apply APP=grafana` restarts it), or the UI changes are gone.
 
 ## Design decisions
 
@@ -157,7 +164,7 @@ Everything is sized for light local testing:
 | component | memory request | memory cap |
 |---|---|---|
 | ClickHouse | 256 Mi | 1 Gi |
-| Grafana | 96 Mi | 384 Mi |
+| Grafana | 96 Mi | 1 Gi (peaks near 700 Mi with the Drilldown apps in use) |
 | Cerberus | 64 Mi | 384 Mi |
 | Collector | 64 Mi | 256 Mi |
 | Operator | 48 Mi | 192 Mi |
@@ -268,7 +275,8 @@ These problems all came up while building this, and the fixes are already in the
   - The Altinity operator only watches its own namespace by default. `cluster-nodes/clickhouse-operator/values.yaml` sets `watch.namespaces.include: [observability]` in its `config.yaml`.
   - Check `kubectl -n observability get chi otel -o jsonpath='{.status.status} {.status.errors}'`.
 - **Installation `Aborted` with `RemovedSecretRefSyntax`:** operator 0.27.4 removed `user/k8s_secret_password`. Use `user/password: {valueFrom: {secretKeyRef: ...}}` instead, as this repo does.
-- **Grafana restarts and never becomes Ready:** Grafana 13 downloads its bundled app plugins from grafana.com on every start (its storage is an emptyDir), and on a slow machine or network that outlasts the liveness probe. `cluster-nodes/grafana/values.yaml` sets `preinstall_disabled = true`; the stack only uses the three Cerberus datasources.
+- **Grafana restarts when you open a Drilldown app (`OOMKilled`):** the apps send their queries through Grafana's server, and Metrics Drilldown sends one per metric at once. Grafana peaked near 700 Mi in testing; its limit is 1 Gi. If you add many more metrics or dashboards, check `kubectl -n observability get pod -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].status.containerStatuses[0].lastState}'` and raise it.
+- **Grafana is slow to become Ready, or Drilldown pages are empty:** Grafana installs the three Drilldown apps from grafana.com, in the background, when it starts; other default plugins are switched off in `grafana.ini` (`disable_plugins`). If grafana.com is unreachable, Grafana still starts, without Drilldown; check `kubectl -n observability logs deploy/grafana | grep -i plugin`. In `local` only (`values-local.yaml`), the plugins are kept on a `grafana-plugins` volume so they download once, Grafana's database lives in memory so its startup migrations don't crawl on a laptop disk, and a startup probe allows a slow start up to 10 minutes. Other environments keep plugins and the database in emptyDirs, so each restart downloads the plugins again.
 - **Cerberus stays `0/1 Ready`:** it reports not-ready until it has created the schema. Check `kubectl -n observability logs deploy/cerberus`.
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
