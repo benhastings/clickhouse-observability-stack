@@ -24,33 +24,15 @@ applications:
 
   clickhouse:
     values:
-      objects:
-        installation:
-          spec:
-            configuration:
-              profiles: null
-              files: null
-            templates:
-              podTemplates:
-                - name: clickhouse
-                  spec:
-                    containers:
-                      - name: clickhouse
-                        image: clickhouse/clickhouse-server:26.9.5.2
-                        resources:
-                          requests:
-                            cpu: "2"
-                            memory: 8Gi
-                          limits:
-                            memory: 8Gi
-              volumeClaimTemplates:
-                - name: data
-                  spec:
-                    accessModes:
-                      - ReadWriteOnce
-                    resources:
-                      requests:
-                        storage: 200Gi
+      clickhouse:
+        storage: 200Gi
+        lowMemory: false
+        resources:
+          requests:
+            cpu: "2"
+            memory: 8Gi
+          limits:
+            memory: 8Gi
 
   cerberus:
     values:

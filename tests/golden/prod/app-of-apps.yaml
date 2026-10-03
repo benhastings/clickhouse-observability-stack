@@ -69,36 +69,18 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
+        clickhouse:
+          lowMemory: false
+          resources:
+            limits:
+              memory: 8Gi
+            requests:
+              cpu: "2"
+              memory: 8Gi
+          storage: 200Gi
         global:
           labels:
             environment: prod
-        objects:
-          installation:
-            spec:
-              configuration:
-                files: null
-                profiles: null
-              templates:
-                podTemplates:
-                - name: clickhouse
-                  spec:
-                    containers:
-                    - image: clickhouse/clickhouse-server:26.9.5.2
-                      name: clickhouse
-                      resources:
-                        limits:
-                          memory: 8Gi
-                        requests:
-                          cpu: "2"
-                          memory: 8Gi
-                volumeClaimTemplates:
-                - name: data
-                  spec:
-                    accessModes:
-                    - ReadWriteOnce
-                    resources:
-                      requests:
-                        storage: 200Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
