@@ -367,6 +367,41 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
     clickhouse-client --user otel --password otel-local-dev
   ```
 
+## Grafana sign-in with Keycloak
+
+Grafana can sign users in through Keycloak using generic OAuth. The laptop profile leaves it off (`auth.genericOauth.enabled: false` in `cluster-nodes/grafana/values.yaml`), so `make cluster/up` still logs in with `admin`/`admin`. An environment turns it on by setting `auth.genericOauth` under `applications.grafana.values`; this section is the Keycloak side of that.
+
+Create a client in the realm with these settings:
+
+| Setting | Value |
+|---|---|
+| Client authentication | On (a confidential client) |
+| Standard flow | On |
+| Direct access grants | Off |
+| Valid redirect URIs | `https://<grafana host>/login/generic_oauth` |
+| Web origins | Grafana's root URL, `https://<grafana host>` |
+
+The client ID goes in `auth.genericOauth.clientId`, and `auth.genericOauth.rootUrl` must be the same `https://<grafana host>` the redirect URI uses. `rootUrl` is required once OAuth is enabled; the render fails without it. Set `authUrl`, `tokenUrl` and `apiUrl` to the realm's OpenID Connect endpoints; the commented Keycloak URLs in `cluster-nodes/grafana/values.yaml` show each one.
+
+Create three realm roles and give them to users or groups:
+
+| Realm role | Grafana role |
+|---|---|
+| `grafana-admin` | Admin |
+| `grafana-editor` | Editor |
+| `grafana-viewer` | Viewer |
+
+The default `auth.genericOauth.roleAttributePath` reads `realm_access.roles`: `grafana-admin` wins, then `grafana-editor`, and anyone else is a Viewer. `grafana-viewer` therefore grants the same access as no role at all; it exists so a user's role is visible in Keycloak. If you change the role names, change the expression to match.
+
+The client secret never goes in git. Create the Secret `grafana-oauth` with the key `client-secret` in the cluster before the first sync, from the client's Credentials tab:
+
+```bash
+kubectl -n observability create secret generic grafana-oauth \
+  --from-literal=client-secret='<client secret>'
+```
+
+The chart does not create it. The environment adds `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET` to the Grafana container's `env`, read from that Secret's `client-secret` key; the commented example is at the top of `cluster-nodes/grafana/values.yaml`.
+
 ## Before using this beyond a laptop
 
 - **Credentials:** the ClickHouse password and the Grafana `admin`/`admin` login in `cluster-configs/overrides/values-local.yaml` are **public, local-only credentials**. The `prod` environment creates no Secrets; supply them from a secret manager (for example External Secrets or Sealed Secrets).
