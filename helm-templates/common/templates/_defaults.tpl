@@ -2,6 +2,7 @@
 {{- define "common.defaults" -}}
 nameOverride: ""
 global:
+  mesh: istio
   namespace: ""
   labels: {}
 serviceAccount:

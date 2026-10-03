@@ -1,0 +1,44 @@
+suite: global.mesh
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: defaults to istio
+    set:
+      objects.mesh:
+        apiVersion: v1
+        kind: ConfigMap
+        data:
+          mesh: '{{ include "common.mesh" . }}'
+    documentSelector:
+      path: metadata.name
+      value: fixture-mesh
+    asserts:
+      - equal:
+          path: data.mesh
+          value: istio
+
+  - it: accepts kubernetes
+    set:
+      global.mesh: kubernetes
+      objects.mesh:
+        apiVersion: v1
+        kind: ConfigMap
+        data:
+          mesh: '{{ include "common.mesh" . }}'
+    documentSelector:
+      path: metadata.name
+      value: fixture-mesh
+    asserts:
+      - equal:
+          path: data.mesh
+          value: kubernetes
+
+  - it: fails on any other mesh and names the accepted values
+    set:
+      global.mesh: linkerd
+    asserts:
+      - failedTemplate:
+          errorPattern: global.mesh must be istio or kubernetes, not "linkerd"

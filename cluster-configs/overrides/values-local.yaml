@@ -3,6 +3,8 @@ repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
 
 global:
+  # kind runs no service mesh, so no Istio resources are rendered.
+  mesh: kubernetes
   labels:
     environment: local
 
