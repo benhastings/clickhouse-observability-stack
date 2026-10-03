@@ -55,12 +55,73 @@ tests:
             username: otel
             password: example
 
-  - it: lets an environment drop the low-memory tuning
+  - it: renders the default installation as one shard of one replica with the low-memory tuning
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.clusters[0].layout
+          value:
+            shardsCount: 1
+            replicasCount: 1
+      - exists:
+          path: spec.configuration.files["config.d/low_memory.xml"]
+      - equal:
+          path: spec.configuration.profiles["default/max_threads"]
+          value: 2
+      - notExists:
+          path: spec.templates.volumeClaimTemplates[0].spec.storageClassName
+
+  - it: sets replicasCount from clickhouse.replicas alone
     set:
-      objects.installation.spec.configuration.files: null
+      clickhouse.replicas: 3
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.clusters[0].layout.replicasCount
+          value: 3
+      - equal:
+          path: spec.configuration.clusters[0].layout.shardsCount
+          value: 1
+
+  - it: drops the low-memory profiles and file when clickhouse.lowMemory is false
+    set:
+      clickhouse.lowMemory: false
     documentSelector:
       path: kind
       value: ClickHouseInstallation
     asserts:
       - notExists:
           path: spec.configuration.files
+      - notExists:
+          path: spec.configuration.profiles
+
+  - it: sizes the pod and volume from the clickhouse keys
+    set:
+      clickhouse.storage: 200Gi
+      clickhouse.storageClassName: fast
+      clickhouse.resources.limits.memory: 8Gi
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.templates.volumeClaimTemplates[0].spec.storageClassName
+          value: fast
+      - equal:
+          path: spec.templates.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 200Gi
+      - equal:
+          path: spec.templates.podTemplates[0].spec.containers[0]
+          value:
+            name: clickhouse
+            image: clickhouse/clickhouse-server:26.9.5.2
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 8Gi
