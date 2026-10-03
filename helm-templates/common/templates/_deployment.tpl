@@ -68,7 +68,14 @@ kind: Deployment
 metadata:
   {{- include "common.metadata" (list . (include "common.fullname" .)) | nindent 2 }}
 spec:
+  {{- if $v.autoscaling.enabled }}
+  {{- $default := (include "common.defaults" . | fromYaml).deployment.replicas }}
+  {{- if ne (int $d.replicas) (int $default) }}
+  {{- fail (printf "autoscaling.enabled is true, so the HorizontalPodAutoscaler owns the replica count; remove deployment.replicas (%v) and set autoscaling.minReplicas instead" $d.replicas) }}
+  {{- end }}
+  {{- else }}
   replicas: {{ $d.replicas }}
+  {{- end }}
   {{- with $d.strategy }}
   strategy:
     {{- toYaml . | nindent 4 }}

@@ -5,5 +5,7 @@
 {{ include "common.secrets" . }}
 {{ include "common.service" . }}
 {{ include "common.deployment" . }}
+{{ include "common.podDisruptionBudget" . }}
+{{ include "common.autoscaling" . }}
 {{ include "common.objects" . }}
 {{- end -}}

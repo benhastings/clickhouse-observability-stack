@@ -29,6 +29,14 @@ deployment:
   imagePullSecrets: []
   containers: {}
   volumes: {}
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
 service:
   enabled: false
   type: ClusterIP
