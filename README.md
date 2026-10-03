@@ -285,6 +285,38 @@ The node tests fail when one of these moves:
 
 If you change one on purpose, change its pair in the same commit and update the test that pins it.
 
+## Upgrades
+
+Bump one component per PR unless two must move together. These are the sets that must. Each tag lives in the
+node's own `values.yaml` (the nodes are environment-neutral; no `values-<env>.yaml` sets an image tag), and
+`appVersion` in the node's `Chart.yaml` moves with it.
+
+| Moves together | Where | Why |
+|---|---|---|
+| Cerberus and the collector image | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`) and `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), plus each `Chart.yaml` `appVersion` | Cerberus creates the tables and the collector inserts into them with `create_schema: false`. A bump to either can break inserts or queries without any manifest changing. |
+| The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). |
+| The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.1.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
+
+For every bump, also update the Components table above, then run `make generate` to re-render `tests/golden`
+and commit the result with the change.
+
+### What the checks prove
+
+A golden diff is expected on a bump: it is the exact image and `checksum/config` change that makes pods roll.
+It shows what will change in the cluster, not that the pipeline still works.
+
+`make check` proves the manifests are well-formed and the images are pinned. It does **not** prove a Cerberus or
+collector bump. Neither a changed table layout nor a column type mismatch shows up in a manifest, so the check
+for that pair is a deploy to kind and the queries:
+
+```bash
+make test/e2e REVISION=my-branch   # needs Docker, and a pushed branch
+```
+
+The e2e run queries span metrics, logs and traces through Cerberus. For anything it does not cover, run
+`make cluster/up REVISION=my-branch` and `make cluster/port-forward`, and compare Grafana with
+[What you should see](#what-you-should-see).
+
 ## Contributing
 
 ```bash
