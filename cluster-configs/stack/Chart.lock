@@ -1,0 +1,18 @@
+dependencies:
+- name: clickhouse
+  repository: file://../../cluster-nodes/clickhouse
+  version: 0.1.0
+- name: cerberus
+  repository: file://../../cluster-nodes/cerberus
+  version: 0.1.0
+- name: otel-collector
+  repository: file://../../cluster-nodes/otel-collector
+  version: 0.1.0
+- name: grafana
+  repository: file://../../cluster-nodes/grafana
+  version: 0.1.0
+- name: demo-load
+  repository: file://../../cluster-nodes/demo-load
+  version: 0.1.0
+digest: sha256:caf1624c2423ec536be1b2b33ac6881d9bc34102d5b4fcbf92b912194de3dabc
+generated: "2026-10-03T12:12:35.082026015-04:00"

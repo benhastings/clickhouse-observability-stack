@@ -1,0 +1,28 @@
+apiVersion: v2
+name: stack
+description: Every cluster node but the ClickHouse operator, as one Helm release.
+type: application
+version: 0.1.0
+# The operator is a separate release: its CRDs must exist before the
+# ClickHouseInstallation in the clickhouse chart is applied.
+dependencies:
+  - name: clickhouse
+    version: 0.1.0
+    repository: file://../../cluster-nodes/clickhouse
+    condition: clickhouse.enabled
+  - name: cerberus
+    version: 0.1.0
+    repository: file://../../cluster-nodes/cerberus
+    condition: cerberus.enabled
+  - name: otel-collector
+    version: 0.1.0
+    repository: file://../../cluster-nodes/otel-collector
+    condition: otel-collector.enabled
+  - name: grafana
+    version: 0.1.0
+    repository: file://../../cluster-nodes/grafana
+    condition: grafana.enabled
+  - name: demo-load
+    version: 0.1.0
+    repository: file://../../cluster-nodes/demo-load
+    condition: demo-load.enabled
