@@ -1,0 +1,31 @@
+# Each block is that node's values.yaml, passed through unchanged. An Argo CD
+# environment file nests the same values under applications.<app>.values, because
+# it also carries syncWave and namespace; scripts/values-for-helm.bash converts it:
+#
+#   Argo CD (values-<env>.yaml)      Helm (this chart)
+#   applications:
+#     grafana:                       grafana:
+#       values:                        replicas: 2
+#         replicas: 2
+#     demo-load:                     demo-load:
+#       enabled: false                 enabled: false
+#
+# common names objects after the release, and every node here shares one, so
+# nameOverride keeps the names the other apps dial: clickhouse, cerberus,
+# otel-collector, grafana.
+global: {}
+clickhouse:
+  enabled: true
+  nameOverride: clickhouse
+cerberus:
+  enabled: true
+  nameOverride: cerberus
+otel-collector:
+  enabled: true
+  nameOverride: otel-collector
+grafana:
+  enabled: true
+  nameOverride: grafana
+demo-load:
+  enabled: true
+  nameOverride: demo-load
