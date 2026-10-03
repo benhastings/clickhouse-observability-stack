@@ -1,4 +1,39 @@
 ---
+# Source: app-of-apps/templates/app-project.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability-local
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: local
+  annotations:
+    # Before the wave 0 Applications that reference it.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: The clickhouse-observability-stack applications for local.
+  sourceRepos:
+    - https://github.com/benhastings/clickhouse-observability-stack.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: clickhouse-operator
+    - server: https://kubernetes.default.svc
+      namespace: observability
+  # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's
+  # CRDs from its crds/ directory, and its ClusterRole and ClusterRoleBinding.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
 # Source: app-of-apps/templates/application.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -13,7 +48,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-local
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -49,7 +84,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-local
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -95,7 +130,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-local
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -131,7 +166,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-local
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -167,7 +202,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-local
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -222,7 +257,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-local
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
