@@ -1,3 +1,4 @@
+{{- /* cspell:words daemonset */ -}}
 {{- define "common.defaults" -}}
 nameOverride: ""
 global:
@@ -16,6 +17,24 @@ deployment:
   replicas: 1
   strategy:
     type: RollingUpdate
+  podLabels: {}
+  podAnnotations: {}
+  podSecurityContext: {}
+  terminationGracePeriodSeconds: 30
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  runtimeClassName: ""
+  imagePullSecrets: []
+  containers: {}
+  volumes: {}
+daemonset:
+  enabled: false
+  updateStrategy:
+    type: RollingUpdate
+  selectorLabels: {}
   podLabels: {}
   podAnnotations: {}
   podSecurityContext: {}
