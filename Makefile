@@ -135,6 +135,12 @@ test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Arg
 test/unit: deps ## helm-unittest suites for the common library and every cluster node
 	helm-unittest --strict $(sort $(UNIT_TEST_CHARTS))
 
+##@ Environments
+
+.PHONY: env/new
+env/new: ## Write a commented skeleton for a new environment: NAME=<env>, FORCE=1 to overwrite
+	NAME='$(NAME)' FORCE='$(FORCE)' scripts/env-new.bash
+
 ##@ Local cluster
 
 .PHONY: cluster/up

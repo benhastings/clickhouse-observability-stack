@@ -226,8 +226,9 @@ of the container alone. `helm-templates/common/README.md` documents every key.
 
 `local` is what `scripts/kind-up.sh` deploys. `prod` is a worked example: no demo load, no low-memory tuning,
 larger resources, and Secrets you create yourself (`clickhouse-credentials`, `grafana-admin` and
-`clickhouse-operator-credentials`). To add an environment, copy both `values-local.yaml` and
-`app-of-apps-local.yaml` under the new name.
+`clickhouse-operator-credentials`). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+`values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
+`FORCE=1`. Every application starts from its node defaults; add only what differs.
 
 ### Stable names
 
