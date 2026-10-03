@@ -348,6 +348,8 @@ the network does: image pulls and the Argo CD chart.
 
 These problems all came up while building this, and the fixes are already in the repo.
 
+Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` checks that the Secrets the environment expects and a StorageClass for the ClickHouse volume exist, and prints what is missing; it installs nothing.
+
 - **`kind create cluster` fails at "Starting control-plane" (API server connection refused):**
   - Hosts with a **btrfs root on an encrypted (`/dev/mapper`) volume** need `/dev/mapper` mounted into the kind node, or the kubelet never starts the control plane.
   - Slow container creation on such hosts also needs longer kubeadm timeouts.

@@ -147,6 +147,10 @@ env/new: ## Write a commented skeleton for a new environment: NAME=<env>, FORCE=
 cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch)
 	scripts/kind-up.sh $(REVISION)
 
+.PHONY: cluster/preflight
+cluster/preflight: ## Check the current kube context against an environment before its first sync: ENV=<env>
+	ENV='$(ENV)' scripts/preflight.bash
+
 .PHONY: cluster/down
 cluster/down: ## Delete the kind cluster
 	scripts/kind-down.sh
