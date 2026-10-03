@@ -6,6 +6,10 @@ secrets:
     create: false
     stringData:
       username: otel
+  # The backup CronJob's S3 credentials, keys access_key and secret_key. Never created here: an environment
+  # that turns on clickhouse.backup pre-creates clickhouse-backup or sets create: true with its own stringData.
+  backup:
+    create: false
 
 # The ClickHouseInstallation's size. files/installation.yaml.tpl renders the Installation from these keys,
 # so an environment sets only the keys it changes. lowMemory: false drops the laptop tuning (the
@@ -26,6 +30,51 @@ clickhouse:
     limits:
       memory: 1Gi
   lowMemory: true
+  # An optional nightly clickhouse-backup run against the otel cluster, uploading to S3-compatible storage.
+  # It uses ClickHouse's own BACKUP ... TO S3 (embedded mode with no backup disk), so the job needs only the
+  # clickhouse:9000 Service, not the data volume. keep is how many remote backups to retain; older ones are
+  # deleted after each upload. common renders a stray document for an objects entry whose template is
+  # empty, so turning this on takes two keys in the environment's applications.clickhouse.values:
+  #
+  #   clickhouse:
+  #     backup:
+  #       enabled: true
+  #       bucket: <bucket>
+  #       endpoint: https://<s3-endpoint>
+  #   objects:
+  #     backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+  #
+  # and a clickhouse-backup Secret with access_key and secret_key (see secrets.backup).
+  #
+  # Restore is manual. List the remote backups, then restore one by name; each runs a one-off Job from the
+  # CronJob, so it uses the same bucket, path and credentials (<backup-name> is a placeholder):
+  #
+  #   kubectl -n observability create job clickhouse-backup-list --from=cronjob/clickhouse-backup \
+  #     --dry-run=client -o json | jq '.spec.template.spec.containers[0].args = ["list", "remote"]' \
+  #     | kubectl create -f -
+  #   kubectl -n observability logs job/clickhouse-backup-list
+  #   kubectl -n observability create job clickhouse-restore --from=cronjob/clickhouse-backup \
+  #     --dry-run=client -o json \
+  #     | jq '.spec.template.spec.containers[0].args = ["restore_remote", "--rm", "<backup-name>"]' \
+  #     | kubectl create -f -
+  backup:
+    enabled: false
+    schedule: "0 3 * * *"
+    bucket: ""
+    path: otel
+    endpoint: ""
+    region: us-east-1
+    forcePathStyle: true
+    keep: 7
+    image:
+      repository: altinity/clickhouse-backup
+      tag: "2.8.1"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
 
 # The Installation is a Go template in files/ because a map in values can't leave out a key, and
 # lowMemory and storageClassName need to. The leading "---" keeps this string unquoted through
