@@ -133,6 +133,7 @@ data:
     provisioning = /etc/grafana/provisioning
     [plugins]
     preinstall_auto_update = false
+    preinstall_disabled = true
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
 ---
@@ -585,7 +586,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 9eb1e23f0b772c02ac3f52c71ad139a288aa1306cb7522e686b3fa4484ec290c
+        checksum/config: 5ba7bf290b2d5d67bf64166523637bc373d9aec3798bcf8e0859c13c56a8a9d9
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

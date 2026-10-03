@@ -17,6 +17,7 @@ configMaps:
         provisioning = /etc/grafana/provisioning
         [plugins]
         preinstall_auto_update = false
+        preinstall_disabled = true
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
       datasources.yaml:
