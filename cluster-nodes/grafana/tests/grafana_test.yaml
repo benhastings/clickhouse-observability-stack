@@ -52,3 +52,48 @@ tests:
       - equal:
           path: spec.ports[0].targetPort
           value: grafana
+
+  - it: leaves generic OAuth out of grafana.ini by default
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: auth\.generic_oauth
+
+  - it: renders generic OAuth into grafana.ini when enabled
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      auth.genericOauth:
+        enabled: true
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[auth\.generic_oauth\]\nenabled = true$'
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^auth_url = https://keycloak\.example\.com/realms/demo/protocol/openid-connect/auth$'
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: "(?m)^role_attribute_path = contains\\(realm_access\\.roles\\[\\*\\], 'grafana-admin'\\) && 'Admin' \\|\\| contains\\(realm_access\\.roles\\[\\*\\], 'grafana-editor'\\) && 'Editor' \\|\\| 'Viewer'$"
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^login_attribute_path = preferred_username$'
+
+  - it: fails the render when generic OAuth is enabled without an auth URL
+    set:
+      auth.genericOauth:
+        enabled: true
+        clientId: grafana
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - failedTemplate:
+          errorPattern: auth.genericOauth.authUrl is required
