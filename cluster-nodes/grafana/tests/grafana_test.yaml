@@ -179,3 +179,37 @@ tests:
           path: kind
           value: Secret
           skipEmptyTemplates: true
+
+  - it: leaves disable_login_form out of grafana.ini by default
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: disable_login_form
+
+  - it: hides the login form when asked and OAuth is enabled
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      auth.disableLoginForm: true
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[auth\]\ndisable_login_form = true$'
+
+  - it: refuses to hide the login form without OAuth
+    set:
+      auth.disableLoginForm: true
+    asserts:
+      - failedTemplate:
+          errorPattern: auth.disableLoginForm requires auth.genericOauth.enabled

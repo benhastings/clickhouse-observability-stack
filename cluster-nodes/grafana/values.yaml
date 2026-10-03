@@ -21,6 +21,9 @@ secrets:
 # rootUrl is Grafana's public URL, which the redirect back from the provider must match. The client
 # secret is not set here and never goes in git; see secrets.oauth above.
 auth:
+  # Hides the username and password form on the login page. Requires genericOauth.enabled, or the
+  # render fails. The admin user and its secret are unchanged.
+  disableLoginForm: false
   genericOauth:
     enabled: false
     rootUrl: ""
@@ -54,6 +57,11 @@ configMaps:
         preinstall_disabled = true
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
+        {{- if .Values.auth.disableLoginForm }}
+        {{- if not .Values.auth.genericOauth.enabled }}{{ fail "auth.disableLoginForm requires auth.genericOauth.enabled, or nobody can sign in" }}{{ end }}
+        [auth]
+        disable_login_form = true
+        {{- end }}
         {{- with .Values.auth.genericOauth }}{{ if .enabled }}
         [server]
         root_url = {{ required "auth.genericOauth.rootUrl is required when auth.genericOauth.enabled" .rootUrl }}
