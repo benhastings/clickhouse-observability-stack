@@ -31,6 +31,7 @@ so the output is deterministic.
 | Key | Default | What it does |
 | --- | --- | --- |
 | `nameOverride` | release name | base name of every object |
+| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. Nothing reads it yet |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels` | `{}` | extra labels on every object |
 | `serviceAccount.create` | `true` | render a ServiceAccount named after the chart |

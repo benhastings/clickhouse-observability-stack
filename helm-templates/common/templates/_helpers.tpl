@@ -7,6 +7,15 @@
 {{- default .Release.Namespace $v.global.namespace -}}
 {{- end -}}
 
+{{- define "common.mesh" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $mesh := toString $v.global.mesh -}}
+{{- if not (has $mesh (list "istio" "kubernetes")) -}}
+{{- fail (printf "global.mesh must be istio or kubernetes, not %q" $mesh) -}}
+{{- end -}}
+{{- $mesh -}}
+{{- end -}}
+
 {{- define "common.resourceName" -}}
 {{- $root := index . 0 -}}
 {{- $key := index . 1 -}}

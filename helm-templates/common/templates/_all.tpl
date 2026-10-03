@@ -1,5 +1,6 @@
 {{- /* cspell:words daemonset */ -}}
 {{- define "common.all" -}}
+{{- $_ := include "common.mesh" . -}}
 {{ include "common.serviceAccount" . }}
 {{ include "common.rbac" . }}
 {{ include "common.configMaps" . }}
