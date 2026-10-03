@@ -38,7 +38,7 @@ so the output is deterministic.
 | `rbac.clusterRules` | `[]` | when set, a ClusterRole and ClusterRoleBinding for the ServiceAccount |
 | `rbac.rules` | `[]` | when set, a Role and RoleBinding in the release namespace |
 | `deployment.enabled` | `false` | render a Deployment |
-| `deployment.replicas` | `1` | |
+| `deployment.replicas` | `1` | omitted when `autoscaling.enabled`; see Disruption budget and autoscaling |
 | `deployment.strategy` | `RollingUpdate` | |
 | `deployment.podLabels`, `deployment.podAnnotations` | `{}` | |
 | `deployment.podSecurityContext` | `{}` | |
@@ -52,6 +52,13 @@ so the output is deterministic.
 | `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; omitted when empty |
 | `deployment.containers.<name>` | | see Containers below |
 | `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated |
+| `podDisruptionBudget.enabled` | `false` | render a `policy/v1` PodDisruptionBudget selecting the Deployment's pods |
+| `podDisruptionBudget.minAvailable` | `1` | a count or a percentage; set to `null` to use `maxUnavailable` |
+| `podDisruptionBudget.maxUnavailable` | unset | a count or a percentage; mutually exclusive with `minAvailable` |
+| `autoscaling.enabled` | `false` | render an `autoscaling/v2` HorizontalPodAutoscaler targeting the Deployment |
+| `autoscaling.minReplicas` | `2` | |
+| `autoscaling.maxReplicas` | `6` | |
+| `autoscaling.targetCPUUtilizationPercentage` | `70` | average CPU utilization, relative to the containers' CPU requests |
 | `service.enabled` | `false` | render a Service selecting the Deployment's pods |
 | `service.type` | `ClusterIP` | |
 | `service.annotations` | `{}` | |
@@ -86,6 +93,20 @@ format, belongs in a `files` glob, which is not templated.
 
 Every pod carries a `checksum/config` annotation hashed from the chart's rendered ConfigMaps and Secrets, so a
 config change rolls the Deployment.
+
+### Disruption budget and autoscaling
+
+Both render only when `deployment.enabled` is also true, and both are off by default, so a node gains no
+objects until an environment turns them on.
+
+`podDisruptionBudget` defaults to `minAvailable: 1`. To use `maxUnavailable` instead, set `minAvailable` to
+`null` in the same place; the render fails when both are set, since Kubernetes accepts only one.
+
+When `autoscaling.enabled` is true, the HorizontalPodAutoscaler owns the replica count, so the Deployment is
+rendered without `spec.replicas` (otherwise every Argo CD sync would reset it). Size the workload with
+`autoscaling.minReplicas` and `autoscaling.maxReplicas`. The render fails if `deployment.replicas` is anything
+other than the default `1` while autoscaling is on, because that value would be silently ignored. CPU
+utilization is measured against the containers' CPU requests, so every container needs one.
 
 ## Tests
 
