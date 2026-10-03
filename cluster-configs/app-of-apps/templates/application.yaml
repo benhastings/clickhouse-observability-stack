@@ -19,9 +19,13 @@ metadata:
 spec:
   project: {{ include "app-of-apps.project" $ }}
   source:
-    repoURL: {{ $repoURL }}
-    targetRevision: {{ $.Values.targetRevision }}
-    path: cluster-nodes/{{ $name }}
+    repoURL: {{ $app.repoURL | default $repoURL }}
+    targetRevision: {{ $app.targetRevision | default $.Values.targetRevision }}
+    {{- if $app.chart }}
+    chart: {{ $app.chart }}
+    {{- else }}
+    path: {{ $app.path | default (printf "cluster-nodes/%s" $name) }}
+    {{- end }}
     helm:
       releaseName: {{ $name }}
       valuesObject:
