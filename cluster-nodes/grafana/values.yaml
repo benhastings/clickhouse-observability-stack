@@ -2,6 +2,28 @@ secrets:
   admin:
     create: false
 
+# Sign-in through any OpenID Connect provider, rendered into grafana.ini below. Off by default;
+# an environment turns it on and sets the URLs. Keycloak is the worked example, with
+# <realm> standing in for the realm name:
+#   authUrl:  https://keycloak.example.com/realms/<realm>/protocol/openid-connect/auth
+#   tokenUrl: https://keycloak.example.com/realms/<realm>/protocol/openid-connect/token
+#   apiUrl:   https://keycloak.example.com/realms/<realm>/protocol/openid-connect/userinfo
+# The client secret is not set here and never goes in git.
+auth:
+  genericOauth:
+    enabled: false
+    name: Keycloak
+    clientId: ""
+    authUrl: ""
+    tokenUrl: ""
+    apiUrl: ""
+    scopes: openid email profile
+    allowSignUp: true
+    # Keycloak realm roles grafana-admin and grafana-editor map to Admin and Editor; anyone else is a Viewer.
+    roleAttributePath: "contains(realm_access.roles[*], 'grafana-admin') && 'Admin' || contains(realm_access.roles[*], 'grafana-editor') && 'Editor' || 'Viewer'"
+    loginAttributePath: preferred_username
+    nameAttributePath: name
+
 configMaps:
   config:
     data:
@@ -20,6 +42,20 @@ configMaps:
         preinstall_disabled = true
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
+        {{- with .Values.auth.genericOauth }}{{ if .enabled }}
+        [auth.generic_oauth]
+        enabled = true
+        name = {{ required "auth.genericOauth.name is required when auth.genericOauth.enabled" .name }}
+        client_id = {{ required "auth.genericOauth.clientId is required when auth.genericOauth.enabled" .clientId }}
+        scopes = {{ .scopes }}
+        auth_url = {{ required "auth.genericOauth.authUrl is required when auth.genericOauth.enabled" .authUrl }}
+        token_url = {{ required "auth.genericOauth.tokenUrl is required when auth.genericOauth.enabled" .tokenUrl }}
+        api_url = {{ required "auth.genericOauth.apiUrl is required when auth.genericOauth.enabled" .apiUrl }}
+        allow_sign_up = {{ .allowSignUp }}
+        role_attribute_path = {{ .roleAttributePath }}
+        login_attribute_path = {{ .loginAttributePath }}
+        name_attribute_path = {{ .nameAttributePath }}
+        {{- end }}{{ end }}
       datasources.yaml:
         apiVersion: 1
         datasources:
