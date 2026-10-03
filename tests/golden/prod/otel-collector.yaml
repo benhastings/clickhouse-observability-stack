@@ -95,7 +95,7 @@ data:
         auth_type: serviceAccount
         collection_interval: 30s
         endpoint: https://${env:K8S_NODE_IP}:10250
-        insecure_skip_verify: true
+        insecure_skip_verify: false
       otlp:
         protocols:
           grpc:
@@ -245,7 +245,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 3c050f8e8505bc081584dca681fa2df7db5db579096fa9d327b6a3e359813539
+        checksum/config: ce275c844953271a9fd3a23a47f7a0c9145589a1bf2da93cd3d61b4b4bcecc56
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

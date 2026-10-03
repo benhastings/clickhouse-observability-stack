@@ -1,5 +1,7 @@
 # ClickHouse observability stack (Argo CD app-of-apps)
 
+<!-- cspell:words daemonset -->
+
 A GitOps deployment of an OpenTelemetry pipeline that stores **traces, logs and metrics in ClickHouse** and lets **Grafana query them with PromQL, LogQL and TraceQL**. Grafana doesn't talk to ClickHouse directly: Cerberus sits in between and speaks the Prometheus, Loki and Tempo APIs on ClickHouse's behalf.
 
 One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared library chart, `helm-templates/common`. It's sized for a laptop and verified end to end on a local kind cluster.
@@ -161,6 +163,9 @@ Everything is sized for light local testing:
 | Cerberus | 64 Mi | 384 Mi |
 | Collector | 64 Mi | 256 Mi |
 | Operator | 48 Mi | 192 Mi |
+| Collector agent (off; per node when on) | 32 Mi | 128 Mi |
+
+The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
 
 ClickHouse also gets a `config.d/low_memory.xml` (in `cluster-nodes/clickhouse/values.yaml`; the `prod` environment removes it) with:
 - small caches
@@ -407,6 +412,6 @@ The chart does not create it. The environment adds `GF_AUTH_GENERIC_OAUTH_CLIENT
 - **Credentials:** the ClickHouse password and the Grafana `admin`/`admin` login in `cluster-configs/overrides/values-local.yaml` are **public, local-only credentials**. The `prod` environment creates no Secrets; supply them from a secret manager (for example External Secrets or Sealed Secrets).
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
-- **System metrics on more than one node:** the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Run a DaemonSet of collectors for it, and verify the kubelet's serving certificate instead of `insecure_skip_verify`.
+- **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
 - **Retention:** set it with `CERBERUS_SCHEMA_TTL` in `cluster-nodes/cerberus/values.yaml` (currently `7d`). Also set `CERBERUS_PROM_METADATA_LOOKBACK` if retention exceeds 14 days.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.

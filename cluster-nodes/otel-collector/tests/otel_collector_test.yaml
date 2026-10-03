@@ -167,3 +167,115 @@ tests:
       - notMatchRegex:
           path: data["relay.yaml"]
           pattern: "token: [^$]"
+
+  - it: runs no agent by default, so the gateway scrapes kubeletstats and verifies the kubelet certificate
+    asserts:
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: kind
+          value: DaemonSet
+          skipEmptyTemplates: true
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "kubeletstats:\\n(\\s+\\S.*\\n)*?\\s+insecure_skip_verify: false\\n"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- spanmetrics"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+
+  - it: moves kubeletstats from the gateway to a DaemonSet agent when the agent is enabled
+    set:
+      collector:
+        agent:
+          enabled: true
+      daemonset:
+        enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "kubeletstats"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- spanmetrics\\n\\s+- servicegraph"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - --config=env:OTELCOL_AGENT_CONFIG
+        documentSelector:
+          path: kind
+          value: DaemonSet
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
+          pattern: "receivers:\\n  kubeletstats:\\n(\\s+\\S.*\\n)*?\\s+insecure_skip_verify: false\\n(.*\\n)*\\s+receivers:\\n\\s+- kubeletstats\\n"
+        documentSelector:
+          path: kind
+          value: DaemonSet
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
+          pattern: "spanmetrics|servicegraph|otlp"
+        documentSelector:
+          path: kind
+          value: DaemonSet
+
+  - it: gives the agent its own selector, off the otel-collector Service, and its own memory
+    set:
+      collector:
+        agent:
+          enabled: true
+      daemonset:
+        enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: otel-collector-agent
+            app.kubernetes.io/instance: otel-collector
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+
+  - it: lets an environment skip kubelet certificate verification in the agent
+    set:
+      collector:
+        agent:
+          enabled: true
+          kubelet:
+            insecureSkipVerify: true
+      daemonset:
+        enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
+          pattern: "insecure_skip_verify: true"
+
+  - it: fails when the agent and the DaemonSet are not enabled together
+    set:
+      collector:
+        agent:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "collector.agent.enabled and daemonset.enabled must be set together"
