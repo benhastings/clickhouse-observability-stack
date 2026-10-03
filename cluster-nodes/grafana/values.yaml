@@ -16,8 +16,11 @@ configMaps:
         plugins = /var/lib/grafana/plugins
         provisioning = /etc/grafana/provisioning
         [plugins]
+        ; Only the Drilldown apps, pinned. Grafana adds its default preinstall list
+        ; to these; everything on it that isn't bundled in the image is disabled.
+        preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1
         preinstall_auto_update = false
-        preinstall_disabled = true
+        disable_plugins = grafana-pyroscope-app,grafana-advisor-app
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
       datasources.yaml:
@@ -106,8 +109,24 @@ service:
       port: 80
       targetPort: grafana
 
+objects:
+  # Keeps downloaded plugins across restarts. Grafana's database stays in an
+  # emptyDir: dashboards live in dashboards/, not in Grafana.
+  plugins:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+
 deployment:
   enabled: true
+  # The plugins volume is ReadWriteOnce: stop the old pod before starting the new.
+  strategy:
+    type: Recreate
   podSecurityContext:
     fsGroup: 472
     runAsGroup: 472
@@ -138,11 +157,18 @@ deployment:
         GF_PATHS_PROVISIONING: /etc/grafana/provisioning
         GF_UNIFIED_STORAGE_INDEX_PATH: /var/lib/grafana-search/bleve
         GOMEMLIMIT: 345MiB
+      # Startup is slow on a small machine; liveness only counts once it's up.
+      startupProbe:
+        httpGet:
+          path: /api/health
+          port: grafana
+        periodSeconds: 10
+        timeoutSeconds: 30
+        failureThreshold: 60
       livenessProbe:
         httpGet:
           path: /api/health
           port: grafana
-        initialDelaySeconds: 60
         timeoutSeconds: 30
         failureThreshold: 10
       readinessProbe:
@@ -180,13 +206,23 @@ deployment:
           mountPath: /var/lib/grafana/dashboards
         - name: storage
           mountPath: /var/lib/grafana
+        - name: plugins
+          mountPath: /var/lib/grafana/plugins
         - name: search
           mountPath: /var/lib/grafana-search
   volumes:
     tmp:
       emptyDir: {}
+    # Grafana's database is thrown away on restart, and it is small (about 2 MB),
+    # so keep it in memory: on a slow disk its 1,400-odd startup migrations take
+    # minutes. Plugins sit on their own claim, mounted inside it.
     storage:
-      emptyDir: {}
+      emptyDir:
+        medium: Memory
+        sizeLimit: 64Mi
+    plugins:
+      persistentVolumeClaim:
+        claimName: '{{ include "common.fullname" . }}-plugins'
     search:
       emptyDir: {}
     config:
