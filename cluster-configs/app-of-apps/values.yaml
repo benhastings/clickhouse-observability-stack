@@ -13,6 +13,13 @@ applications:
     namespace: clickhouse-operator
   clickhouse:
     syncWave: 1
+    # The operator writes status back onto the ClickHouseInstallation; without this the
+    # Application can sit OutOfSync. Only status is ignored, so spec drift still self-heals.
+    ignoreDifferences:
+      - group: clickhouse.altinity.com
+        kind: ClickHouseInstallation
+        jsonPointers:
+          - /status
   cerberus:
     syncWave: 2
   otel-collector:

@@ -29,6 +29,10 @@ spec:
   destination:
     server: {{ $.Values.destinationServer }}
     namespace: {{ $app.namespace | default $.Values.namespace }}
+  {{- with $app.ignoreDifferences }}
+  ignoreDifferences:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   syncPolicy:
     automated:
       prune: true
