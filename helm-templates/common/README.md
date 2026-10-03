@@ -43,6 +43,13 @@ so the output is deterministic.
 | `deployment.podLabels`, `deployment.podAnnotations` | `{}` | |
 | `deployment.podSecurityContext` | `{}` | |
 | `deployment.terminationGracePeriodSeconds` | `30` | |
+| `deployment.nodeSelector` | `{}` | passed through to the pod spec; omitted when empty |
+| `deployment.affinity` | `{}` | passed through to the pod spec; omitted when empty |
+| `deployment.tolerations` | `[]` | passed through to the pod spec; omitted when empty |
+| `deployment.topologySpreadConstraints` | `[]` | passed through to the pod spec; omitted when empty |
+| `deployment.priorityClassName` | `""` | omitted when empty |
+| `deployment.runtimeClassName` | `""` | omitted when empty |
+| `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; omitted when empty |
 | `deployment.containers.<name>` | | see Containers below |
 | `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated |
 | `service.enabled` | `false` | render a Service selecting the Deployment's pods |
