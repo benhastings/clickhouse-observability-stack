@@ -89,3 +89,40 @@ tests:
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- spanmetrics"
+
+  - it: adds no extra receivers by default
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "syslog"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "logs:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+metrics:"
+
+  - it: appends an extra receiver to a default pipeline without restating it
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    set:
+      collector:
+        extraReceivers:
+          syslog:
+            tcp:
+              listen_address: ${env:MY_POD_IP}:54527
+        extraPipelines:
+          logs:
+            receivers:
+              - syslog
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "receivers:\\n(.*\\n)*  syslog:\\n    tcp:\\n      listen_address: \\$\\{env:MY_POD_IP\\}:54527\\nservice:"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "logs:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+- syslog\\n\\s+metrics:"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "traces:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+telemetry:"
