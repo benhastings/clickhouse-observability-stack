@@ -22,7 +22,7 @@ flowchart LR
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. Also creates the OTel tables. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
-| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that all point at Cerberus, plus a span-metrics dashboard. |
+| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that all point at Cerberus, a span-metrics dashboard, and the Metrics, Logs and Traces Drilldown apps (pinned plugins, kept on a 1 Gi volume). |
 | `demo-load` | `ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen): a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. |
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
@@ -98,10 +98,17 @@ make dev/down                    # delete the cluster
 `make dev/up` refuses a cluster that already runs Argo CD, because Argo CD would revert whatever helm
 installs. Run `make cluster/down` first.
 
-**Editing dashboards:** in `local`, Grafana lets you save provisioned dashboards from the UI. Saved changes
-last only until the Grafana pod restarts, and `make dev/apply APP=grafana` restarts it. To keep a change,
-export the dashboard as JSON (**Export → Export as JSON**) into `cluster-nodes/grafana/dashboards/`, then run
-`make dev/apply APP=grafana` and `make generate`.
+**Editing dashboards:** the files in `cluster-nodes/grafana/dashboards/` are the dashboards; Grafana's
+database is thrown away when its pod restarts. In `local`, Grafana lets you save provisioned dashboards from
+the UI, so the loop is:
+
+1. Edit and save in Grafana. New dashboards work too.
+2. `make dev/dashboards` writes every dashboard in Grafana to `cluster-nodes/grafana/dashboards/`: over the
+   file with the same `uid`, or to `<uid>.json` for a new one. Keys are sorted, so a diff shows only what
+   changed.
+3. Review `git diff`, then `make generate` and commit.
+
+Export before the pod restarts (`make dev/apply APP=grafana` restarts it), or the UI changes are gone.
 
 ## Design decisions
 
@@ -268,7 +275,7 @@ These problems all came up while building this, and the fixes are already in the
   - The Altinity operator only watches its own namespace by default. `cluster-nodes/clickhouse-operator/values.yaml` sets `watch.namespaces.include: [observability]` in its `config.yaml`.
   - Check `kubectl -n observability get chi otel -o jsonpath='{.status.status} {.status.errors}'`.
 - **Installation `Aborted` with `RemovedSecretRefSyntax`:** operator 0.27.4 removed `user/k8s_secret_password`. Use `user/password: {valueFrom: {secretKeyRef: ...}}` instead, as this repo does.
-- **Grafana restarts and never becomes Ready:** Grafana 13 downloads its bundled app plugins from grafana.com on every start (its storage is an emptyDir), and on a slow machine or network that outlasts the liveness probe. `cluster-nodes/grafana/values.yaml` sets `preinstall_disabled = true`; the stack only uses the three Cerberus datasources.
+- **Grafana is slow to become Ready, or Drilldown pages are empty:** Grafana installs the three Drilldown apps from grafana.com, in the background, the first time it starts. They are kept on the `grafana-plugins` volume, so later restarts skip the download, and a startup probe gives a slow first start up to 10 minutes. If grafana.com is unreachable, Grafana still starts, without Drilldown; check `kubectl -n observability logs deploy/grafana | grep -i plugin`. Grafana's other default plugins are switched off in `grafana.ini` (`disable_plugins`).
 - **Cerberus stays `0/1 Ready`:** it reports not-ready until it has created the schema. Check `kubectl -n observability logs deploy/cerberus`.
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
