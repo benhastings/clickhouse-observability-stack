@@ -1,5 +1,7 @@
 # `common` library chart
 
+<!-- cspell:words daemonset -->
+
 Every Kubernetes object in this stack is rendered by this chart. A chart under `cluster-nodes/` depends on it
 with a `file://` dependency, has one template, `templates/common.yaml`, containing
 `{{ include "common.all" . }}`, and describes its workload entirely in `values.yaml`.
@@ -52,6 +54,10 @@ so the output is deterministic.
 | `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; omitted when empty |
 | `deployment.containers.<name>` | | see Containers below |
 | `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated |
+| `daemonset.enabled` | `false` | render a DaemonSet; see DaemonSet below |
+| `daemonset.updateStrategy` | `RollingUpdate` | |
+| `daemonset.selectorLabels` | `{}` | merged over the base selector labels on the DaemonSet's selector and pods |
+| `daemonset.podLabels` … `daemonset.volumes` | as `deployment` | the same pod, scheduling, container and volume keys as `deployment`, except `replicas` and `strategy` |
 | `podDisruptionBudget.enabled` | `false` | render a `policy/v1` PodDisruptionBudget selecting the Deployment's pods |
 | `podDisruptionBudget.minAvailable` | `1` | a count or a percentage; set to `null` to use `maxUnavailable` |
 | `podDisruptionBudget.maxUnavailable` | unset | a count or a percentage; mutually exclusive with `minAvailable` |
@@ -92,7 +98,22 @@ format, belongs in a `files` glob, which is not templated.
 ### Rollouts
 
 Every pod carries a `checksum/config` annotation hashed from the chart's rendered ConfigMaps and Secrets, so a
-config change rolls the Deployment.
+config change rolls the Deployment and the DaemonSet.
+
+### DaemonSet
+
+`daemonset` renders one pod per node, for agents such as a collector reading the kubelet. It takes the same pod
+keys as `deployment` and renders them with the same pod template and container helper, so a container is
+written the same way in either. It has `updateStrategy` instead of `replicas` and `strategy`, and the
+disruption budget and autoscaler never target it.
+
+A chart may enable either kind, both, or neither. Both kinds select their pods with the base labels
+`app.kubernetes.io/name` and `app.kubernetes.io/instance`; the DaemonSet merges `daemonset.selectorLabels` over
+them. With both enabled the render fails when the two selectors are equal, since the two controllers would select
+exactly the same pods, so a chart that runs both sets something like
+`daemonset.selectorLabels: {app.kubernetes.io/component: agent}`. The Service still selects on the base
+labels, which the DaemonSet's pods also carry; to keep Service traffic off them, override
+`app.kubernetes.io/name` in `daemonset.selectorLabels` instead of adding a key.
 
 ### Disruption budget and autoscaling
 

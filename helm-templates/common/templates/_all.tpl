@@ -1,3 +1,4 @@
+{{- /* cspell:words daemonset */ -}}
 {{- define "common.all" -}}
 {{ include "common.serviceAccount" . }}
 {{ include "common.rbac" . }}
@@ -5,6 +6,7 @@
 {{ include "common.secrets" . }}
 {{ include "common.service" . }}
 {{ include "common.deployment" . }}
+{{ include "common.daemonset" . }}
 {{ include "common.podDisruptionBudget" . }}
 {{ include "common.autoscaling" . }}
 {{ include "common.objects" . }}

@@ -93,6 +93,35 @@ deployment:
     scratch:
       emptyDir: {}
 
+daemonset:
+  enabled: false
+  selectorLabels:
+    app.kubernetes.io/component: agent
+  podAnnotations:
+    example.com/scrape: "true"
+  tolerations:
+    - operator: Exists
+  containers:
+    agent:
+      image:
+        repository: example/agent
+        tag: "2.0.0"
+      args:
+        - --name={{ include "common.fullname" . }}
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 32Mi
+      volumeMounts:
+        - name: config
+          mountPath: /conf
+  volumes:
+    config:
+      configMap:
+        name: '{{ include "common.fullname" . }}'
+
 objects:
   widget:
     apiVersion: example.com/v1
