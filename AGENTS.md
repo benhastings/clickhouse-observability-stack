@@ -54,7 +54,7 @@ add a target. `make help` lists everything.
 | Target                      | What it does                                                                 |
 | --------------------------- | ---------------------------------------------------------------------------- |
 | `make setup`                | installs every check tool (Go, Python 3 and Node required) and the git hooks    |
-| `make setup/tools/cluster`  | kind and kubectl at pinned versions, for `cluster/...` and `test/e2e`          |
+| `make setup/tools/cluster`  | kind and kubectl at pinned versions, for `cluster/...`, `dev/...` and `test/e2e` |
 | `make check`                | the whole gate CI runs: `check/lint`, `check/golden`, `check/manifests`        |
 | `make check/lint`           | yamllint, shellcheck, `check/structure`, actionlint, cspell                   |
 | `make check/structure`      | the cluster-configs and cluster-nodes layout rules below                      |
@@ -67,10 +67,21 @@ add a target. `make help` lists everything.
 | `make cluster/up`           | kind, Argo CD, the local app-of-apps; `REVISION=<ref>` deploys a branch       |
 | `make cluster/port-forward` | Grafana `:3000`, Argo CD `:8080`, Cerberus `:8081`, OTLP `:4317`/`:4318`       |
 | `make cluster/down`         | deletes the kind cluster                                                      |
+| `make dev/up`               | kind and every app but demo-load, helm-installed from the working tree; no Argo CD |
+| `make dev/apply APP=<app>`  | redeploys one app from the working tree into the `dev/up` cluster              |
+| `make dev/load`, `dev/load/stop` | starts or stops the demo load in the `dev/up` cluster                    |
+| `make dev/port-forward`, `dev/down` | the `cluster/...` equivalents for the `dev/up` cluster                |
 
 GNU make is required. On macOS use `gmake`, which is what `git/hooks/pre-commit` does.
 
-New targets follow the existing families: `setup/...`, `check/...`, `generate`, `test/...`, `cluster/...`.
+New targets follow the existing families: `setup/...`, `check/...`, `generate`, `test/...`, `cluster/...`,
+`dev/...`.
+
+`cluster/...` is the GitOps path: Argo CD deploys a pushed revision, and it is what `test/e2e` runs.
+`dev/...` is for iterating: `scripts/dev.bash` installs each node with `helm` in sync-wave order, with the
+release, namespace and values the `local` Application would get (both read them through
+`scripts/apps.bash`), and leaves the demo load to `make dev/load`. It refuses a cluster that runs Argo CD.
+A change tried with `dev/...` still needs the e2e run before it is done.
 
 ### What the checks enforce
 

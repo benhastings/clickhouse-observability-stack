@@ -148,3 +148,29 @@ cluster/down: ## Delete the kind cluster
 .PHONY: cluster/port-forward
 cluster/port-forward: ## Forward Grafana, Argo CD, Cerberus and OTLP to localhost
 	scripts/port-forward.sh
+
+##@ Local development (no Argo CD)
+
+.PHONY: dev/up
+dev/up: deps ## Create the kind cluster and helm-install every app but demo-load from the working tree
+	scripts/dev.bash up
+
+.PHONY: dev/apply
+dev/apply: deps ## Redeploy one app from the working tree: APP=<app>, e.g. APP=grafana after editing a dashboard
+	scripts/dev.bash apply $(APP)
+
+.PHONY: dev/load
+dev/load: deps ## Start the demo load
+	scripts/dev.bash apply demo-load
+
+.PHONY: dev/load/stop
+dev/load/stop: ## Stop the demo load
+	scripts/dev.bash remove demo-load
+
+.PHONY: dev/port-forward
+dev/port-forward: ## Forward Grafana, Cerberus and OTLP to localhost
+	scripts/port-forward.sh
+
+.PHONY: dev/down
+dev/down: ## Delete the kind cluster
+	scripts/kind-down.sh

@@ -52,7 +52,7 @@ data:
   dashboards.yaml: |-
     apiVersion: 1
     providers:
-    - allowUiUpdates: false
+    - allowUiUpdates: true
       disableDeletion: true
       folder: Cerberus
       name: dashboards
@@ -586,7 +586,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 5ba7bf290b2d5d67bf64166523637bc373d9aec3798bcf8e0859c13c56a8a9d9
+        checksum/config: 7aa2542189014e97b31f1f89be5c57c97bc99b6f571e8301825f9962c28b2547
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
