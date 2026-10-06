@@ -191,6 +191,10 @@ dev/load: deps ## Start the demo load
 dev/load/stop: ## Stop the demo load
 	scripts/dev.bash remove demo-load
 
+.PHONY: dev/dashboards
+dev/dashboards: ## Save every dashboard in Grafana to cluster-nodes/grafana/dashboards/, to commit
+	scripts/dev.bash dashboards
+
 .PHONY: dev/port-forward
 dev/port-forward: ## Forward Grafana, Cerberus and OTLP to localhost
 	scripts/port-forward.sh

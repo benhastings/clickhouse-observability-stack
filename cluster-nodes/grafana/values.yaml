@@ -47,6 +47,9 @@ auth:
     loginAttributePath: preferred_username
     nameAttributePath: name
 
+# Put plugins on the grafana-plugins claim; see deployment.volumes.plugins.
+pluginsClaim: false
+
 configMaps:
   config:
     data:
@@ -61,8 +64,11 @@ configMaps:
         plugins = /var/lib/grafana/plugins
         provisioning = /etc/grafana/provisioning
         [plugins]
+        ; Only the Drilldown apps, pinned. Grafana adds its default preinstall list
+        ; to these; everything on it that isn't bundled in the image is disabled.
+        preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1
         preinstall_auto_update = false
-        preinstall_disabled = true
+        disable_plugins = grafana-pyroscope-app,grafana-advisor-app
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
         {{- if .Values.auth.disableLoginForm }}
@@ -211,7 +217,7 @@ deployment:
         GF_PATHS_PLUGINS: /var/lib/grafana/plugins
         GF_PATHS_PROVISIONING: /etc/grafana/provisioning
         GF_UNIFIED_STORAGE_INDEX_PATH: /var/lib/grafana-search/bleve
-        GOMEMLIMIT: 345MiB
+        GOMEMLIMIT: 920MiB  # about 90% of the limit
       livenessProbe:
         httpGet:
           path: /api/health
@@ -223,12 +229,15 @@ deployment:
         httpGet:
           path: /api/health
           port: grafana
+      # The Drilldown apps query through Grafana's server: opening Metrics Drilldown
+      # OOM-killed Grafana at 384Mi. Measured peak with all three apps in use was
+      # 679Mi, so the limit leaves about 50% headroom.
       resources:
         requests:
           cpu: 25m
           memory: 96Mi
         limits:
-          memory: 384Mi
+          memory: 1Gi
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
@@ -254,6 +263,8 @@ deployment:
           mountPath: /var/lib/grafana/dashboards
         - name: storage
           mountPath: /var/lib/grafana
+        - name: plugins
+          mountPath: /var/lib/grafana/plugins
         - name: search
           mountPath: /var/lib/grafana-search
   volumes:
@@ -269,6 +280,16 @@ deployment:
       {{- end }}
     search:
       emptyDir: {}
+    # Its own volume so an environment can keep plugins without keeping the
+    # database: the grafana-plugins claim when pluginsClaim is set (the
+    # environment creates it under objects.plugins), otherwise an emptyDir.
+    plugins: |-
+      {{- if .Values.pluginsClaim }}
+      persistentVolumeClaim:
+        claimName: {{ include "common.fullname" . }}-plugins
+      {{- else }}
+      emptyDir: {}
+      {{- end }}
     config:
       configMap:
         name: '{{ include "common.fullname" . }}-config'

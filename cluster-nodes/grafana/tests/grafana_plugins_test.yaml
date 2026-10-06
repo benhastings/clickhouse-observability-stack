@@ -1,0 +1,60 @@
+suite: grafana plugins
+templates:
+  - templates/common.yaml
+release:
+  name: grafana
+  namespace: observability
+tests:
+  - it: preinstalls only the pinned Drilldown apps
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: "(?m)^preinstall = grafana-metricsdrilldown-app@[0-9.]+,grafana-lokiexplore-app@[0-9.]+,grafana-exploretraces-app@[0-9.]+$"
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: "(?m)^disable_plugins = grafana-pyroscope-app,grafana-advisor-app$"
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: "preinstall_disabled"
+
+  - it: keeps plugins on their own volume, an emptyDir unless an environment replaces it
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: plugins
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: plugins
+            mountPath: /var/lib/grafana/plugins
+
+  - it: puts plugins on the grafana-plugins claim when pluginsClaim is set
+    set:
+      pluginsClaim: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: plugins
+            persistentVolumeClaim:
+              claimName: grafana-plugins
+
+  - it: leaves room for the Drilldown apps' query bursts
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi

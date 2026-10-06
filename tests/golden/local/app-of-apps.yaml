@@ -59,6 +59,7 @@ spec:
         global:
           labels:
             environment: local
+          mesh: kubernetes
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -95,6 +96,7 @@ spec:
         global:
           labels:
             environment: local
+          mesh: kubernetes
         secrets:
           credentials:
             create: true
@@ -141,6 +143,7 @@ spec:
         global:
           labels:
             environment: local
+          mesh: kubernetes
   destination:
     server: https://kubernetes.default.svc
     namespace: clickhouse-operator
@@ -177,6 +180,7 @@ spec:
         global:
           labels:
             environment: local
+          mesh: kubernetes
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -223,9 +227,38 @@ spec:
                     path: /var/lib/grafana/dashboards
                   orgId: 1
                   type: file
+        deployment:
+          containers:
+            grafana:
+              startupProbe:
+                failureThreshold: 60
+                httpGet:
+                  path: /api/health
+                  port: grafana
+                periodSeconds: 10
+                timeoutSeconds: 30
+          strategy:
+            type: Recreate
+          volumes:
+            storage:
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi
         global:
           labels:
             environment: local
+          mesh: kubernetes
+        objects:
+          plugins:
+            apiVersion: v1
+            kind: PersistentVolumeClaim
+            spec:
+              accessModes:
+              - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 1Gi
+        pluginsClaim: true
         secrets:
           admin:
             create: true
@@ -272,6 +305,7 @@ spec:
         global:
           labels:
             environment: local
+          mesh: kubernetes
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
