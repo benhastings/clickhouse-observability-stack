@@ -32,6 +32,70 @@ tests:
           path: spec.destination.namespace
           value: observability
 
+  - it: defaults each app to the environment's repoURL and targetRevision
+    documentSelector:
+      path: metadata.name
+      value: cerberus-test
+    asserts:
+      - equal:
+          path: spec.source.repoURL
+          value: https://example.com/repo.git
+      - equal:
+          path: spec.source.targetRevision
+          value: main
+      - notExists:
+          path: spec.source.chart
+
+  - it: deploys one app from its own repoURL, targetRevision and path
+    set:
+      applications.grafana.repoURL: https://example.com/upstream.git
+      applications.grafana.targetRevision: v1.4.0
+      applications.grafana.path: charts/grafana
+    asserts:
+      - equal:
+          path: spec.source
+          value:
+            repoURL: https://example.com/upstream.git
+            targetRevision: v1.4.0
+            path: charts/grafana
+            helm:
+              releaseName: grafana
+              valuesObject:
+                global: {}
+        documentSelector:
+          path: metadata.name
+          value: grafana-test
+      - equal:
+          path: spec.source.repoURL
+          value: https://example.com/repo.git
+        documentSelector:
+          path: metadata.name
+          value: cerberus-test
+      - equal:
+          path: spec.source.targetRevision
+          value: main
+        documentSelector:
+          path: metadata.name
+          value: cerberus-test
+
+  - it: deploys a packaged Helm chart in place of a path
+    set:
+      applications.grafana.repoURL: https://charts.example.com
+      applications.grafana.targetRevision: 1.4.0
+      applications.grafana.chart: grafana
+    documentSelector:
+      path: metadata.name
+      value: grafana-test
+    asserts:
+      - equal:
+          path: spec.source.chart
+          value: grafana
+      - equal:
+          path: spec.source.targetRevision
+          value: 1.4.0
+      - notExists:
+          path: spec.source.path
+
   - it: carries each app's sync wave and namespace
     documentSelector:
       path: metadata.name
@@ -95,3 +159,39 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: applications.extra.syncWave is required
+
+  - it: ignores ClickHouseInstallation status, and only status, on clickhouse
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-test
+    asserts:
+      - equal:
+          path: spec.ignoreDifferences
+          value:
+            - group: clickhouse.altinity.com
+              kind: ClickHouseInstallation
+              jsonPointers:
+                - /status
+      - notContains:
+          path: spec.ignoreDifferences[0].jsonPointers
+          content: /spec
+      - notExists:
+          path: spec.ignoreDifferences[0].jqPathExpressions
+
+  - it: renders no ignoreDifferences for an app without the key
+    documentSelector:
+      path: metadata.name
+      value: cerberus-test
+    asserts:
+      - notExists:
+          path: spec.ignoreDifferences
+
+  - it: renders no ignoreDifferences for an empty list
+    set:
+      applications.cerberus.ignoreDifferences: []
+    documentSelector:
+      path: metadata.name
+      value: cerberus-test
+    asserts:
+      - notExists:
+          path: spec.ignoreDifferences

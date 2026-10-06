@@ -6,97 +6,79 @@ secrets:
     create: false
     stringData:
       username: otel
+  # The backup CronJob's S3 credentials, keys access_key and secret_key. Never created here: an environment
+  # that turns on clickhouse.backup pre-creates clickhouse-backup or sets create: true with its own stringData.
+  backup:
+    create: false
 
+# The ClickHouseInstallation's size. files/installation.yaml.tpl renders the Installation from these keys,
+# so an environment sets only the keys it changes. lowMemory: false drops the laptop tuning (the
+# max_threads and max_memory_usage profiles and config.d/low_memory.xml). An empty storageClassName
+# uses the cluster's default StorageClass.
+clickhouse:
+  shards: 1
+  replicas: 1
+  storage: 2Gi
+  storageClassName: ""
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: "26.9.5.2"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  lowMemory: true
+  # An optional nightly clickhouse-backup run against the otel cluster, uploading to S3-compatible storage.
+  # It uses ClickHouse's own BACKUP ... TO S3 (embedded mode with no backup disk), so the job needs only the
+  # clickhouse:9000 Service, not the data volume. keep is how many remote backups to retain; older ones are
+  # deleted after each upload. common renders a stray document for an objects entry whose template is
+  # empty, so turning this on takes two keys in the environment's applications.clickhouse.values:
+  #
+  #   clickhouse:
+  #     backup:
+  #       enabled: true
+  #       bucket: <bucket>
+  #       endpoint: https://<s3-endpoint>
+  #   objects:
+  #     backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+  #
+  # and a clickhouse-backup Secret with access_key and secret_key (see secrets.backup).
+  #
+  # Restore is manual. List the remote backups, then restore one by name; each runs a one-off Job from the
+  # CronJob, so it uses the same bucket, path and credentials (<backup-name> is a placeholder):
+  #
+  #   kubectl -n observability create job clickhouse-backup-list --from=cronjob/clickhouse-backup \
+  #     --dry-run=client -o json | jq '.spec.template.spec.containers[0].args = ["list", "remote"]' \
+  #     | kubectl create -f -
+  #   kubectl -n observability logs job/clickhouse-backup-list
+  #   kubectl -n observability create job clickhouse-restore --from=cronjob/clickhouse-backup \
+  #     --dry-run=client -o json \
+  #     | jq '.spec.template.spec.containers[0].args = ["restore_remote", "--rm", "<backup-name>"]' \
+  #     | kubectl create -f -
+  backup:
+    enabled: false
+    schedule: "0 3 * * *"
+    bucket: ""
+    path: otel
+    endpoint: ""
+    region: us-east-1
+    forcePathStyle: true
+    keep: 7
+    image:
+      repository: altinity/clickhouse-backup
+      tag: "2.8.1"
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+# The Installation is a Go template in files/ because a map in values can't leave out a key, and
+# lowMemory and storageClassName need to. The leading "---" keeps this string unquoted through
+# toYaml, so common's tpl renders it as YAML. To set something the clickhouse keys don't cover, set
+# objects.installation to a whole ClickHouseInstallation map; it replaces the rendered one.
 objects:
-  installation:
-    apiVersion: clickhouse.altinity.com/v1
-    kind: ClickHouseInstallation
-    metadata:
-      name: otel
-    spec:
-      defaults:
-        templates:
-          podTemplate: clickhouse
-          dataVolumeClaimTemplate: data
-          serviceTemplate: clickhouse
-      configuration:
-        users:
-          otel/password:
-            valueFrom:
-              secretKeyRef:
-                name: '{{ include "common.fullname" . }}-credentials'
-                key: password
-          otel/networks/ip:
-            - "0.0.0.0/0"
-            - "::/0"
-          otel/profile: default
-          otel/quota: default
-        profiles:
-          default/max_threads: 2
-          default/max_memory_usage: 536870912
-        files:
-          config.d/low_memory.xml: |
-            <clickhouse>
-              <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
-              <mark_cache_size>67108864</mark_cache_size>
-              <uncompressed_cache_size>0</uncompressed_cache_size>
-              <index_mark_cache_size>0</index_mark_cache_size>
-              <index_uncompressed_cache_size>0</index_uncompressed_cache_size>
-              <background_schedule_pool_size>8</background_schedule_pool_size>
-              <background_common_pool_size>4</background_common_pool_size>
-              <background_fetches_pool_size>2</background_fetches_pool_size>
-              <background_move_pool_size>2</background_move_pool_size>
-              <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
-              <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
-              <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
-              <asynchronous_metric_log remove="1"/>
-              <metric_log remove="1"/>
-              <query_metric_log remove="1"/>
-              <trace_log remove="1"/>
-              <text_log remove="1"/>
-              <part_log remove="1"/>
-              <processors_profile_log remove="1"/>
-              <opentelemetry_span_log remove="1"/>
-              <latency_log remove="1"/>
-              <error_log remove="1"/>
-              <query_thread_log remove="1"/>
-              <query_views_log remove="1"/>
-              <session_log remove="1"/>
-              <blob_storage_log remove="1"/>
-            </clickhouse>
-        clusters:
-          - name: main
-            layout:
-              shardsCount: 1
-              replicasCount: 1
-      templates:
-        serviceTemplates:
-          - name: clickhouse
-            generateName: clickhouse
-            spec:
-              type: ClusterIP
-              ports:
-                - name: http
-                  port: 8123
-                - name: tcp
-                  port: 9000
-        podTemplates:
-          - name: clickhouse
-            spec:
-              containers:
-                - name: clickhouse
-                  image: clickhouse/clickhouse-server:26.9.5.2
-                  resources:
-                    requests:
-                      cpu: 100m
-                      memory: 256Mi
-                    limits:
-                      memory: 1Gi
-        volumeClaimTemplates:
-          - name: data
-            spec:
-              accessModes:
-                - ReadWriteOnce
-              resources:
-                requests:
-                  storage: 2Gi
+  installation: '--{{ "-" }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}'

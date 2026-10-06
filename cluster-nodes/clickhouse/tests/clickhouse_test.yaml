@@ -55,12 +55,166 @@ tests:
             username: otel
             password: example
 
-  - it: lets an environment drop the low-memory tuning
+  - it: renders the default installation as one shard of one replica with the low-memory tuning
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.clusters[0].layout
+          value:
+            shardsCount: 1
+            replicasCount: 1
+      - exists:
+          path: spec.configuration.files["config.d/low_memory.xml"]
+      - equal:
+          path: spec.configuration.profiles["default/max_threads"]
+          value: 2
+      - notExists:
+          path: spec.templates.volumeClaimTemplates[0].spec.storageClassName
+
+  - it: sets replicasCount from clickhouse.replicas alone
     set:
-      objects.installation.spec.configuration.files: null
+      clickhouse.replicas: 3
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.clusters[0].layout.replicasCount
+          value: 3
+      - equal:
+          path: spec.configuration.clusters[0].layout.shardsCount
+          value: 1
+
+  - it: drops the low-memory profiles and file when clickhouse.lowMemory is false
+    set:
+      clickhouse.lowMemory: false
     documentSelector:
       path: kind
       value: ClickHouseInstallation
     asserts:
       - notExists:
           path: spec.configuration.files
+      - notExists:
+          path: spec.configuration.profiles
+
+  - it: sizes the pod and volume from the clickhouse keys
+    set:
+      clickhouse.storage: 200Gi
+      clickhouse.storageClassName: fast
+      clickhouse.resources.limits.memory: 8Gi
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.templates.volumeClaimTemplates[0].spec.storageClassName
+          value: fast
+      - equal:
+          path: spec.templates.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 200Gi
+      - equal:
+          path: spec.templates.podTemplates[0].spec.containers[0]
+          value:
+            name: clickhouse
+            image: clickhouse/clickhouse-server:26.9.5.2
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 8Gi
+
+  - it: renders no backup CronJob and no backup Secret by default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - containsDocument:
+          kind: CronJob
+          apiVersion: batch/v1
+        not: true
+      - containsDocument:
+          kind: Secret
+          apiVersion: v1
+        not: true
+
+  - it: runs clickhouse-backup on a schedule when backup is enabled
+    set:
+      clickhouse.backup.enabled: true
+      clickhouse.backup.bucket: example-bucket
+      clickhouse.backup.schedule: "15 2 * * *"
+      clickhouse.backup.keep: 3
+      objects.backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: metadata.name
+          value: clickhouse-backup
+      - equal:
+          path: spec.schedule
+          value: "15 2 * * *"
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: altinity/clickhouse-backup:2.8.1
+      - matchRegex:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          pattern: ':[0-9]+\.[0-9]+\.[0-9]+$'
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args
+          value: [create_remote]
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources.limits.memory
+      - exists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].resources.requests.cpu
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_HOST
+            value: clickhouse
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: S3_BUCKET
+            value: example-bucket
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: BACKUPS_TO_KEEP_REMOTE
+            value: "3"
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: S3_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-backup
+                key: secret_key
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-credentials
+                key: password
+
+  - it: keeps the backup credentials out of the chart even when backup is enabled
+    set:
+      clickhouse.backup.enabled: true
+      clickhouse.backup.bucket: example-bucket
+      objects.backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+    asserts:
+      - containsDocument:
+          kind: Secret
+          apiVersion: v1
+        not: true
+
+  - it: refuses objects.backup without clickhouse.backup.enabled
+    set:
+      objects.backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+    asserts:
+      - failedTemplate:
+          errorPattern: clickhouse.backup.enabled is false

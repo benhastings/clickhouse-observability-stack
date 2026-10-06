@@ -1,19 +1,19 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: app-of-apps-local
+  name: app-of-apps-dev
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: observability-local
+  project: observability-dev
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
     path: cluster-configs/app-of-apps
     helm:
       valueFiles:
-        - ../overrides/values-local.yaml
+        - ../overrides/values-dev.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

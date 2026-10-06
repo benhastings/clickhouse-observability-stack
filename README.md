@@ -1,5 +1,7 @@
 # ClickHouse observability stack (Argo CD app-of-apps)
 
+<!-- cspell:words daemonset -->
+
 A GitOps deployment of an OpenTelemetry pipeline that stores **traces, logs and metrics in ClickHouse** and lets **Grafana query them with PromQL, LogQL and TraceQL**. Grafana doesn't talk to ClickHouse directly: Cerberus sits in between and speaks the Prometheus, Loki and Tempo APIs on ClickHouse's behalf.
 
 One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared library chart, `helm-templates/common`. It's sized for a laptop and verified end to end on a local kind cluster.
@@ -168,6 +170,9 @@ Everything is sized for light local testing:
 | Cerberus | 64 Mi | 384 Mi |
 | Collector | 64 Mi | 256 Mi |
 | Operator | 48 Mi | 192 Mi |
+| Collector agent (off; per node when on) | 32 Mi | 128 Mi |
+
+The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
 
 ClickHouse also gets a `config.d/low_memory.xml` (in `cluster-nodes/clickhouse/values.yaml`; the `prod` environment removes it) with:
 - small caches
@@ -233,8 +238,9 @@ of the container alone. `helm-templates/common/README.md` documents every key.
 
 `local` is what `scripts/kind-up.sh` deploys. `prod` is a worked example: no demo load, no low-memory tuning,
 larger resources, and Secrets you create yourself (`clickhouse-credentials`, `grafana-admin` and
-`clickhouse-operator-credentials`). To add an environment, copy both `values-local.yaml` and
-`app-of-apps-local.yaml` under the new name.
+`clickhouse-operator-credentials`). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+`values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
+`FORCE=1`. Every application starts from its node defaults; add only what differs.
 
 ### Stable names
 
@@ -291,6 +297,38 @@ The node tests fail when one of these moves:
 
 If you change one on purpose, change its pair in the same commit and update the test that pins it.
 
+## Upgrades
+
+Bump one component per PR unless two must move together. These are the sets that must. Each tag lives in the
+node's own `values.yaml` (the nodes are environment-neutral; no `values-<env>.yaml` sets an image tag), and
+`appVersion` in the node's `Chart.yaml` moves with it.
+
+| Moves together | Where | Why |
+|---|---|---|
+| Cerberus and the collector image | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`) and `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), plus each `Chart.yaml` `appVersion` | Cerberus creates the tables and the collector inserts into them with `create_schema: false`. A bump to either can break inserts or queries without any manifest changing. |
+| The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). |
+| The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.1.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
+
+For every bump, also update the Components table above, then run `make generate` to re-render `tests/golden`
+and commit the result with the change.
+
+### What the checks prove
+
+A golden diff is expected on a bump: it is the exact image and `checksum/config` change that makes pods roll.
+It shows what will change in the cluster, not that the pipeline still works.
+
+`make check` proves the manifests are well-formed and the images are pinned. It does **not** prove a Cerberus or
+collector bump. Neither a changed table layout nor a column type mismatch shows up in a manifest, so the check
+for that pair is a deploy to kind and the queries:
+
+```bash
+make test/e2e REVISION=my-branch   # needs Docker, and a pushed branch
+```
+
+The e2e run queries span metrics, logs and traces through Cerberus. For anything it does not cover, run
+`make cluster/up REVISION=my-branch` and `make cluster/port-forward`, and compare Grafana with
+[What you should see](#what-you-should-see).
+
 ## Contributing
 
 ```bash
@@ -322,6 +360,8 @@ the network does: image pulls and the Argo CD chart.
 
 These problems all came up while building this, and the fixes are already in the repo.
 
+Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` checks that the Secrets the environment expects and a StorageClass for the ClickHouse volume exist, and prints what is missing; it installs nothing.
+
 - **`kind create cluster` fails at "Starting control-plane" (API server connection refused):**
   - Hosts with a **btrfs root on an encrypted (`/dev/mapper`) volume** need `/dev/mapper` mounted into the kind node, or the kubelet never starts the control plane.
   - Slow container creation on such hosts also needs longer kubeadm timeouts.
@@ -340,11 +380,46 @@ These problems all came up while building this, and the fixes are already in the
     clickhouse-client --user otel --password otel-local-dev
   ```
 
+## Grafana sign-in with Keycloak
+
+Grafana can sign users in through Keycloak using generic OAuth. The laptop profile leaves it off (`auth.genericOauth.enabled: false` in `cluster-nodes/grafana/values.yaml`), so `make cluster/up` still logs in with `admin`/`admin`. An environment turns it on by setting `auth.genericOauth` under `applications.grafana.values`; this section is the Keycloak side of that.
+
+Create a client in the realm with these settings:
+
+| Setting | Value |
+|---|---|
+| Client authentication | On (a confidential client) |
+| Standard flow | On |
+| Direct access grants | Off |
+| Valid redirect URIs | `https://<grafana host>/login/generic_oauth` |
+| Web origins | Grafana's root URL, `https://<grafana host>` |
+
+The client ID goes in `auth.genericOauth.clientId`, and `auth.genericOauth.rootUrl` must be the same `https://<grafana host>` the redirect URI uses. `rootUrl` is required once OAuth is enabled; the render fails without it. Set `authUrl`, `tokenUrl` and `apiUrl` to the realm's OpenID Connect endpoints; the commented Keycloak URLs in `cluster-nodes/grafana/values.yaml` show each one.
+
+Create three realm roles and give them to users or groups:
+
+| Realm role | Grafana role |
+|---|---|
+| `grafana-admin` | Admin |
+| `grafana-editor` | Editor |
+| `grafana-viewer` | Viewer |
+
+The default `auth.genericOauth.roleAttributePath` reads `realm_access.roles`: `grafana-admin` wins, then `grafana-editor`, and anyone else is a Viewer. `grafana-viewer` therefore grants the same access as no role at all; it exists so a user's role is visible in Keycloak. If you change the role names, change the expression to match.
+
+The client secret never goes in git. Create the Secret `grafana-oauth` with the key `client-secret` in the cluster before the first sync, from the client's Credentials tab:
+
+```bash
+kubectl -n observability create secret generic grafana-oauth \
+  --from-literal=client-secret='<client secret>'
+```
+
+The chart does not create it. The environment adds `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET` to the Grafana container's `env`, read from that Secret's `client-secret` key; the commented example is at the top of `cluster-nodes/grafana/values.yaml`.
+
 ## Before using this beyond a laptop
 
 - **Credentials:** the ClickHouse password and the Grafana `admin`/`admin` login in `cluster-configs/overrides/values-local.yaml` are **public, local-only credentials**. The `prod` environment creates no Secrets; supply them from a secret manager (for example External Secrets or Sealed Secrets).
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
-- **System metrics on more than one node:** the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Run a DaemonSet of collectors for it, and verify the kubelet's serving certificate instead of `insecure_skip_verify`.
+- **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
 - **Retention:** set it with `CERBERUS_SCHEMA_TTL` in `cluster-nodes/cerberus/values.yaml` (currently `7d`). Also set `CERBERUS_PROM_METADATA_LOOKBACK` if retention exceeds 14 days.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.

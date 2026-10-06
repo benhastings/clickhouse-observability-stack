@@ -1,10 +1,11 @@
-environment: prod
+environment: dev
 repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
 
+# The mesh default is a later change; until then dev matches prod.
 global:
   labels:
-    environment: prod
+    environment: dev
 
 applications:
   clickhouse-operator:

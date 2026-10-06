@@ -52,3 +52,237 @@ tests:
       - equal:
           path: spec.ports[0].targetPort
           value: grafana
+
+  - it: leaves generic OAuth out of grafana.ini by default
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: auth\.generic_oauth
+
+  - it: renders generic OAuth into grafana.ini when enabled
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[auth\.generic_oauth\]\nenabled = true$'
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^auth_url = https://keycloak\.example\.com/realms/demo/protocol/openid-connect/auth$'
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: "(?m)^role_attribute_path = contains\\(realm_access\\.roles\\[\\*\\], 'grafana-admin'\\) && 'Admin' \\|\\| contains\\(realm_access\\.roles\\[\\*\\], 'grafana-editor'\\) && 'Editor' \\|\\| 'Viewer'$"
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^login_attribute_path = preferred_username$'
+
+  - it: fails the render when generic OAuth is enabled without an auth URL
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - failedTemplate:
+          errorPattern: auth.genericOauth.authUrl is required
+
+  - it: fails the render when generic OAuth is enabled without a root URL
+    set:
+      auth.genericOauth:
+        enabled: true
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - failedTemplate:
+          errorPattern: auth.genericOauth.rootUrl is required
+
+  - it: leaves root_url, client_secret and the OAuth secret env out by default
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: (root_url|client_secret)
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: reads the OAuth client secret from grafana-oauth through the environment
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+      deployment.containers.grafana.env.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+        valueFrom:
+          secretKeyRef:
+            name: grafana-oauth
+            key: client-secret
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[server\]\nroot_url = https://grafana\.example\.com/$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = \$__env\{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET\}$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = [^$]'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: grafana-oauth
+                key: client-secret
+        documentSelector:
+          path: kind
+          value: Deployment
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: kind
+          value: Secret
+          skipEmptyTemplates: true
+
+  - it: leaves disable_login_form out of grafana.ini by default
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: disable_login_form
+
+  - it: hides the login form when asked and OAuth is enabled
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      auth.disableLoginForm: true
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[auth\]\ndisable_login_form = true$'
+
+  - it: refuses to hide the login form without OAuth
+    set:
+      auth.disableLoginForm: true
+    asserts:
+      - failedTemplate:
+          errorPattern: auth.disableLoginForm requires auth.genericOauth.enabled
+
+  - it: has no PersistentVolumeClaim and mounts an emptyDir at /var/lib/grafana by default
+    asserts:
+      - hasDocuments:
+          count: 5
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: storage
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders a claim of the requested size when persistence is enabled
+    set:
+      persistence:
+        enabled: true
+        size: 5Gi
+        storageClassName: fast
+    documentSelector:
+      path: kind
+      value: PersistentVolumeClaim
+    asserts:
+      - equal:
+          path: metadata.name
+          value: grafana-data
+      - equal:
+          path: spec.accessModes
+          value: [ReadWriteOnce]
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+      - equal:
+          path: spec.storageClassName
+          value: fast
+
+  - it: leaves the storage class to the cluster when none is set
+    set:
+      persistence.enabled: true
+    documentSelector:
+      path: kind
+      value: PersistentVolumeClaim
+    asserts:
+      - notExists:
+          path: spec.storageClassName
+      - equal:
+          path: spec.resources.requests.storage
+          value: 1Gi
+
+  - it: mounts the claim at /var/lib/grafana when persistence is enabled
+    set:
+      persistence.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: storage
+            persistentVolumeClaim:
+              claimName: grafana-data
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: storage
+            mountPath: /var/lib/grafana
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: storage
+            emptyDir: {}

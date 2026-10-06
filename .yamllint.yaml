@@ -7,6 +7,7 @@ ignore: |
   templates/
   cluster-nodes/*/crds/
   tests/golden/
+  dist/
 
 rules:
   document-start: disable

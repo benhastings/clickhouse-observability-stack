@@ -1,0 +1,153 @@
+suite: common.daemonset
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renders no DaemonSet by default
+    asserts:
+      - notFailedTemplate: {}
+      - containsDocument:
+          kind: DaemonSet
+          apiVersion: apps/v1
+        not: true
+
+  - it: renders a DaemonSet when enabled
+    set:
+      daemonset.enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - isAPIVersion:
+          of: apps/v1
+      - equal:
+          path: metadata.name
+          value: fixture
+      - equal:
+          path: metadata.namespace
+          value: demo
+
+  - it: keeps the Deployment when the DaemonSet is enabled alongside it
+    set:
+      daemonset.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: fixture
+            app.kubernetes.io/instance: fixture
+
+  - it: selects its pods with the base selector labels plus daemonset.selectorLabels
+    set:
+      daemonset.enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: fixture
+            app.kubernetes.io/instance: fixture
+            app.kubernetes.io/component: agent
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: fixture
+            app.kubernetes.io/instance: fixture
+            app.kubernetes.io/component: agent
+      - equal:
+          path: spec.updateStrategy.type
+          value: RollingUpdate
+
+  - it: shares the Deployment's pod spec, container helper and config checksum
+    set:
+      daemonset.enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: ^[0-9a-f]{64}$
+      - equal:
+          path: spec.template.metadata.annotations["example.com/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: fixture
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - operator: Exists
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: agent
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: example/agent:2.0.0
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --name=fixture
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: fixture
+
+  - it: renders a DaemonSet on its own when the Deployment is off
+    set:
+      deployment.enabled: false
+      daemonset.enabled: true
+      daemonset.selectorLabels: null
+    asserts:
+      - notFailedTemplate: {}
+      - containsDocument:
+          kind: Deployment
+          apiVersion: apps/v1
+        not: true
+      - isKind:
+          of: DaemonSet
+        documentSelector:
+          path: kind
+          value: DaemonSet
+
+  - it: fails when both kinds are enabled with the same selector labels
+    set:
+      daemonset.enabled: true
+      daemonset.selectorLabels: null
+    asserts:
+      - failedTemplate:
+          errorPattern: deployment.enabled and daemonset.enabled are both true with the same selector labels
+
+  - it: fails when daemonset.selectorLabels only restates the base labels
+    set:
+      daemonset.enabled: true
+      daemonset.selectorLabels:
+        app.kubernetes.io/component: null
+        app.kubernetes.io/name: fixture
+    asserts:
+      - failedTemplate:
+          errorPattern: deployment.enabled and daemonset.enabled are both true with the same selector labels
+
+  - it: fails when the DaemonSet has no containers
+    set:
+      daemonset.enabled: true
+      daemonset.containers: null
+    asserts:
+      - failedTemplate:
+          errorPattern: daemonset.enabled is true but daemonset.containers is empty
+
+  - it: names the daemonset key when a container image is incomplete
+    set:
+      daemonset.enabled: true
+      daemonset.containers.agent.image.tag: null
+    asserts:
+      - failedTemplate:
+          errorPattern: daemonset.containers.agent.image.tag is required

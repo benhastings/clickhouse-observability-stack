@@ -12,7 +12,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
-    environment: prod
+    environment: dev
 automountServiceAccountToken: true
 ---
 # Source: otel-collector/templates/common.yaml
@@ -28,7 +28,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
-    environment: prod
+    environment: dev
 data:
   relay.yaml: |-
     connectors:
@@ -156,7 +156,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
-    environment: prod
+    environment: dev
 rules:
   - apiGroups:
     - ""
@@ -177,7 +177,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
-    environment: prod
+    environment: dev
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -200,7 +200,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
-    environment: prod
+    environment: dev
 spec:
   type: ClusterIP
   selector:
@@ -230,7 +230,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: otel-collector-0.1.0
     app.kubernetes.io/version: "0.161.0"
-    environment: prod
+    environment: dev
 spec:
   replicas: 1
   strategy:
@@ -245,7 +245,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: ce275c844953271a9fd3a23a47f7a0c9145589a1bf2da93cd3d61b4b4bcecc56
+        checksum/config: b6b3a517760722bc218c1e96b17d64957b6deac8e501996ca7f89725661fe9a0
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

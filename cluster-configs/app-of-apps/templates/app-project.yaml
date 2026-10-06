@@ -1,0 +1,41 @@
+{{- if .Values.projectCreate }}
+{{- $env := required "environment is required" .Values.environment -}}
+{{- $namespaces := list "argocd" }}
+{{- range $name, $app := .Values.applications }}
+{{- if and $app (ne $app.enabled false) }}
+{{- $namespaces = append $namespaces ($app.namespace | default $.Values.namespace) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ include "app-of-apps.project" . }}
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: {{ $env }}
+  annotations:
+    # Before the wave 0 Applications that reference it.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: The clickhouse-observability-stack applications for {{ $env }}.
+  sourceRepos:
+    - {{ required "repoURL is required" .Values.repoURL }}
+  destinations:
+    {{- range $namespaces | uniq | sortAlpha }}
+    - server: {{ $.Values.destinationServer }}
+      namespace: {{ . }}
+    {{- end }}
+  # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's
+  # CRDs from its crds/ directory, and its ClusterRole and ClusterRoleBinding.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+{{- end }}

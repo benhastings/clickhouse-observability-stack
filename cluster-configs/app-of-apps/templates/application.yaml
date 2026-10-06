@@ -17,11 +17,15 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: {{ $.Values.project }}
+  project: {{ include "app-of-apps.project" $ }}
   source:
-    repoURL: {{ $repoURL }}
-    targetRevision: {{ $.Values.targetRevision }}
-    path: cluster-nodes/{{ $name }}
+    repoURL: {{ $app.repoURL | default $repoURL }}
+    targetRevision: {{ $app.targetRevision | default $.Values.targetRevision }}
+    {{- if $app.chart }}
+    chart: {{ $app.chart }}
+    {{- else }}
+    path: {{ $app.path | default (printf "cluster-nodes/%s" $name) }}
+    {{- end }}
     helm:
       releaseName: {{ $name }}
       valuesObject:
@@ -29,6 +33,10 @@ spec:
   destination:
     server: {{ $.Values.destinationServer }}
     namespace: {{ $app.namespace | default $.Values.namespace }}
+  {{- with $app.ignoreDifferences }}
+  ignoreDifferences:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   syncPolicy:
     automated:
       prune: true

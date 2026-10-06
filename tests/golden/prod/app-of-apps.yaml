@@ -1,4 +1,39 @@
 ---
+# Source: app-of-apps/templates/app-project.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: prod
+  annotations:
+    # Before the wave 0 Applications that reference it.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: The clickhouse-observability-stack applications for prod.
+  sourceRepos:
+    - https://github.com/benhastings/clickhouse-observability-stack.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: clickhouse-operator
+    - server: https://kubernetes.default.svc
+      namespace: observability
+  # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's
+  # CRDs from its crds/ directory, and its ClusterRole and ClusterRoleBinding.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
 # Source: app-of-apps/templates/application.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -13,7 +48,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-prod
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -61,7 +96,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-prod
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -69,39 +104,26 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
+        clickhouse:
+          lowMemory: false
+          resources:
+            limits:
+              memory: 8Gi
+            requests:
+              cpu: "2"
+              memory: 8Gi
+          storage: 200Gi
         global:
           labels:
             environment: prod
-        objects:
-          installation:
-            spec:
-              configuration:
-                files: null
-                profiles: null
-              templates:
-                podTemplates:
-                - name: clickhouse
-                  spec:
-                    containers:
-                    - image: clickhouse/clickhouse-server:26.9.5.2
-                      name: clickhouse
-                      resources:
-                        limits:
-                          memory: 8Gi
-                        requests:
-                          cpu: "2"
-                          memory: 8Gi
-                volumeClaimTemplates:
-                - name: data
-                  spec:
-                    accessModes:
-                    - ReadWriteOnce
-                    resources:
-                      requests:
-                        storage: 200Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
+  ignoreDifferences:
+    - group: clickhouse.altinity.com
+      jsonPointers:
+      - /status
+      kind: ClickHouseInstallation
   syncPolicy:
     automated:
       prune: true
@@ -124,7 +146,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-prod
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -172,7 +194,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-prod
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -219,7 +241,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: observability-prod
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main

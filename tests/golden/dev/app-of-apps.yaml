@@ -3,16 +3,16 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: observability-local
+  name: observability-dev
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
+    environment: dev
   annotations:
     # Before the wave 0 Applications that reference it.
     argocd.argoproj.io/sync-wave: "-1"
 spec:
-  description: The clickhouse-observability-stack applications for local.
+  description: The clickhouse-observability-stack applications for dev.
   sourceRepos:
     - https://github.com/benhastings/clickhouse-observability-stack.git
   destinations:
@@ -38,17 +38,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cerberus-local
+  name: cerberus-dev
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
+    environment: dev
   annotations:
     argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: observability-local
+  project: observability-dev
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -56,10 +56,21 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
+        deployment:
+          containers:
+            cerberus:
+              env:
+                GOMEMLIMIT: 1717986918B
+              resources:
+                limits:
+                  memory: 2Gi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+          replicas: 2
         global:
           labels:
-            environment: local
-          mesh: kubernetes
+            environment: dev
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -75,17 +86,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: clickhouse-local
+  name: clickhouse-dev
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
+    environment: dev
   annotations:
     argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: observability-local
+  project: observability-dev
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -93,15 +104,18 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
+        clickhouse:
+          lowMemory: false
+          resources:
+            limits:
+              memory: 8Gi
+            requests:
+              cpu: "2"
+              memory: 8Gi
+          storage: 200Gi
         global:
           labels:
-            environment: local
-          mesh: kubernetes
-        secrets:
-          credentials:
-            create: true
-            stringData:
-              password: otel-local-dev
+            environment: dev
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -122,17 +136,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: clickhouse-operator-local
+  name: clickhouse-operator-dev
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
+    environment: dev
   annotations:
     argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: observability-local
+  project: observability-dev
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -140,10 +154,21 @@ spec:
     helm:
       releaseName: clickhouse-operator
       valuesObject:
+        deployment:
+          containers:
+            clickhouse-operator:
+              resources:
+                limits:
+                  memory: 512Mi
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
         global:
           labels:
-            environment: local
-          mesh: kubernetes
+            environment: dev
+        secrets:
+          credentials:
+            create: false
   destination:
     server: https://kubernetes.default.svc
     namespace: clickhouse-operator
@@ -159,54 +184,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: demo-load-local
+  name: grafana-dev
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
-  annotations:
-    argocd.argoproj.io/sync-wave: "4"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: observability-local
-  source:
-    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
-    targetRevision: main
-    path: cluster-nodes/demo-load
-    helm:
-      releaseName: demo-load
-      valuesObject:
-        global:
-          labels:
-            environment: local
-          mesh: kubernetes
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: observability
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
----
-# Source: app-of-apps/templates/application.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: grafana-local
-  namespace: argocd
-  labels:
-    app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
+    environment: dev
   annotations:
     argocd.argoproj.io/sync-wave: "3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: observability-local
+  project: observability-dev
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -214,57 +202,20 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
-        configMaps:
-          config:
-            data:
-              dashboards.yaml:
-                providers:
-                - allowUiUpdates: true
-                  disableDeletion: true
-                  folder: Cerberus
-                  name: dashboards
-                  options:
-                    path: /var/lib/grafana/dashboards
-                  orgId: 1
-                  type: file
         deployment:
           containers:
             grafana:
-              startupProbe:
-                failureThreshold: 60
-                httpGet:
-                  path: /api/health
-                  port: grafana
-                periodSeconds: 10
-                timeoutSeconds: 30
-          strategy:
-            type: Recreate
-          volumes:
-            storage:
-              emptyDir:
-                medium: Memory
-                sizeLimit: 64Mi
+              env:
+                GOMEMLIMIT: 921MiB
+              resources:
+                limits:
+                  memory: 1Gi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
         global:
           labels:
-            environment: local
-          mesh: kubernetes
-        objects:
-          plugins:
-            apiVersion: v1
-            kind: PersistentVolumeClaim
-            spec:
-              accessModes:
-              - ReadWriteOnce
-              resources:
-                requests:
-                  storage: 1Gi
-        pluginsClaim: true
-        secrets:
-          admin:
-            create: true
-            stringData:
-              admin-password: admin
-              admin-user: admin
+            environment: dev
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -280,17 +231,17 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: otel-collector-local
+  name: otel-collector-dev
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    environment: local
+    environment: dev
   annotations:
     argocd.argoproj.io/sync-wave: "3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: observability-local
+  project: observability-dev
   source:
     repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
     targetRevision: main
@@ -298,14 +249,20 @@ spec:
     helm:
       releaseName: otel-collector
       valuesObject:
-        collector:
-          agent:
-            kubelet:
-              insecureSkipVerify: true
+        deployment:
+          containers:
+            otel-collector:
+              env:
+                GOMEMLIMIT: 1638MiB
+              resources:
+                limits:
+                  memory: 2Gi
+                requests:
+                  cpu: 500m
+                  memory: 512Mi
         global:
           labels:
-            environment: local
-          mesh: kubernetes
+            environment: dev
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

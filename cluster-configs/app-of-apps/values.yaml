@@ -1,18 +1,32 @@
 environment: ""
 repoURL: ""
 targetRevision: main
-project: default
+# The Argo CD project of every child Application and of the bootstrap app-of-apps-<env>.yaml,
+# which must name the same project. Empty means observability-<environment>.
+project: ""
+# Render that AppProject. Set false to use a project a platform team already manages.
+projectCreate: true
 destinationServer: https://kubernetes.default.svc
 namespace: observability
 
 global: {}
 
+# An application may set repoURL, targetRevision, and path (or chart, for a packaged Helm
+# chart) to deploy its node from another source. Omitted, they default to repoURL,
+# targetRevision, and cluster-nodes/<name> above.
 applications:
   clickhouse-operator:
     syncWave: 0
     namespace: clickhouse-operator
   clickhouse:
     syncWave: 1
+    # The operator writes status back onto the ClickHouseInstallation; without this the
+    # Application can sit OutOfSync. Only status is ignored, so spec drift still self-heals.
+    ignoreDifferences:
+      - group: clickhouse.altinity.com
+        kind: ClickHouseInstallation
+        jsonPointers:
+          - /status
   cerberus:
     syncWave: 2
   otel-collector:

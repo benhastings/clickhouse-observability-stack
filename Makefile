@@ -14,8 +14,10 @@ KIND_VERSION := v0.33.0
 KUBECTL_VERSION := v1.37.1
 GOLDEN := tests/golden
 
+HELM_OUT := dist/helm
+
 LOCAL_CHARTS := $(patsubst %/Chart.yaml,%,$(wildcard cluster-nodes/*/Chart.yaml tests/charts/*/Chart.yaml))
-UNIT_TEST_CHARTS := $(patsubst %/tests/,%,$(dir $(wildcard cluster-configs/app-of-apps/tests/*_test.yaml cluster-nodes/*/tests/*_test.yaml tests/charts/*/tests/*_test.yaml)))
+UNIT_TEST_CHARTS := $(patsubst %/tests/,%,$(dir $(wildcard cluster-configs/app-of-apps/tests/*_test.yaml cluster-configs/stack/tests/*_test.yaml cluster-nodes/*/tests/*_test.yaml tests/charts/*/tests/*_test.yaml)))
 
 VENV := .venv
 
@@ -122,6 +124,8 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@for chart in $(sort $(LOCAL_CHARTS)); do \
 		helm dependency build "$$chart" >/dev/null || exit 1; \
 	done
+	@# After the nodes, because it packages each node with its common tarball.
+	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
 test: test/unit ## Every offline test
@@ -135,11 +139,31 @@ test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Arg
 test/unit: deps ## helm-unittest suites for the common library and every cluster node
 	helm-unittest --strict $(sort $(UNIT_TEST_CHARTS))
 
+##@ Environments
+
+.PHONY: env/new
+env/new: ## Write a commented skeleton for a new environment: NAME=<env>, FORCE=1 to overwrite
+	NAME='$(NAME)' FORCE='$(FORCE)' scripts/env-new.bash
+
+##@ Helm
+
+.PHONY: helm/template
+helm/template: deps ## Render ENV=<env> for a Helm install into dist/helm/<env>: the stack umbrella and the operator
+	scripts/values-for-helm.bash '$(ENV)' $(HELM_OUT)/$(ENV)
+	helm template clickhouse-operator cluster-nodes/clickhouse-operator --namespace clickhouse-operator \
+		--kube-version $(KUBE_VERSION) -f $(HELM_OUT)/$(ENV)/clickhouse-operator.yaml >$(HELM_OUT)/$(ENV)/clickhouse-operator-manifests.yaml
+	helm template stack cluster-configs/stack --namespace observability \
+		--kube-version $(KUBE_VERSION) -f $(HELM_OUT)/$(ENV)/stack.yaml >$(HELM_OUT)/$(ENV)/stack-manifests.yaml
+
 ##@ Local cluster
 
 .PHONY: cluster/up
 cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch)
 	scripts/kind-up.sh $(REVISION)
+
+.PHONY: cluster/preflight
+cluster/preflight: ## Check the current kube context against an environment before its first sync: ENV=<env>
+	ENV='$(ENV)' scripts/preflight.bash
 
 .PHONY: cluster/down
 cluster/down: ## Delete the kind cluster

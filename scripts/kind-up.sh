@@ -20,6 +20,12 @@ helm upgrade --install argocd argo-cd \
   --namespace argocd --create-namespace \
   -f cluster-configs/argocd/values.yaml --wait --timeout 10m
 
+# The bootstrap Application belongs to the project the chart renders, and Argo CD
+# will not sync an Application whose project does not exist yet.
+echo "==> Applying the local AppProject"
+helm template app-of-apps cluster-configs/app-of-apps --namespace argocd \
+  -f cluster-configs/overrides/values-local.yaml --show-only templates/app-project.yaml | kubectl apply -f -
+
 echo "==> Applying the local app-of-apps${REVISION:+ at $REVISION}"
 if [[ -n "$REVISION" ]]; then
   REVISION="$REVISION" yq '.spec.source.targetRevision = strenv(REVISION) |
