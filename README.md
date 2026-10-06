@@ -236,6 +236,61 @@ larger resources, and Secrets you create yourself (`clickhouse-credentials`, `gr
 `clickhouse-operator-credentials`). To add an environment, copy both `values-local.yaml` and
 `app-of-apps-local.yaml` under the new name.
 
+### Stable names
+
+The apps find each other by hard-coded name, port and Secret, not by discovery. Every object is named after
+its Argo CD release, which is the key under `applications:` in `cluster-configs/app-of-apps/values.yaml`
+(`nameOverride` in a node's values replaces it as the base name of every object, see
+`helm-templates/common/README.md`). Nothing sets `nameOverride` today, so the app name is the Service name.
+Namespaces and waves come from the same file: `clickhouse-operator` lives in its own namespace, everything
+else in `observability`.
+
+| app | name | namespace | Service ports | Secrets it reads (keys) | wave |
+|---|---|---|---|---|---|
+| operator | `clickhouse-operator` | `clickhouse-operator` | none; the pod exposes `9999` (metrics) | `clickhouse-operator-credentials` (`username`, `password`) | 0 |
+| ClickHouse | installation `otel`; Service `clickhouse` | `observability` | `8123` http, `9000` tcp | `clickhouse-credentials` (`password`; `username` is set to `otel` when the Secret is created) | 1 |
+| Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-credentials` (`password`) | 2 |
+| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-credentials` (`password`) | 3 |
+| Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
+| demo load | `demo-load` | `observability` | none; it only sends | none | 4 |
+
+The ClickHouse pod is `chi-otel-main-0-0-0`. The operator owns the Service `clickhouse` (from
+`generateName`) and the installation `otel`, so `nameOverride` on the `clickhouse` node does not rename
+either of them. It does rename the Secret: the installation reads `<name>-credentials`, which is
+`clickhouse-credentials` only while the release is called `clickhouse`. Likewise the operator's Secret is
+`<name>-credentials` and Grafana's is `<name>-admin`. Cerberus and the collector name
+`clickhouse-credentials` literally, so renaming the ClickHouse Secret means changing both.
+
+`nameOverride` (or renaming the app key) changes the Service name and the Secret names built from it. These
+have to move together:
+
+- **ClickHouse address**: the collector's exporter endpoint `tcp://clickhouse:9000` and Cerberus's
+  `CERBERUS_CH_ADDR: clickhouse:9000`. Both dial the Service the operator generates.
+- **Cerberus URL**: the three datasource `url` fields in Grafana's `datasources.yaml`, all
+  `http://cerberus:8080`.
+- **Collector endpoint**: the demo load's `OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317`, and
+  anything you send telemetry from.
+- **ClickHouse Secret**: the `secretKeyRef` in the installation, Cerberus and the collector, plus the Secret
+  every environment pre-creates.
+- **Namespace**: the operator's `watch.namespaces.include` must list `observability`, where the installation
+  lives, and its ClusterRoleBinding subject must name the operator's own namespace.
+
+The node tests fail when one of these moves:
+
+- `cluster-nodes/clickhouse/tests/clickhouse_test.yaml`: the installation name `otel`, its namespace, the
+  `clickhouse` Service template, and the `clickhouse-credentials` Secret and its `password` key.
+- `cluster-nodes/cerberus/tests/cerberus_test.yaml`: Service `cerberus` on `8080`, the Secret read, and
+  `CERBERUS_CH_ADDR`.
+- `cluster-nodes/otel-collector/tests/otel_collector_test.yaml`: Service `otel-collector` on `4317` and
+  `4318`, and the exporter's `create_schema: false`.
+- `cluster-nodes/grafana/tests/grafana_test.yaml`: every datasource pointing at Cerberus, the `grafana-admin`
+  Secret, and the Service on `80`.
+- `cluster-nodes/clickhouse-operator/tests/clickhouse_operator_test.yaml`: the watched namespace, the
+  `clickhouse-operator-credentials` Secret and the ClusterRoleBinding namespace.
+- `cluster-nodes/demo-load/tests/demo_load_test.yaml`: the collector endpoint it sends to.
+
+If you change one on purpose, change its pair in the same commit and update the test that pins it.
+
 ## Contributing
 
 ```bash
