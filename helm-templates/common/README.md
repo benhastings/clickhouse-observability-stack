@@ -44,7 +44,7 @@ so the output is deterministic.
 | `deployment.podSecurityContext` | `{}` | |
 | `deployment.terminationGracePeriodSeconds` | `30` | |
 | `deployment.containers.<name>` | | see Containers below |
-| `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated |
+| `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated. A string is templated and used as the whole source, so it can hold an `if` |
 | `service.enabled` | `false` | render a Service selecting the Deployment's pods |
 | `service.type` | `ClusterIP` | |
 | `service.annotations` | `{}` | |

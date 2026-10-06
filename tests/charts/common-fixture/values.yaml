@@ -87,6 +87,14 @@ deployment:
         tag: "0.1.0"
         pullPolicy: Always
   volumes:
+    # A string is templated and used as the whole volume source.
+    gated: |-
+      {{- if .Values.ghostEnabled }}
+      emptyDir:
+        medium: Memory
+      {{- else }}
+      emptyDir: {}
+      {{- end }}
     config:
       configMap:
         name: '{{ include "common.fullname" . }}'
@@ -102,3 +110,5 @@ objects:
         extra: "yes"
     spec:
       owner: "{{ .Release.Name }}"
+
+ghostEnabled: false

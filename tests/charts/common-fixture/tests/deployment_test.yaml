@@ -57,6 +57,31 @@ tests:
           path: spec.template.spec.volumes[0].configMap.name
           value: fixture
 
+  - it: templates a string volume as the whole source
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gated
+            emptyDir: {}
+
+  - it: lets a string volume pick its source from a value
+    set:
+      ghostEnabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: gated
+            emptyDir:
+              medium: Memory
+
   - it: turns the ports map into named container ports
     documentSelector:
       path: kind
