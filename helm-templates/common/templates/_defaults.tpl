@@ -20,6 +20,13 @@ deployment:
   podAnnotations: {}
   podSecurityContext: {}
   terminationGracePeriodSeconds: 30
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  runtimeClassName: ""
+  imagePullSecrets: []
   containers: {}
   volumes: {}
 service:

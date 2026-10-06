@@ -140,3 +140,87 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: deployment.containers.app.image.tag is required
+
+  - it: passes the scheduling fields through to the pod spec
+    set:
+      deployment.nodeSelector:
+        kubernetes.io/os: linux
+      deployment.affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node.kubernetes.io/lifecycle
+                    operator: NotIn
+                    values:
+                      - spot
+      deployment.tolerations:
+        - key: dedicated
+          operator: Equal
+          value: observability
+          effect: NoSchedule
+      deployment.topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: fixture
+      deployment.priorityClassName: high-priority
+      deployment.runtimeClassName: sandboxed
+      deployment.imagePullSecrets:
+        - registry-one
+        - registry-two
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values
+          value:
+            - spot
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: dedicated
+              operator: Equal
+              value: observability
+              effect: NoSchedule
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].topologyKey
+          value: topology.kubernetes.io/zone
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: high-priority
+      - equal:
+          path: spec.template.spec.runtimeClassName
+          value: sandboxed
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: registry-one
+            - name: registry-two
+
+  - it: omits the scheduling fields when they are empty
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.spec.tolerations
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+      - notExists:
+          path: spec.template.spec.priorityClassName
+      - notExists:
+          path: spec.template.spec.runtimeClassName
+      - notExists:
+          path: spec.template.spec.imagePullSecrets

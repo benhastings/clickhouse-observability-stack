@@ -96,6 +96,34 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: {{ $d.terminationGracePeriodSeconds }}
+      {{- with $d.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with $d.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      {{- with $d.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      {{- with $d.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $d.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $d.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $d.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         {{- if not $d.containers }}
         {{- fail "deployment.enabled is true but deployment.containers is empty" }}
