@@ -1,86 +1,174 @@
+# relay.yaml is one string template, not a map, so it can append the extras below to the default
+# pipelines. That means an environment can no longer deep-merge a single nested key into it:
+#   - add a receiver with collector.extraReceivers.<name>, which is appended under receivers:
+#   - wire it in with collector.extraPipelines.<traces|metrics|logs>.<receivers|processors|exporters>,
+#     whose entries are appended to that default pipeline's list
+#   - or set configMaps.main.data.relay.yaml to a whole new string to own the file.
+# For example:
+#   collector:
+#     extraReceivers:
+#       syslog:
+#         tcp:
+#           listen_address: ${env:MY_POD_IP}:54527
+#     extraPipelines:
+#       logs:
+#         receivers: [syslog]
+collector:
+  extraReceivers: {}
+  extraPipelines: {}
+
+# The kubeletstats receiver reads CPU, memory, filesystem and network for the node, every pod and
+# every container from this node's kubelet. A Deployment only reaches its own node, which is the
+# whole cluster on kind; a multi-node cluster needs a DaemonSet of collectors for it. The kubelet's
+# serving certificate is self-signed on kind, hence insecure_skip_verify.
 configMaps:
   main:
     data:
-      relay.yaml:
-        receivers:
-          otlp:
-            protocols:
-              grpc:
-                endpoint: ${env:MY_POD_IP}:4317
-              http:
-                endpoint: ${env:MY_POD_IP}:4318
-          # CPU, memory, filesystem and network for the node, every pod and every container,
-          # read from this node's kubelet. A Deployment only reaches its own node, which is the
-          # whole cluster on kind; a multi-node cluster needs a DaemonSet of collectors for it.
-          kubeletstats:
-            auth_type: serviceAccount
-            endpoint: https://${env:K8S_NODE_IP}:10250
-            # The kubelet's serving certificate is self-signed on kind.
-            insecure_skip_verify: true
-            collection_interval: 30s
+      relay.yaml: |-
+        {{- $collector := .Values.collector | default dict }}
+        {{- $pipelines := $collector.extraPipelines | default dict -}}
+        connectors:
+          servicegraph:
+            latency_histogram_buckets:
+            - 10ms
+            - 50ms
+            - 100ms
+            - 250ms
+            - 500ms
+            - 1s
+            - 2.5s
+            - 5s
+            store:
+              max_items: 10000
+              ttl: 5s
+          spanmetrics:
+            dimensions:
+            - name: http.request.method
+            - name: http.response.status_code
+            - name: http.route
+            exemplars:
+              enabled: true
+            histogram:
+              explicit:
+                buckets:
+                - 5ms
+                - 10ms
+                - 25ms
+                - 50ms
+                - 100ms
+                - 250ms
+                - 500ms
+                - 1s
+                - 2.5s
+                - 5s
+                - 10s
+              unit: ms
+            metrics_flush_interval: 15s
+        exporters:
+          clickhouse:
+            create_schema: false
+            database: otel
+            endpoint: tcp://clickhouse:9000?dial_timeout=10s
+            password: ${env:CLICKHOUSE_PASSWORD}
+            retry_on_failure:
+              enabled: true
+              max_elapsed_time: 5m
+            sending_queue:
+              enabled: true
+            timeout: 10s
+            username: otel
+        extensions:
+          health_check:
+            endpoint: ${env:MY_POD_IP}:13133
         processors:
           batch: {}
           memory_limiter:
             check_interval: 5s
             limit_percentage: 80
             spike_limit_percentage: 25
-        connectors:
-          spanmetrics:
-            histogram:
-              unit: ms
-              explicit:
-                buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
-            dimensions:
-              - name: http.request.method
-              - name: http.response.status_code
-              - name: http.route
-            exemplars:
-              enabled: true
-            metrics_flush_interval: 15s
-          servicegraph:
-            latency_histogram_buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s]
-            store:
-              ttl: 5s
-              max_items: 10000
-        exporters:
-          clickhouse:
-            endpoint: tcp://clickhouse:9000?dial_timeout=10s
-            database: otel
-            username: otel
-            password: ${env:CLICKHOUSE_PASSWORD}
-            create_schema: false
-            timeout: 10s
-            retry_on_failure:
-              enabled: true
-              max_elapsed_time: 5m
-            sending_queue:
-              enabled: true
-        extensions:
-          health_check:
-            endpoint: ${env:MY_POD_IP}:13133
+        receivers:
+          kubeletstats:
+            auth_type: serviceAccount
+            collection_interval: 30s
+            endpoint: https://${env:K8S_NODE_IP}:10250
+            insecure_skip_verify: true
+          otlp:
+            protocols:
+              grpc:
+                endpoint: ${env:MY_POD_IP}:4317
+              http:
+                endpoint: ${env:MY_POD_IP}:4318
+          {{- with $collector.extraReceivers }}
+          {{- toYaml . | nindent 2 }}
+          {{- end }}
         service:
-          extensions: [health_check]
+          extensions:
+          - health_check
+          pipelines:
+            logs:
+              exporters:
+              - clickhouse
+              {{- range dig "logs" "exporters" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+              processors:
+              - memory_limiter
+              - batch
+              {{- range dig "logs" "processors" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+              receivers:
+              - otlp
+              {{- range dig "logs" "receivers" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+            metrics:
+              exporters:
+              - clickhouse
+              {{- range dig "metrics" "exporters" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+              processors:
+              - memory_limiter
+              - batch
+              {{- range dig "metrics" "processors" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+              receivers:
+              - otlp
+              - kubeletstats
+              - spanmetrics
+              - servicegraph
+              {{- range dig "metrics" "receivers" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+            traces:
+              exporters:
+              - clickhouse
+              - spanmetrics
+              - servicegraph
+              {{- range dig "traces" "exporters" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+              processors:
+              - memory_limiter
+              - batch
+              {{- range dig "traces" "processors" list $pipelines }}
+              - {{ . }}
+              {{- end }}
+              receivers:
+              - otlp
+              {{- range dig "traces" "receivers" list $pipelines }}
+              - {{ . }}
+              {{- end }}
           telemetry:
             metrics:
               readers:
-                - pull:
-                    exporter:
-                      prometheus:
-                        host: ${env:MY_POD_IP}
-                        port: 8888
-          pipelines:
-            traces:
-              receivers: [otlp]
-              processors: [memory_limiter, batch]
-              exporters: [clickhouse, spanmetrics, servicegraph]
-            metrics:
-              receivers: [otlp, kubeletstats, spanmetrics, servicegraph]
-              processors: [memory_limiter, batch]
-              exporters: [clickhouse]
-            logs:
-              receivers: [otlp]
-              processors: [memory_limiter, batch]
-              exporters: [clickhouse]
+              - pull:
+                  exporter:
+                    prometheus:
+                      host: ${env:MY_POD_IP}
+                      port: 8888
 
 # kubeletstats authenticates to the kubelet with this ServiceAccount's token.
 serviceAccount:
