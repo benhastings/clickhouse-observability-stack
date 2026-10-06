@@ -4,15 +4,15 @@ cd "$(dirname "$0")/.."
 
 KUBE_VERSION=${KUBE_VERSION:?KUBE_VERSION must be set}
 K8S_SCHEMAS_REF=8df8a883b68a24a104b4a9e43c1288090ae60b3b
-CRD_CATALOG_REF=d373c2da9702bc9509a004db83e57263fe3bdfc1
+CRD_CATALOG_REF=d373c2da9702bc9509a004db83e57263fe3bdfc1 # networking.istio.io v1 schemas, tracked from upstream Istio by the catalog (no Istio version is recorded in it)
 K8S_SCHEMAS="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/$K8S_SCHEMAS_REF/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json"
 CRD_CATALOG="https://raw.githubusercontent.com/datreeio/CRDs-catalog/$CRD_CATALOG_REF/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
-echo "==> Validating tests/golden and the bootstrap Applications with kubeconform"
+echo "==> Validating tests/golden, tests/fixtures and the bootstrap Applications with kubeconform"
 kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" \
   -schema-location "$K8S_SCHEMAS" \
   -schema-location "$CRD_CATALOG" \
-  tests/golden cluster-configs/app-of-apps/app-of-apps-*.yaml
+  tests/golden tests/fixtures cluster-configs/app-of-apps/app-of-apps-*.yaml
 
 echo "==> Checking every container has a memory limit and a pinned image"
 errors=0

@@ -1,92 +1,50 @@
 {
-  "uid": "span-metrics-red",
-  "title": "Span metrics (RED)",
-  "tags": [
-    "span-metrics",
-    "cerberus",
-    "clickhouse"
-  ],
-  "timezone": "browser",
-  "schemaVersion": 41,
-  "refresh": "30s",
-  "time": {
-    "from": "now-30m",
-    "to": "now"
-  },
-  "templating": {
-    "list": [
-      {
-        "name": "service",
-        "label": "Service",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "cerberus-prometheus"
-        },
-        "query": {
-          "query": "label_values(traces_span_metrics_calls, service_name)",
-          "refId": "svc"
-        },
-        "definition": "label_values(traces_span_metrics_calls, service_name)",
-        "refresh": 2,
-        "includeAll": true,
-        "multi": true,
-        "allValue": ".*",
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        }
-      }
-    ]
-  },
   "panels": [
     {
-      "id": 1,
-      "type": "text",
-      "title": "",
       "gridPos": {
-        "x": 0,
-        "y": 0,
+        "h": 3,
         "w": 24,
-        "h": 3
+        "x": 0,
+        "y": 0
       },
+      "id": 1,
       "options": {
-        "mode": "markdown",
-        "content": "**Span metrics (RED)**: rate, errors and duration derived from traces by the OTel Collector's `spanmetrics` connector, stored in ClickHouse, and queried here with PromQL through Cerberus. Dots on the charts are exemplars: click one to open that trace in Tempo (Cerberus)."
-      }
+        "content": "**Span metrics (RED)**: rate, errors and duration derived from traces by the OTel Collector's `spanmetrics` connector, stored in ClickHouse, and queried here with PromQL through Cerberus. Dots on the charts are exemplars: click one to open that trace in Tempo (Cerberus).",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
     },
     {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Requests per second",
       "datasource": {
         "type": "prometheus",
         "uid": "cerberus-prometheus"
       },
-      "gridPos": {
-        "x": 0,
-        "y": 3,
-        "w": 8,
-        "h": 8
-      },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
           "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 8
-          }
+            "fillOpacity": 8,
+            "lineWidth": 2
+          },
+          "unit": "reqps"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 3
+      },
+      "id": 2,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi"
@@ -94,51 +52,51 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
+          "exemplar": true,
           "expr": "sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
           "legendFormat": "{{service_name}}",
-          "exemplar": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Requests per second",
+      "type": "timeseries"
     },
     {
-      "id": 3,
-      "type": "timeseries",
-      "title": "Error rate",
       "datasource": {
         "type": "prometheus",
         "uid": "cerberus-prometheus"
       },
-      "gridPos": {
-        "x": 8,
-        "y": 3,
-        "w": 8,
-        "h": 8
-      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
           "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 8
+            "fillOpacity": 8,
+            "lineWidth": 2
           },
+          "max": 1,
           "min": 0,
-          "max": 1
+          "unit": "percentunit"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 3
+      },
+      "id": 3,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi"
@@ -146,49 +104,49 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
+          "exemplar": true,
           "expr": "(sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) or sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])) * 0) / sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
           "legendFormat": "{{service_name}}",
-          "exemplar": true
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Error rate",
+      "type": "timeseries"
     },
     {
-      "id": 4,
-      "type": "timeseries",
-      "title": "Latency p50 / p95 / p99",
       "datasource": {
         "type": "prometheus",
         "uid": "cerberus-prometheus"
       },
-      "gridPos": {
-        "x": 16,
-        "y": 3,
-        "w": 8,
-        "h": 8
-      },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms",
           "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 8
-          }
+            "fillOpacity": 8,
+            "lineWidth": 2
+          },
+          "unit": "ms"
         },
         "overrides": []
       },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 3
+      },
+      "id": 4,
       "options": {
         "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
           "calcs": [
             "lastNotNull",
             "max"
-          ]
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
         },
         "tooltip": {
           "mode": "multi"
@@ -196,104 +154,44 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
+          "exemplar": true,
           "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{service_name}} p50",
-          "exemplar": true
+          "refId": "A"
         },
         {
-          "refId": "B",
           "datasource": {
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
+          "exemplar": true,
           "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{service_name}} p95",
-          "exemplar": true
+          "refId": "B"
         },
         {
-          "refId": "C",
           "datasource": {
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
+          "exemplar": true,
           "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{service_name}} p99",
-          "exemplar": true
+          "refId": "C"
         }
-      ]
+      ],
+      "title": "Latency p50 / p95 / p99",
+      "type": "timeseries"
     },
     {
-      "id": 5,
-      "type": "table",
-      "title": "Operations (last 5m)",
       "datasource": {
         "type": "prometheus",
         "uid": "cerberus-prometheus"
       },
-      "gridPos": {
-        "x": 0,
-        "y": 11,
-        "w": 24,
-        "h": 9
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cerberus-prometheus"
-          },
-          "instant": true,
-          "format": "table",
-          "expr": "sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[5m]))"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cerberus-prometheus"
-          },
-          "instant": true,
-          "format": "table",
-          "expr": "(sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", status_code=\"STATUS_CODE_ERROR\"}[5m])) or sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[5m])) * 0) / sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[5m]))"
-        },
-        {
-          "refId": "C",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "cerberus-prometheus"
-          },
-          "instant": true,
-          "format": "table",
-          "expr": "histogram_quantile(0.95, sum by (le, service_name, span_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\"}[5m])))"
-        }
-      ],
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true
-            },
-            "renameByName": {
-              "service_name": "Service",
-              "span_name": "Operation",
-              "Value #A": "Req/s",
-              "Value #B": "Error rate",
-              "Value #C": "p95 (ms)"
-            }
-          }
-        }
-      ],
       "fieldConfig": {
         "defaults": {},
         "overrides": [
@@ -365,15 +263,117 @@
           }
         ]
       },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "id": 5,
       "options": {
         "showHeader": true,
         "sortBy": [
           {
-            "displayName": "Req/s",
-            "desc": true
+            "desc": true,
+            "displayName": "Req/s"
           }
         ]
-      }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "expr": "sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[5m]))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "expr": "(sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", status_code=\"STATUS_CODE_ERROR\"}[5m])) or sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[5m])) * 0) / sum by (service_name, span_name) (rate(traces_span_metrics_calls{service_name=~\"$service\"}[5m]))",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, service_name, span_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\"}[5m])))",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Operations (last 5m)",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Req/s",
+              "Value #B": "Error rate",
+              "Value #C": "p95 (ms)",
+              "service_name": "Service",
+              "span_name": "Operation"
+            }
+          }
+        }
+      ],
+      "type": "table"
     }
-  ]
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "span-metrics",
+    "cerberus",
+    "clickhouse"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "cerberus-prometheus"
+        },
+        "definition": "label_values(traces_span_metrics_calls, service_name)",
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "query": {
+          "query": "label_values(traces_span_metrics_calls, service_name)",
+          "refId": "svc"
+        },
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Span metrics (RED)",
+  "uid": "span-metrics-red"
 }

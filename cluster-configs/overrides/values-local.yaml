@@ -42,6 +42,40 @@ applications:
                   allowUiUpdates: true
                   options:
                     path: /var/lib/grafana/dashboards
+      # Keeps the Drilldown plugins across restarts, so they download once.
+      pluginsClaim: true
+      objects:
+        plugins:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+      deployment:
+        # The plugins claim is ReadWriteOnce: stop the old pod before starting the new.
+        strategy:
+          type: Recreate
+        containers:
+          grafana:
+            # Startup is slow on a small machine; liveness only counts once it's up.
+            startupProbe:
+              httpGet:
+                path: /api/health
+                port: grafana
+              periodSeconds: 10
+              timeoutSeconds: 30
+              failureThreshold: 60
+        volumes:
+          # Grafana's database is thrown away on restart and is small (about 2 MB),
+          # so keep it in memory: on a laptop disk its 1,400-odd startup migrations
+          # take minutes.
+          storage:
+            emptyDir:
+              medium: Memory
+              sizeLimit: 64Mi
       secrets:
         admin:
           create: true
