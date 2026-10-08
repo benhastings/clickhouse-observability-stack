@@ -306,6 +306,9 @@ tests:
           enabled: true
           hosts:
             otlp: otlp.example
+      collector:
+        auth:
+          enabled: true
     documentSelector:
       path: kind
       value: Ingress
@@ -323,3 +326,54 @@ tests:
                         name: otel-collector
                         port:
                           name: otlp-http
+
+  - it: refuses to expose the collector outside the cluster without auth
+    set:
+      global:
+        mesh: kubernetes
+        exposure:
+          enabled: true
+          hosts:
+            otlp: otlp.example
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.exposure.enabled puts the collector outside the cluster: set collector.auth.enabled"
+
+  - it: exposes the collector with auth on
+    set:
+      global:
+        mesh: kubernetes
+        exposure:
+          enabled: true
+          hosts:
+            otlp: otlp.example
+      collector:
+        auth:
+          enabled: true
+    asserts:
+      - notFailedTemplate: {}
+      - isKind:
+          of: Ingress
+        documentSelector:
+          path: kind
+          value: Ingress
+
+  - it: exposes the collector without auth only when a private network is declared
+    set:
+      global:
+        mesh: kubernetes
+        exposure:
+          enabled: true
+          hosts:
+            otlp: otlp.example
+      collector:
+        auth:
+          allowUnauthenticatedExposure: true
+    asserts:
+      - notFailedTemplate: {}
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "bearertokenauth"
+        documentSelector:
+          path: kind
+          value: ConfigMap

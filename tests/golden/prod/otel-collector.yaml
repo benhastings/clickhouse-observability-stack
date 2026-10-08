@@ -82,6 +82,8 @@ data:
         timeout: 10s
         username: otel
     extensions:
+      bearertokenauth:
+        token: ${env:OTLP_BEARER_TOKEN}
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
     processors:
@@ -101,11 +103,16 @@ data:
       otlp:
         protocols:
           grpc:
+            auth:
+              authenticator: bearertokenauth
             endpoint: 0.0.0.0:4317
           http:
+            auth:
+              authenticator: bearertokenauth
             endpoint: 0.0.0.0:4318
     service:
       extensions:
+      - bearertokenauth
       - health_check
       pipelines:
         logs:
@@ -247,7 +254,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 60c79cb005074808d8fd98c7cb78e4b4da118708f802cc2eccc51941d0e9cb3e
+        checksum/config: 12b767ffa0dc488378b6076405510cb7881bc69733b9ecb68d73c27048ace6ed
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -281,6 +288,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            - name: OTLP_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: otel-collector-auth
           livenessProbe:
             httpGet:
               path: /

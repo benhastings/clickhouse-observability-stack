@@ -30,6 +30,10 @@
 #                 key: token
 # Clients then send "Authorization: Bearer <token>".
 #
+# Exposing the collector outside the cluster (global.exposure.enabled) requires auth: the render fails
+# unless collector.auth.enabled is set, or collector.auth.allowUnauthenticatedExposure is set for a
+# collector that only a private network can reach.
+#
 # The collector runs as two workloads. The gateway, the Deployment below, receives OTLP, runs the
 # spanmetrics and servicegraph connectors (which keep counters in memory, so want a single writer) and
 # writes to ClickHouse. The agent, the DaemonSet below, runs only kubeletstats, so every node's kubelet
@@ -50,6 +54,7 @@
 collector:
   auth:
     enabled: false
+    allowUnauthenticatedExposure: false
   extraReceivers: {}
   extraPipelines: {}
   agent:
@@ -73,6 +78,10 @@ configMaps:
         {{- $agent := dig "agent" "enabled" false $collector }}
         {{- if ne $agent (dig "daemonset" "enabled" false .Values.AsMap) }}
         {{- fail "collector.agent.enabled and daemonset.enabled must be set together" }}
+        {{- end }}
+        {{- $exposed := and (dig "global" "exposure" "enabled" false .Values.AsMap) (dig "exposure" "host" "" .Values.AsMap) }}
+        {{- if and $exposed (not $auth) (not (dig "auth" "allowUnauthenticatedExposure" false $collector)) }}
+        {{- fail "global.exposure.enabled puts the collector outside the cluster: set collector.auth.enabled, or collector.auth.allowUnauthenticatedExposure for a private network" }}
         {{- end -}}
         connectors:
           servicegraph:

@@ -51,11 +51,22 @@ applications:
 
   otel-collector:
     values:
+      # Every OTLP sender, inside the cluster or out, sends the token from the pre-created Secret
+      # otel-collector-auth (key token) as "Authorization: Bearer <token>". Exposing the collector
+      # outside the cluster requires this.
+      collector:
+        auth:
+          enabled: true
       deployment:
         containers:
           otel-collector:
             env:
               GOMEMLIMIT: 1638MiB
+              OTLP_BEARER_TOKEN:
+                valueFrom:
+                  secretKeyRef:
+                    name: otel-collector-auth
+                    key: token
             resources:
               requests:
                 cpu: 500m
