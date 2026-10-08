@@ -186,6 +186,12 @@ service:
       port: 80
       targetPort: grafana
 
+# With global.mesh: kubernetes and global.exposure.enabled, an Ingress routes global.exposure.hosts.grafana
+# to Grafana.
+exposure:
+  host: grafana
+  port: http
+
 deployment:
   enabled: true
   podSecurityContext:

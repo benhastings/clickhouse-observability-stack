@@ -257,6 +257,12 @@ service:
     otlp-http:
       port: 4318
 
+# With global.mesh: kubernetes and global.exposure.enabled, an Ingress routes global.exposure.hosts.otlp
+# to OTLP over HTTP. gRPC isn't exposed outside the cluster.
+exposure:
+  host: otlp
+  port: otlp-http
+
 deployment:
   enabled: true
   containers:

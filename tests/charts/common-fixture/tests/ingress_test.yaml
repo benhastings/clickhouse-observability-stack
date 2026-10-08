@@ -1,0 +1,138 @@
+suite: common.ingress
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renders no Ingress by default
+    asserts:
+      - notFailedTemplate: {}
+      - containsDocument:
+          kind: Ingress
+          apiVersion: networking.k8s.io/v1
+        not: true
+
+  - it: renders no Ingress for an app that names no host, even with exposure enabled
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+    asserts:
+      - containsDocument:
+          kind: Ingress
+          apiVersion: networking.k8s.io/v1
+        not: true
+
+  - it: renders no Ingress when the mesh is istio
+    set:
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: http
+    asserts:
+      - containsDocument:
+          kind: Ingress
+          apiVersion: networking.k8s.io/v1
+        not: true
+
+  - it: routes the app's host to its Service port when the mesh is kubernetes
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: http
+    documentSelector:
+      path: kind
+      value: Ingress
+    asserts:
+      - isAPIVersion:
+          of: networking.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: fixture
+      - equal:
+          path: metadata.namespace
+          value: demo
+      - equal:
+          path: spec.rules
+          value:
+            - host: web.example
+              http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: fixture
+                        port:
+                          name: http
+      - notExists:
+          path: spec.tls
+      - notExists:
+          path: spec.ingressClassName
+      - notExists:
+          path: metadata.annotations
+
+  - it: serves the host over TLS from the site's Secret, with the Ingress class and annotations given
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      global.exposure.ingressClassName: nginx
+      global.exposure.tls.credentialName: observability-tls
+      exposure.host: web
+      exposure.port: http
+      exposure.annotations:
+        nginx.ingress.kubernetes.io/proxy-body-size: 16m
+    documentSelector:
+      path: kind
+      value: Ingress
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.tls
+          value:
+            - hosts:
+                - web.example
+              secretName: observability-tls
+      - equal:
+          path: metadata.annotations
+          value:
+            nginx.ingress.kubernetes.io/proxy-body-size: 16m
+
+  - it: fails when exposure is enabled and the app's host is empty
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      exposure.host: web
+      exposure.port: http
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.exposure.enabled is true but global.exposure.hosts.web is empty"
+
+  - it: fails when the port is not one of the Service's ports
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: nope
+    asserts:
+      - failedTemplate:
+          errorPattern: 'exposure.port "nope" is not one of service.ports'
+
+  - it: fails when the app exposes a host but renders no Service
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: http
+      service.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "exposure.host is web but service.enabled is false"
