@@ -377,3 +377,58 @@ tests:
         documentSelector:
           path: kind
           value: ConfigMap
+
+  - it: reads the ClickHouse password from clickhouse-credentials
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-credentials
+                key: password
+
+  - it: reads the ClickHouse password from a Vault-injected file when Vault is on
+    set:
+      vault.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "password: \\$\\{file:/vault/secrets/clickhouse-credentials-password\\}"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-credentials-password"]
+          value: secret/data/clickhouse-credentials
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: gives the agent the same password file when Vault is on
+    set:
+      vault.enabled: true
+      collector:
+        agent:
+          enabled: true
+      daemonset:
+        enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
+          pattern: "password: \\$\\{file:/vault/secrets/clickhouse-credentials-password\\}"
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-credentials-password"]
+          value: secret/data/clickhouse-credentials
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+          any: true

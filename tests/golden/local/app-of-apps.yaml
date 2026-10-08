@@ -97,11 +97,6 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
-        secrets:
-          credentials:
-            create: true
-            stringData:
-              password: otel-local-dev
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -259,12 +254,6 @@ spec:
                 requests:
                   storage: 1Gi
         pluginsClaim: true
-        secrets:
-          admin:
-            create: true
-            stringData:
-              admin-password: admin
-              admin-user: admin
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

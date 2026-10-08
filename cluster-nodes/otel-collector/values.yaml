@@ -125,7 +125,7 @@ configMaps:
             create_schema: false
             database: otel
             endpoint: tcp://clickhouse:9000?dial_timeout=10s
-            password: ${env:CLICKHOUSE_PASSWORD}
+            password: {{ if include "common.vaultEnabled" . }}${file:{{ include "common.secretFile" (list . "otel-collector" "CLICKHOUSE_PASSWORD") }}}{{ else }}${env:CLICKHOUSE_PASSWORD}{{ end }}
             retry_on_failure:
               enabled: true
               max_elapsed_time: 5m
@@ -296,11 +296,10 @@ deployment:
             fieldRef:
               fieldPath: status.hostIP
         GOMEMLIMIT: 204MiB
+      secretEnv:
         CLICKHOUSE_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-credentials
-              key: password
+          secret: clickhouse-credentials
+          key: password
       livenessProbe: &probe
         httpGet:
           path: /
@@ -341,18 +340,13 @@ daemonset:
             fieldRef:
               fieldPath: status.hostIP
         GOMEMLIMIT: 102MiB
-        CLICKHOUSE_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-credentials
-              key: password
         OTELCOL_AGENT_CONFIG: |-
           exporters:
             clickhouse:
               create_schema: false
               database: otel
               endpoint: tcp://clickhouse:9000?dial_timeout=10s
-              password: ${env:CLICKHOUSE_PASSWORD}
+              password: {{ if include "common.vaultEnabled" . }}${file:{{ include "common.secretFile" (list . "otel-collector" "CLICKHOUSE_PASSWORD") }}}{{ else }}${env:CLICKHOUSE_PASSWORD}{{ end }}
               retry_on_failure:
                 enabled: true
                 max_elapsed_time: 5m
@@ -395,6 +389,10 @@ daemonset:
                       prometheus:
                         host: ${env:MY_POD_IP}
                         port: 8888
+      secretEnv:
+        CLICKHOUSE_PASSWORD:
+          secret: clickhouse-credentials
+          key: password
       livenessProbe: *probe
       readinessProbe: *probe
       resources:

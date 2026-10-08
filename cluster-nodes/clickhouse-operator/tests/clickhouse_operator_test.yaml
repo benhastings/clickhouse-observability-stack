@@ -14,19 +14,22 @@ tests:
           path: data["config.yaml"]
           pattern: "include:\\n\\s+- observability"
 
-  - it: points its own ClickHouse login at the Secret it renders
+  - it: points its own ClickHouse login at clickhouse-operator-credentials
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-operator-files
     asserts:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "name: '?clickhouse-operator-credentials'?"
-        documentSelector:
-          path: metadata.name
-          value: clickhouse-operator-files
-      - isKind:
-          of: Secret
-        documentSelector:
-          path: metadata.name
-          value: clickhouse-operator-credentials
+
+  - it: expects clickhouse-operator-credentials to exist unless an environment creates it
+    asserts:
+      - containsDocument:
+          kind: Secret
+          apiVersion: v1
+          name: clickhouse-operator-credentials
+        not: true
 
   - it: mounts every ConfigMap it renders
     documentSelector:

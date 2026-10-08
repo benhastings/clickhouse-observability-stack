@@ -40,6 +40,8 @@ sleep 3
 cerberus=http://localhost:18081
 grafana=http://localhost:13000
 otlp=http://localhost:14318
+grafana_login="$(kubectl -n observability get secret grafana-admin \
+  -o go-template='{{index .data "admin-user" | base64decode}}:{{index .data "admin-password" | base64decode}}')"
 
 poll() {
   local description=$1 check=$2
@@ -166,11 +168,11 @@ poll "  trace $cross_trace has the external root and its in-cluster child" \
 for uid in cerberus-prometheus cerberus-loki cerberus-tempo; do
   poll "Grafana: datasource $uid is healthy" \
     '.status == "OK"' \
-    -u admin:admin "$grafana/api/datasources/uid/$uid/health"
+    -u "$grafana_login" "$grafana/api/datasources/uid/$uid/health"
 done
 
 poll "Grafana: the span-metrics dashboard is provisioned" \
   '.dashboard.uid == "span-metrics-red"' \
-  -u admin:admin "$grafana/api/dashboards/uid/span-metrics-red"
+  -u "$grafana_login" "$grafana/api/dashboards/uid/span-metrics-red"
 
 echo "e2e: ok"

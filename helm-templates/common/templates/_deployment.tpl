@@ -22,7 +22,22 @@
       protocol: {{ $port.protocol | default "TCP" }}
     {{- end }}
   {{- end }}
-  {{- with $c.env }}
+  {{- $vaultEnabled := include "common.vaultEnabled" $root -}}
+  {{- $env := deepCopy (default (dict) $c.env) -}}
+  {{- range $envName, $s := $c.secretEnv }}
+  {{- if $s }}
+  {{- $secret := tpl (required (printf "%s.containers.%s.secretEnv.%s.secret is required" $key $name $envName) $s.secret) $root -}}
+  {{- $secretKey := required (printf "%s.containers.%s.secretEnv.%s.key is required" $key $name $envName) $s.key -}}
+  {{- if $vaultEnabled }}
+  {{- with (default (dict) $s.vault).env }}
+  {{- $_ := set $env . (include "common.secretFilePath" (list $root $s)) -}}
+  {{- end }}
+  {{- else }}
+  {{- $_ := set $env $envName (dict "valueFrom" (dict "secretKeyRef" (dict "name" $secret "key" $secretKey))) -}}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- with $env }}
   env:
     {{- range $envName, $envValue := . }}
     {{- if not (kindIs "invalid" $envValue) }}
@@ -73,12 +88,15 @@ metadata:
     {{- end }}
   annotations:
     checksum/config: {{ include "common.configChecksum" $root }}
+    {{- if include "common.vaultInjected" (list $root $d) }}
+    {{- include "common.vaultAnnotations" (list $root $d) | nindent 4 }}
+    {{- end }}
     {{- with $d.podAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
   serviceAccountName: {{ include "common.serviceAccountName" $root }}
-  automountServiceAccountToken: {{ $v.serviceAccount.automountToken }}
+  automountServiceAccountToken: {{ or $v.serviceAccount.automountToken (ne (include "common.vaultInjected" (list $root $d)) "") }}
   {{- with $d.podSecurityContext }}
   securityContext:
     {{- toYaml . | nindent 4 }}

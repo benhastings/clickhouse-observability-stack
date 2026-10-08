@@ -187,9 +187,9 @@ rbac:
     - delete
 secrets:
   credentials:
+    create: false
     stringData:
       username: clickhouse_operator
-      password: clickhouse_operator_password
 configMaps:
   files:
     data:

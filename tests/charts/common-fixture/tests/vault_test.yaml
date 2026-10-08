@@ -1,0 +1,169 @@
+suite: common.vault
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: reads secretEnv from a Kubernetes Secret when Vault is off
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: fixture-credentials
+                key: password
+      - notExists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject"]
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: injects secretEnv through the Vault agent when Vault is on
+    set:
+      vault.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: fixture
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-fixture-credentials-password"]
+          value: secret/data/fixture-credentials
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-fixture-credentials-password"]
+          value: '{{- with secret "secret/data/fixture-credentials" -}}{{ index .Data.data "password" }}{{- end -}}'
+      - notExists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/secret-volume-path-fixture-credentials-password"]
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
+  - it: points the file env var at the injected file instead of reading the Secret
+    set:
+      vault.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD_FILE
+            value: /vault/secrets/fixture-credentials-password
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: fixture-credentials
+                key: password
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: fixture-credentials
+                key: username
+
+  - it: writes a yamlKey entry as nested YAML into its own directory
+    set:
+      vault.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-app.yaml"]
+          value: |-
+            {{- with secret "secret/data/fixture-credentials" -}}
+            db:
+              username: {{ index .Data.data "username" | toJSON }}
+            {{- end -}}
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/secret-volume-path-app.yaml"]
+          value: /etc/app
+
+  - it: takes the role, path prefix and extra annotations from values
+    set:
+      vault.enabled: true
+      vault.role: observability
+      vault.path: kv/data/observability/
+      vault.annotations:
+        vault.hashicorp.com/agent-pre-populate-only: "true"
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: observability
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-fixture-credentials-password"]
+          value: kv/data/observability/fixture-credentials
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-pre-populate-only"]
+          value: "true"
+
+  - it: gives config the injected file's path through common.secretFile
+    set:
+      vault.enabled: true
+      configMaps.main.data.secretPath: '{{ include "common.secretFile" (list . "app" "DB_USERNAME") }}'
+    documentSelector:
+      path: data["motd.txt"]
+      value: hello from fixture
+    asserts:
+      - equal:
+          path: data.secretPath
+          value: /etc/app/app.yaml
+
+  - it: fails when a secretEnv entry has no key
+    set:
+      deployment.containers.app.secretEnv.DB_PASSWORD.key: null
+    asserts:
+      - failedTemplate:
+          errorMessage: deployment.containers.app.secretEnv.DB_PASSWORD.key is required
+
+  - it: takes vault settings from global, with the node's own vault winning
+    set:
+      global.vault:
+        enabled: true
+        role: from-global
+        path: kv/data
+      vault.role: from-node
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: from-node
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-fixture-credentials-password"]
+          value: kv/data/fixture-credentials
+
+  - it: injects no agent into a pod that declares no secretEnv
+    set:
+      vault.enabled: true
+      deployment.containers.app.secretEnv: null
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject"]
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false

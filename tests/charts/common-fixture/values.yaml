@@ -65,6 +65,18 @@ deployment:
             secretKeyRef:
               name: '{{ include "common.fullname" . }}-credentials'
               key: password
+      secretEnv:
+        DB_PASSWORD:
+          secret: '{{ include "common.fullname" . }}-credentials'
+          key: password
+          vault:
+            env: DB_PASSWORD_FILE
+        DB_USERNAME:
+          secret: '{{ include "common.fullname" . }}-credentials'
+          key: username
+          vault:
+            file: /etc/app/app.yaml
+            yamlKey: db.username
       envFrom:
         - configMapRef:
             name: "{{ include \"common.fullname\" . }}"

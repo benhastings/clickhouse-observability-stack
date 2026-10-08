@@ -601,12 +601,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: admin-password
-                  name: 'grafana-admin'
+                  name: grafana-admin
             - name: GF_SECURITY_ADMIN_USER
               valueFrom:
                 secretKeyRef:
                   key: admin-user
-                  name: 'grafana-admin'
+                  name: grafana-admin
             - name: GF_UNIFIED_STORAGE_INDEX_PATH
               value: "/var/lib/grafana-search/bleve"
             - name: GOMEMLIMIT

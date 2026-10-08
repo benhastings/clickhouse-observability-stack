@@ -74,6 +74,7 @@
     "tonumber",
     "trunc",
     "tsouza",
+    "urandom",
     "urlencode",
     "usersd",
     "venv",

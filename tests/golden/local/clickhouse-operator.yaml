@@ -17,25 +17,6 @@ automountServiceAccountToken: true
 ---
 # Source: clickhouse-operator/templates/common.yaml
 apiVersion: v1
-kind: Secret
-metadata:
-  name: clickhouse-operator-credentials
-  namespace: clickhouse-operator
-  labels:
-    app.kubernetes.io/name: clickhouse-operator
-    app.kubernetes.io/instance: clickhouse-operator
-    app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: clickhouse-operator-0.1.0
-    app.kubernetes.io/version: "0.27.4"
-    environment: local
-type: Opaque
-stringData:
-  password: "clickhouse_operator_password"
-  username: "clickhouse_operator"
----
-# Source: clickhouse-operator/templates/common.yaml
-apiVersion: v1
 kind: ConfigMap
 metadata:
   name: clickhouse-operator-chi-configd
@@ -762,7 +743,7 @@ spec:
         app.kubernetes.io/name: clickhouse-operator
         app.kubernetes.io/instance: clickhouse-operator
       annotations:
-        checksum/config: 32fb7f75aeb031402ee685aed72ea700cc8f9bdfb64b20c271dd9506c86d20ae
+        checksum/config: 3f511e4fad3593b8ca7007618a766fd1dcbf2a806df8028a5a395f6dc7d4fd36
     spec:
       serviceAccountName: clickhouse-operator
       automountServiceAccountToken: true

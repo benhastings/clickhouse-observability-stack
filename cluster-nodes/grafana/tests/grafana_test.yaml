@@ -41,6 +41,27 @@ tests:
                 name: grafana-admin
                 key: admin-password
 
+  - it: reads the admin login from Vault-injected files when Vault is on
+    set:
+      vault.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-grafana-admin-admin-password"]
+          value: secret/data/grafana-admin
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_SECURITY_ADMIN_PASSWORD__FILE
+            value: /vault/secrets/grafana-admin-admin-password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_SECURITY_ADMIN_USER__FILE
+            value: /vault/secrets/grafana-admin-admin-user
+
   - it: listens on grafana:80
     documentSelector:
       path: kind

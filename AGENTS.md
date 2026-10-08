@@ -231,11 +231,20 @@ table, and `tests/golden` in the same commit. Bump one component per PR unless t
 
 ### Secrets
 
-The ClickHouse password and Grafana's `admin`/`admin` in `cluster-configs/overrides/values-local.yaml` are
-deliberately public, local-only values. Nodes never create a Secret by default, and `prod` expects every
-Secret to be pre-created. Never commit any other credential, token or
-key, and never replace these with real ones — a real deployment uses a secret manager (the README names
-External Secrets and Sealed Secrets).
+No credential is committed anywhere: not in a node, not in `values-<env>.yaml`, not in `tests/golden`. Nodes
+never create a Secret by default (`create: false`). On kind, `scripts/local-secrets.bash` (run by both
+`make cluster/up` and `make dev/up`) creates every Secret the stack reads with a random password before
+anything reads it, and `scripts/e2e.bash` reads them back from the cluster. `prod` expects every Secret to be
+pre-created, or uses Vault.
+
+A container declares a secret under `secretEnv` (`secret`, `key`), never as a hand-written `secretKeyRef`.
+The exceptions are the optional secrets an environment adds itself (Grafana's OAuth client secret and the
+collector's OTLP bearer token), which are still plain `env` entries and Kubernetes-only.
+`vault.enabled: false` renders it as a `secretKeyRef`; `vault.enabled: true` renders Vault Agent Injector
+annotations and the app reads a file instead (`vault.env`, `vault.file`, `vault.yamlKey`; see
+[`helm-templates/common/README.md`](helm-templates/common/README.md)). A new secret needs both paths to work,
+and a node test for each. Never commit a credential, token or key, even a throwaway one: GitGuardian
+scans this repository.
 
 ### Verification before claiming done
 

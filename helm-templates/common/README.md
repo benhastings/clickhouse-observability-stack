@@ -80,6 +80,11 @@ so the output is deterministic.
 | `configMaps.<key>` | | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
 | `secrets.<key>` | | a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`) |
 | `objects.<key>` | | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |
+| `vault.enabled` | `false` | deliver every container's `secretEnv` through the Vault Agent Injector instead of `secretKeyRef`; see Secrets below |
+| `vault.role` | chart name | the Vault Kubernetes auth role the pod logs in as |
+| `vault.path` | `secret/data` | KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>` |
+| `vault.annotations` | `{}` | extra `vault.hashicorp.com/*` pod annotations, such as `agent-pre-populate-only` |
+| `global.vault` | | the same keys for every node at once; a node's own `vault` wins |
 
 A ConfigMap, Secret or object keyed `main` takes the chart's name; any other key is appended, so
 `secrets.credentials` in the `clickhouse` node is the Secret `clickhouse-credentials`.
@@ -93,9 +98,42 @@ A ConfigMap, Secret or object keyed `main` takes the chart's name; any other key
 | `command`, `args` | lists; `args` is templated |
 | `ports.<name>` | `containerPort`, `protocol` (`TCP`) |
 | `env.<NAME>` | a string (templated), or a map such as `valueFrom: ...` |
+| `secretEnv.<NAME>` | a secret the container needs: `secret` (Secret name, templated) and `key`; see Secrets below |
 | `envFrom` | list, templated |
 | `startupProbe`, `livenessProbe`, `readinessProbe` | passed through |
 | `resources`, `securityContext`, `volumeMounts` | passed through |
+
+### Secrets
+
+Declare a secret once, under the container's `secretEnv`, and `vault.enabled` decides how it is delivered:
+
+```yaml
+secretEnv:
+  GF_SECURITY_ADMIN_PASSWORD:
+    secret: '{{ include "common.fullname" . }}-admin'
+    key: admin-password
+    vault:
+      env: GF_SECURITY_ADMIN_PASSWORD__FILE
+```
+
+- **`vault.enabled: false`** renders `GF_SECURITY_ADMIN_PASSWORD` with `valueFrom.secretKeyRef` for that Secret
+  and key.
+- **`vault.enabled: true`** renders no `secretKeyRef`. Instead it adds Vault Agent Injector annotations to the
+  pod, so the agent reads field `key` of `<vault.path>/<secret>` and writes it to a file. The pod also gets
+  `automountServiceAccountToken: true`, because the agent logs in with the pod's ServiceAccount token. The
+  entry's `vault` map says how the app finds the file:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `vault.file` | `/vault/secrets/<secret>-<key>` | where the agent writes it; a directory other than `/vault/secrets` gets its own injected volume |
+| `vault.yamlKey` | | write `a.b: <value>` as nested YAML, for apps that read a config file, instead of the bare value |
+| `vault.env` | | set this env var to the file's path, for apps with a `_FILE` convention |
+
+With neither `vault.env` nor `vault.yamlKey`, the app's config points at the file itself. Use
+`{{ include "common.secretFile" (list . "<container>" "<NAME>") }}` to get the path, and
+`{{ if include "common.vaultEnabled" . }}` to switch on the mode; `common.secretFile` looks the container up in
+`deployment`, then `daemonset`. Deployment and DaemonSet pods are injected the same way, each from its own
+containers' `secretEnv`, and a pod with no `secretEnv` gets no agent.
 
 ### Templating
 
@@ -106,7 +144,8 @@ format, belongs in a `files` glob, which is not templated.
 ### Rollouts
 
 Every pod carries a `checksum/config` annotation hashed from the chart's rendered ConfigMaps and Secrets, so a
-config change rolls the Deployment and the DaemonSet.
+config change rolls the Deployment and the DaemonSet. A Secret changed outside the chart, or in Vault, does not roll
+them.
 
 ### DaemonSet
 

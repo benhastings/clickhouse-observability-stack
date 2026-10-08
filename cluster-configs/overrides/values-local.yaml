@@ -8,6 +8,8 @@ global:
   labels:
     environment: local
 
+# No credentials here: scripts/kind-up.sh creates clickhouse-credentials, grafana-admin and
+# clickhouse-operator-credentials in the cluster with random passwords before Argo CD syncs.
 applications:
   otel-collector:
     values:
@@ -16,13 +18,6 @@ applications:
           kubelet:
             # kind's kubelet serving certificate is self-signed.
             insecureSkipVerify: true
-  clickhouse:
-    values:
-      secrets:
-        credentials:
-          create: true
-          stringData:
-            password: otel-local-dev
   grafana:
     values:
       configMaps:
@@ -76,9 +71,3 @@ applications:
             emptyDir:
               medium: Memory
               sizeLimit: 64Mi
-      secrets:
-        admin:
-          create: true
-          stringData:
-            admin-user: admin
-            admin-password: admin
