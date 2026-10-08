@@ -64,6 +64,11 @@ if app_enabled grafana &&
   [[ "$(yq '.applications.grafana.values.secrets.admin.create' "$values")" != true ]]; then
   require_secret "$default_namespace" grafana-admin "grafana"
 fi
+if app_enabled otel-collector &&
+  [[ "$(yq '.applications.otel-collector.values.collector.auth.enabled' "$values")" == true ]] &&
+  [[ "$(yq '.applications.otel-collector.values.secrets.auth.create' "$values")" != true ]]; then
+  require_secret "$default_namespace" otel-collector-auth "otel-collector OTLP bearer token"
+fi
 
 # An empty storageClassName means the cluster's default StorageClass, so one has to exist.
 if app_enabled clickhouse; then

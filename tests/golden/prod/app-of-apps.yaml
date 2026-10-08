@@ -249,11 +249,19 @@ spec:
     helm:
       releaseName: otel-collector
       valuesObject:
+        collector:
+          auth:
+            enabled: true
         deployment:
           containers:
             otel-collector:
               env:
                 GOMEMLIMIT: 1638MiB
+                OTLP_BEARER_TOKEN:
+                  valueFrom:
+                    secretKeyRef:
+                      key: token
+                      name: otel-collector-auth
               resources:
                 limits:
                   memory: 2Gi
