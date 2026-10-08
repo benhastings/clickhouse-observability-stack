@@ -145,6 +145,8 @@ configMaps:
             endpoint: https://${env:K8S_NODE_IP}:10250
             insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false $collector }}
           {{- end }}
+          # OTLP listens on every interface in the pod, not just the pod IP, because
+          # kubectl port-forward (make cluster/port-forward) connects to localhost inside the pod.
           otlp:
             protocols:
               grpc:
@@ -152,13 +154,13 @@ configMaps:
                 auth:
                   authenticator: bearertokenauth
                 {{- end }}
-                endpoint: ${env:MY_POD_IP}:4317
+                endpoint: 0.0.0.0:4317
               http:
                 {{- if $auth }}
                 auth:
                   authenticator: bearertokenauth
                 {{- end }}
-                endpoint: ${env:MY_POD_IP}:4318
+                endpoint: 0.0.0.0:4318
           {{- with $collector.extraReceivers }}
           {{- toYaml . | nindent 2 }}
           {{- end }}
