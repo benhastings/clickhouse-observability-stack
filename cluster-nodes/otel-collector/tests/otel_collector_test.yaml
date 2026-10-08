@@ -27,6 +27,15 @@ tests:
               targetPort: otlp-http
               protocol: TCP
 
+  - it: listens for OTLP on every interface, so kubectl port-forward can reach it through localhost
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "otlp:\\n    protocols:\\n      grpc:\\n        endpoint: 0.0.0.0:4317\\n      http:\\n        endpoint: 0.0.0.0:4318\\n"
+
   - it: never creates the ClickHouse schema, which Cerberus owns
     documentSelector:
       path: kind
@@ -160,7 +169,7 @@ tests:
           pattern: "extensions:\\n  bearertokenauth:\\n    token: \\$\\{env:OTLP_BEARER_TOKEN\\}\\n  health_check:"
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "grpc:\\n        auth:\\n          authenticator: bearertokenauth\\n        endpoint: \\$\\{env:MY_POD_IP\\}:4317\\n      http:\\n        auth:\\n          authenticator: bearertokenauth\\n        endpoint: \\$\\{env:MY_POD_IP\\}:4318\\n"
+          pattern: "grpc:\\n        auth:\\n          authenticator: bearertokenauth\\n        endpoint: 0.0.0.0:4317\\n      http:\\n        auth:\\n          authenticator: bearertokenauth\\n        endpoint: 0.0.0.0:4318\\n"
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "service:\\n  extensions:\\n  - bearertokenauth\\n  - health_check\\n"
