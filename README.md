@@ -70,13 +70,36 @@ A quarter of charges time out at the payment gateway. Payments fails those reque
 
 ### Sending your own telemetry
 
-With `scripts/port-forward.sh` running, point any OTLP exporter at `localhost:4317` (gRPC) or `http://localhost:4318` (HTTP). For example:
+With `make cluster/port-forward` (or `make dev/port-forward`) running, point any OTLP exporter at
+`http://localhost:4318`, over HTTP. For example:
 
 ```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 OTEL_SERVICE_NAME=my-app ./my-app
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+  OTEL_SERVICE_NAME=my-app ./my-app
 ```
 
-Inside the cluster, use `otel-collector.observability:4317`.
+The port-forward also carries OTLP gRPC on `localhost:4317`. Inside the cluster, use
+`http://otel-collector.observability:4318` (HTTP) or `otel-collector.observability:4317` (gRPC).
+
+A port-forward stays attached to the pod it started with. When the collector rolls, for example after a
+config change, senders get `EOF` or `connection refused` until you restart `make cluster/port-forward`.
+
+**One trace across the cluster boundary.** Spans from a service outside the cluster join the same trace as
+the services inside it only when the trace context crosses the call: the outside service sends the W3C
+`traceparent` header on its requests into the cluster, which the OpenTelemetry SDKs do by default, and the
+service it calls continues that trace. Otherwise its spans form a trace of their own. `make test/e2e` checks
+this by sending a root span from the host and its child from a pod in the cluster, then finding both in one
+trace.
+
+**Authentication.** When an environment sets `collector.auth.enabled: true` on the `otel-collector` app, the
+collector only accepts OTLP that carries the token from the Secret `otel-collector-auth` (key `token`):
+
+```bash
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <token>"
+```
+
+No environment exposes the collector outside the cluster yet. A hostname for OTLP on a real site is
+[#100](https://github.com/benhastings/clickhouse-observability-stack/issues/100).
 
 To stop the demo load, set `applications.demo-load.enabled: false` in `cluster-configs/overrides/values-local.yaml` and push. The app-of-apps prunes it. In a `make dev/up` cluster, run `make dev/load/stop` instead.
 
@@ -256,7 +279,7 @@ else in `observability`.
 | operator | `clickhouse-operator` | `clickhouse-operator` | none; the pod exposes `9999` (metrics) | `clickhouse-operator-credentials` (`username`, `password`) | 0 |
 | ClickHouse | installation `otel`; Service `clickhouse` | `observability` | `8123` http, `9000` tcp | `clickhouse-credentials` (`password`; `username` is set to `otel` when the Secret is created) | 1 |
 | Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-credentials` (`password`) | 2 |
-| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-credentials` (`password`) | 3 |
+| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-credentials` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
 | Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
 | demo load | `demo-load` | `observability` | none; it only sends | none | 4 |
 
@@ -274,8 +297,9 @@ have to move together:
   `CERBERUS_CH_ADDR: clickhouse:9000`. Both dial the Service the operator generates.
 - **Cerberus URL**: the three datasource `url` fields in Grafana's `datasources.yaml`, all
   `http://cerberus:8080`.
-- **Collector endpoint**: the demo load's `OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317`, and
-  anything you send telemetry from.
+- **Collector endpoint**: the demo load's `OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317`, the
+  `svc/otel-collector` port-forwards in `scripts/port-forward.sh` and `scripts/e2e.bash`, and anything you
+  send telemetry from.
 - **ClickHouse Secret**: the `secretKeyRef` in the installation, Cerberus and the collector, plus the Secret
   every environment pre-creates.
 - **Namespace**: the operator's `watch.namespaces.include` must list `observability`, where the installation
@@ -288,7 +312,8 @@ The node tests fail when one of these moves:
 - `cluster-nodes/cerberus/tests/cerberus_test.yaml`: Service `cerberus` on `8080`, the Secret read, and
   `CERBERUS_CH_ADDR`.
 - `cluster-nodes/otel-collector/tests/otel_collector_test.yaml`: Service `otel-collector` on `4317` and
-  `4318`, and the exporter's `create_schema: false`.
+  `4318`, OTLP listening on every interface in the pod (which `kubectl port-forward` needs), and the
+  exporter's `create_schema: false`.
 - `cluster-nodes/grafana/tests/grafana_test.yaml`: every datasource pointing at Cerberus, the `grafana-admin`
   Secret, and the Service on `80`.
 - `cluster-nodes/clickhouse-operator/tests/clickhouse_operator_test.yaml`: the watched namespace, the
