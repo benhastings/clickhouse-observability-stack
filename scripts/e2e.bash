@@ -33,11 +33,13 @@ done
 
 kubectl -n observability port-forward svc/cerberus 18081:8080 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/grafana 13000:80 >/dev/null 2>&1 &
+kubectl -n observability port-forward svc/otel-collector 14318:4318 >/dev/null 2>&1 &
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 sleep 3
 
 cerberus=http://localhost:18081
 grafana=http://localhost:13000
+otlp=http://localhost:14318
 
 poll() {
   local description=$1 check=$2
@@ -124,6 +126,42 @@ poll "  payments logs for trace $trace_id include the gateway timeout" \
   '[.data.result[].values[][1]] | index("payment gateway timed out") != null' \
   "$cerberus/loki/api/v1/query_range" --data-urlencode "query={service_name=\"payments\"} | trace_id=\"$trace_id\"" \
   --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=20'
+
+# A trace that crosses the cluster boundary: the root span comes from outside the cluster, through
+# the port-forward, and its child from a pod inside it. Both must land in one trace, parent intact.
+step "OTLP from outside the cluster: a host span and an in-cluster child share one trace"
+otlp_span() { # service span_id parent_span_id name
+  local t1
+  t1="$(date +%s%N)"
+  jq -nc --arg trace "$cross_trace" --arg svc "$1" --arg span "$2" --arg parent "$3" --arg name "$4" \
+    --arg t0 "$((t1 - 20000000))" --arg t1 "$t1" \
+    '{resourceSpans: [{resource: {attributes: [{key: "service.name", value: {stringValue: $svc}}]},
+      scopeSpans: [{spans: [{traceId: $trace, spanId: $span, parentSpanId: $parent, name: $name,
+        kind: 2, startTimeUnixNano: $t0, endTimeUnixNano: $t1}]}]}]}'
+}
+cross_trace="$(openssl rand -hex 16)"
+external_span="$(openssl rand -hex 8)"
+internal_span="$(openssl rand -hex 8)"
+echo "  trace_id=$cross_trace"
+curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "$(otlp_span e2e-external "$external_span" "" "GET /external")" "$otlp/v1/traces"
+sender="e2e-otlp-$internal_span"
+kubectl -n observability run "$sender" --restart=Never --quiet >/dev/null \
+  --image=curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777 -- \
+  curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "$(otlp_span e2e-internal "$internal_span" "$external_span" "GET /internal")" \
+  http://otel-collector:4318/v1/traces
+if ! kubectl -n observability wait "pod/$sender" --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s >/dev/null; then
+  kubectl -n observability logs "$sender" || true
+  echo "  the in-cluster span was not sent"
+  exit 1
+fi
+kubectl -n observability delete pod "$sender" --wait=false >/dev/null
+poll "  trace $cross_trace has the external root and its in-cluster child" \
+  "[.batches[] | {svc: .resource.attributes[\"service.name\"], span: .spans[]}] |
+    any(.svc == \"e2e-external\" and .span.spanId == \"$external_span\") and
+    any(.svc == \"e2e-internal\" and .span.parentSpanId == \"$external_span\")" \
+  "$cerberus/api/traces/$cross_trace"
 
 for uid in cerberus-prometheus cerberus-loki cerberus-tempo; do
   poll "Grafana: datasource $uid is healthy" \

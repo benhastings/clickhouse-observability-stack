@@ -33,6 +33,7 @@
     "confd",
     "configd",
     "crds",
+    "curlimages",
     "customresourcedefinitions",
     "datreeio",
     "distroless",
