@@ -286,3 +286,29 @@ tests:
           content:
             name: storage
             emptyDir: {}
+
+  - it: exposes Grafana on the grafana host when the mesh is kubernetes
+    set:
+      global:
+        mesh: kubernetes
+        exposure:
+          enabled: true
+          hosts:
+            grafana: grafana.example
+    documentSelector:
+      path: kind
+      value: Ingress
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - host: grafana.example
+              http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: grafana
+                        port:
+                          name: http

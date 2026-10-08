@@ -6,6 +6,7 @@
 {{ include "common.configMaps" . }}
 {{ include "common.secrets" . }}
 {{ include "common.service" . }}
+{{ include "common.ingress" . }}
 {{ include "common.deployment" . }}
 {{ include "common.daemonset" . }}
 {{ include "common.podDisruptionBudget" . }}

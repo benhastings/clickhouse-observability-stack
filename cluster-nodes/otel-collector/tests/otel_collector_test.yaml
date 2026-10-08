@@ -288,3 +288,38 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "collector.agent.enabled and daemonset.enabled must be set together"
+
+  - it: renders no Ingress unless exposure is enabled
+    asserts:
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: kind
+          value: Ingress
+          skipEmptyTemplates: true
+
+  - it: exposes OTLP over HTTP, and only HTTP, on the otlp host when the mesh is kubernetes
+    set:
+      global:
+        mesh: kubernetes
+        exposure:
+          enabled: true
+          hosts:
+            otlp: otlp.example
+    documentSelector:
+      path: kind
+      value: Ingress
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - host: otlp.example
+              http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: otel-collector
+                        port:
+                          name: otlp-http

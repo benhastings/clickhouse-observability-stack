@@ -31,7 +31,11 @@ so the output is deterministic.
 | Key | Default | What it does |
 | --- | --- | --- |
 | `nameOverride` | release name | base name of every object |
-| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. Nothing reads it yet |
+| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. With `kubernetes`, exposure renders an Ingress |
+| `global.exposure.enabled` | `false` | make the apps that set `exposure.host` reachable from outside the cluster |
+| `global.exposure.hosts.<key>` | `{}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
+| `global.exposure.ingressClassName` | `""` | the Ingress class; empty uses the cluster default |
+| `global.exposure.tls.credentialName` | `""` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels` | `{}` | extra labels on every object |
 | `serviceAccount.create` | `true` | render a ServiceAccount named after the chart |
@@ -70,6 +74,9 @@ so the output is deterministic.
 | `service.type` | `ClusterIP` | |
 | `service.annotations` | `{}` | |
 | `service.ports.<name>` | | `port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol` |
+| `exposure.host` | `""` | the key under `global.exposure.hosts` this app is reachable on. With `global.mesh: kubernetes` and `global.exposure.enabled`, an Ingress routes that host to the Service |
+| `exposure.port` | `""` | the name of the `service.ports` entry the host routes to |
+| `exposure.annotations` | `{}` | annotations on the Ingress, such as a controller's body-size limit |
 | `configMaps.<key>` | | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
 | `secrets.<key>` | | a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`) |
 | `objects.<key>` | | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |

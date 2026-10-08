@@ -5,6 +5,12 @@ global:
   mesh: istio
   namespace: ""
   labels: {}
+  exposure:
+    enabled: false
+    hosts: {}
+    ingressClassName: ""
+    tls:
+      credentialName: ""
 serviceAccount:
   create: true
   name: ""
@@ -62,6 +68,10 @@ service:
   type: ClusterIP
   annotations: {}
   ports: {}
+exposure:
+  host: ""
+  port: ""
+  annotations: {}
 configMaps: {}
 secrets: {}
 objects: {}
