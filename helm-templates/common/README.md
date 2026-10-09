@@ -40,6 +40,9 @@ so the output is deterministic.
 | `global.labels` | `{}` | extra labels on every object |
 | `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
 | `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
+| `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
+| `global.services.cerberus` | `http://cerberus:8080` | where Grafana's datasources reach Cerberus |
+| `global.services.otlpGrpc` | `otel-collector:4317` | where the demo load sends OTLP over gRPC |
 | `serviceAccount.create` | `true` | render a ServiceAccount named after the chart |
 | `serviceAccount.name` | chart name, or `default` when not created | override the name |
 | `serviceAccount.automountToken` | `false` | also applied to the pod spec |

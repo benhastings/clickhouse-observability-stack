@@ -67,3 +67,16 @@ tests:
       - equal:
           path: data.CERBERUS_CH_ADDR
           value: clickhouse:9000
+
+  - it: reaches ClickHouse at global.services.clickhouse
+    set:
+      global:
+        services:
+          clickhouse: clickhouse.data.svc.cluster.local:9000
+    documentSelector:
+      path: metadata.name
+      value: cerberus-env
+    asserts:
+      - equal:
+          path: data.CERBERUS_CH_ADDR
+          value: clickhouse.data.svc.cluster.local:9000

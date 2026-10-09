@@ -41,3 +41,18 @@ tests:
           content:
             name: OTEL_RESOURCE_ATTRIBUTES
             value: k8s.pod.name=$(K8S_POD_NAME)
+
+  - it: sends to global.services.otlpGrpc
+    set:
+      global:
+        services:
+          otlpGrpc: otel-collector.ingest.svc.cluster.local:4317
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://otel-collector.ingest.svc.cluster.local:4317

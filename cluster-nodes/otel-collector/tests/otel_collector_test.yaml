@@ -432,3 +432,19 @@ tests:
           content:
             name: CLICKHOUSE_PASSWORD
           any: true
+
+  - it: exports to global.services.clickhouse, and only the exporter endpoint changes
+    set:
+      global:
+        services:
+          clickhouse: clickhouse.data.svc.cluster.local:9000
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "endpoint: tcp://clickhouse.data.svc.cluster.local:9000\\?dial_timeout=10s"
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "tcp://clickhouse:9000"

@@ -124,7 +124,7 @@ configMaps:
           clickhouse:
             create_schema: false
             database: otel
-            endpoint: tcp://clickhouse:9000?dial_timeout=10s
+            endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s
             password: {{ if include "common.vaultEnabled" . }}${file:{{ include "common.secretFile" (list . "otel-collector" "CLICKHOUSE_PASSWORD") }}}{{ else }}${env:CLICKHOUSE_PASSWORD}{{ end }}
             retry_on_failure:
               enabled: true
@@ -345,7 +345,7 @@ daemonset:
             clickhouse:
               create_schema: false
               database: otel
-              endpoint: tcp://clickhouse:9000?dial_timeout=10s
+              endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s
               password: {{ if include "common.vaultEnabled" . }}${file:{{ include "common.secretFile" (list . "otel-collector" "CLICKHOUSE_PASSWORD") }}}{{ else }}${env:CLICKHOUSE_PASSWORD}{{ end }}
               retry_on_failure:
                 enabled: true
