@@ -66,6 +66,7 @@ add a target. `make help` lists everything.
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
 | `make cluster/up`           | kind, Argo CD, the local app-of-apps; `REVISION=<ref>` deploys a branch       |
+| `make cluster/restart APP=<app>` | rolls one app's pods, for a secret rotated outside the cluster (Vault)  |
 | `make cluster/port-forward` | Grafana `:3000`, Argo CD `:8080`, Cerberus `:8081`, OTLP `:4317`/`:4318`       |
 | `make cluster/down`         | deletes the kind cluster                                                      |
 | `make dev/up`               | kind and every app but demo-load, helm-installed from the working tree; no Argo CD |

@@ -158,6 +158,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   {{- include "common.metadata" (list . (include "common.fullname" .)) | nindent 2 }}
+  {{- if $d.reloader }}
+  annotations:
+    reloader.stakater.com/auto: "true"
+  {{- end }}
 spec:
   {{- if $v.autoscaling.enabled }}
   {{- $default := (include "common.defaults" . | fromYaml).deployment.replicas }}

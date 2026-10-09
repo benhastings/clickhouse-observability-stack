@@ -23,6 +23,7 @@ rbac:
   rules: []
 deployment:
   enabled: false
+  reloader: false
   replicas: 1
   strategy:
     type: RollingUpdate
@@ -41,6 +42,7 @@ deployment:
   volumes: {}
 daemonset:
   enabled: false
+  reloader: false
   updateStrategy:
     type: RollingUpdate
   selectorLabels: {}

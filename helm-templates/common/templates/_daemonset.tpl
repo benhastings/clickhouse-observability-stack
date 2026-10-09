@@ -17,6 +17,10 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   {{- include "common.metadata" (list . (include "common.fullname" .)) | nindent 2 }}
+  {{- if $d.reloader }}
+  annotations:
+    reloader.stakater.com/auto: "true"
+  {{- end }}
 spec:
   {{- with $d.updateStrategy }}
   updateStrategy:
