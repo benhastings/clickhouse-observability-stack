@@ -98,8 +98,31 @@ collector only accepts OTLP that carries the token from the Secret `otel-collect
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <token>"
 ```
 
-No environment exposes the collector outside the cluster yet. A hostname for OTLP on a real site is
-[#100](https://github.com/benhastings/clickhouse-observability-stack/issues/100).
+**From outside the cluster on a site.** Give the collector a hostname in the environment file, and turn on
+auth: the render fails if the collector is exposed without it, unless
+`collector.auth.allowUnauthenticatedExposure` says only a private network can reach it.
+
+```yaml
+global:
+  exposure:
+    enabled: true
+    hosts:
+      otlp: otlp.example.com
+    tls:
+      credentialName: observability-tls  # a TLS Secret you create, for example with cert-manager
+applications:
+  otel-collector:
+    values:
+      collector:
+        auth:
+          enabled: true
+```
+
+With `global.mesh: istio` (the default) that renders a Gateway on 443 and a VirtualService; Istio reads the
+TLS Secret from the ingress gateway's namespace. With `mesh: kubernetes` it renders an Ingress, and
+`global.exposure.ingressClassName` picks the controller. Only OTLP over HTTP is exposed. Senders then use
+`OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com` with `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`
+and the bearer token above. `values-prod.yaml` shows the whole thing with placeholder hosts.
 
 To stop the demo load, set `applications.demo-load.enabled: false` in `cluster-configs/overrides/values-local.yaml` and push. The app-of-apps prunes it. In a `make dev/up` cluster, run `make dev/load/stop` instead.
 

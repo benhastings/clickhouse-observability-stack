@@ -71,6 +71,7 @@ spec:
         global:
           labels:
             environment: dev
+          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -116,6 +117,7 @@ spec:
         global:
           labels:
             environment: dev
+          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -166,6 +168,7 @@ spec:
         global:
           labels:
             environment: dev
+          mesh: istio
         secrets:
           credentials:
             create: false
@@ -216,6 +219,7 @@ spec:
         global:
           labels:
             environment: dev
+          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -263,6 +267,7 @@ spec:
         global:
           labels:
             environment: dev
+          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

@@ -31,11 +31,14 @@ so the output is deterministic.
 | Key | Default | What it does |
 | --- | --- | --- |
 | `nameOverride` | release name | base name of every object |
-| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. With `kubernetes`, exposure renders an Ingress |
+| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. With exposure on, `istio` renders a Gateway and VirtualService per app, `kubernetes` an Ingress |
 | `global.exposure.enabled` | `false` | make the apps that set `exposure.host` reachable from outside the cluster |
 | `global.exposure.hosts.<key>` | `{}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
 | `global.exposure.ingressClassName` | `""` | the Ingress class; empty uses the cluster default |
-| `global.exposure.tls.credentialName` | `""` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP |
+| `global.exposure.tls.credentialName` | `""` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`) |
+| `global.exposure.gateway.name` | `""` | with `istio`, an existing Gateway to bind every VirtualService to; no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without) |
+| `global.exposure.gateway.namespace` | release namespace | the namespace of that existing Gateway |
+| `global.exposure.gateway.selector` | `{istio: ingressgateway}` | which ingress gateway pods the rendered Gateways select |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels` | `{}` | extra labels on every object |
 | `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
@@ -77,7 +80,7 @@ so the output is deterministic.
 | `service.type` | `ClusterIP` | |
 | `service.annotations` | `{}` | |
 | `service.ports.<name>` | | `port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol` |
-| `exposure.host` | `""` | the key under `global.exposure.hosts` this app is reachable on. With `global.mesh: kubernetes` and `global.exposure.enabled`, an Ingress routes that host to the Service |
+| `exposure.host` | `""` | the key under `global.exposure.hosts` this app is reachable on, once `global.exposure.enabled` is true: an Ingress with `global.mesh: kubernetes`, a Gateway and VirtualService with `istio` |
 | `exposure.port` | `""` | the name of the `service.ports` entry the host routes to |
 | `exposure.annotations` | `{}` | annotations on the Ingress, such as a controller's body-size limit |
 | `configMaps.<key>` | | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
