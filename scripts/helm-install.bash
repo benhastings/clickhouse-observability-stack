@@ -26,6 +26,14 @@ case "$action" in
   install)
     ENV="$env" scripts/preflight.bash
     scripts/values-for-helm.bash "$env" "$out"
+    # Under Istio the namespaces need the injection label before any pod starts; Argo CD sets it through
+    # managedNamespaceMetadata, so the Helm path sets it here.
+    if [[ "$(yq '.global.mesh // "istio"' "cluster-configs/overrides/values-$env.yaml")" == istio ]]; then
+      for ns in "$operator_ns" "$stack_ns"; do
+        kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+        kubectl label namespace "$ns" istio-injection=enabled --overwrite >/dev/null
+      done
+    fi
     echo "==> Installing clickhouse-operator into $operator_ns"
     helm upgrade --install clickhouse-operator cluster-nodes/clickhouse-operator \
       --namespace "$operator_ns" --create-namespace -f "$out/clickhouse-operator.yaml" --wait --timeout 5m

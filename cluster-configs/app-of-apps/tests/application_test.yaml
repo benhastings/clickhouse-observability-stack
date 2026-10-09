@@ -249,3 +249,17 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "applications.otel-collector-edge.syncWave is required"
+
+  - it: labels every destination namespace for Istio sidecar injection when the mesh is istio
+    asserts:
+      - equal:
+          path: spec.syncPolicy.managedNamespaceMetadata.labels
+          value:
+            istio-injection: enabled
+
+  - it: leaves namespaces unlabelled when the mesh is kubernetes
+    set:
+      global.mesh: kubernetes
+    asserts:
+      - notExists:
+          path: spec.syncPolicy.managedNamespaceMetadata

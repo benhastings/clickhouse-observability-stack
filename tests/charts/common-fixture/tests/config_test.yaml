@@ -51,7 +51,7 @@ tests:
   - it: skips a Secret marked create false
     asserts:
       - hasDocuments:
-          count: 11
+          count: 12  # includes the DestinationRule the default istio mesh renders
       - notFailedTemplate: {}
 
   - it: creates a skipped Secret once create is true

@@ -335,6 +335,21 @@ Kubernetes Secret, set `deployment.reloader: true` on the app and run
 [Stakater Reloader](https://github.com/stakater/Reloader) in the cluster; the stack doesn't install it. For a
 secret rotated in Vault, roll the app with `make cluster/restart APP=<app>`.
 
+### Service mesh: Istio or plain Kubernetes
+
+`global.mesh` picks how the stack runs in the cluster. It defaults to `istio`, which `prod` and `dev` also set
+explicitly; `local` sets `kubernetes`, because kind runs no mesh.
+
+- **`istio`**: every destination namespace is labelled `istio-injection: enabled` (the generated Applications
+  set it through Argo CD's `managedNamespaceMetadata`; `make helm/install` labels the namespaces itself), the
+  operator-created ClickHouse pods ask for a sidecar too, and each app's Service gets a DestinationRule with
+  `ISTIO_MUTUAL`. PeerAuthentication stays at the mesh default, so plaintext is still accepted; requiring mTLS
+  waits for a kind profile that runs Istio. With `global.exposure`, each app also gets a Gateway and a
+  VirtualService.
+- **`kubernetes`**: none of that, and exposure renders an Ingress.
+
+`make cluster/preflight` fails when the mesh is `istio` and Istio's CRDs are missing.
+
 ### Low-memory sizing
 
 Everything is sized for light local testing:

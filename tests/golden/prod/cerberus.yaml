@@ -166,3 +166,23 @@ spec:
               - ALL
             privileged: false
             readOnlyRootFilesystem: true
+---
+# Source: cerberus/templates/common.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: cerberus
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: cerberus
+    app.kubernetes.io/instance: cerberus
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cerberus-0.1.0
+    app.kubernetes.io/version: "1.22.0"
+    environment: prod
+spec:
+  host: cerberus.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

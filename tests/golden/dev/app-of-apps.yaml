@@ -82,6 +82,11 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
 ---
 # Source: app-of-apps/templates/application.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -133,6 +138,11 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
 ---
 # Source: app-of-apps/templates/application.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -182,6 +192,11 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
 ---
 # Source: app-of-apps/templates/application.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -230,6 +245,11 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
 ---
 # Source: app-of-apps/templates/application.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -278,3 +298,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled

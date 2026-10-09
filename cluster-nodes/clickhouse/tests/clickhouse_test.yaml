@@ -299,3 +299,23 @@ tests:
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
           value: [otel-collector, otel-collector-agent, cerberus, clickhouse-backup]
+
+  - it: asks for the Istio sidecar on the operator-created ClickHouse pods when the mesh is istio
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.templates.podTemplates[0].metadata.labels["sidecar.istio.io/inject"]
+          value: "true"
+
+  - it: leaves the ClickHouse pods alone when the mesh is kubernetes
+    set:
+      global:
+        mesh: kubernetes
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - notExists:
+          path: spec.templates.podTemplates[0].metadata

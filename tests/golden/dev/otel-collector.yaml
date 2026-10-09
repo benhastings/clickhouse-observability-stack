@@ -314,3 +314,23 @@ spec:
         - name: config
           configMap:
             name: 'otel-collector'
+---
+# Source: otel-collector/templates/common.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: dev
+spec:
+  host: otel-collector.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
