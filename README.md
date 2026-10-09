@@ -321,6 +321,23 @@ larger resources, and Secrets you create yourself (`clickhouse-credentials`, `gr
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. Every application starts from its node defaults; add only what differs.
 
+The applications in `cluster-configs/app-of-apps/values.yaml` are the supported set. An environment file can
+turn one off with `enabled: false`, and it can add its own next to them. An added application needs a
+`syncWave`; one that reuses a node, say a second collector, also names its path and a `nameOverride`:
+
+```yaml
+applications:
+  otel-collector-edge:
+    syncWave: 3
+    path: cluster-nodes/otel-collector
+    values:
+      nameOverride: otel-collector-edge
+```
+
+An application from elsewhere sets `repoURL` and `path`, or `chart`. Any other name fails the render with
+"is not a chart under cluster-nodes/", so a typo can't quietly create an Application for a chart that doesn't
+exist.
+
 ### Stable names
 
 The apps find each other by hard-coded name, port and Secret, not by discovery. Every object is named after

@@ -2,6 +2,10 @@
 {{- $repoURL := required "repoURL is required" .Values.repoURL -}}
 {{- range $name, $app := .Values.applications }}
 {{- if and $app (ne $app.enabled false) }}
+{{- $_ := required (printf "applications.%s.syncWave is required" $name) $app.syncWave }}
+{{- if not (or $app.path $app.chart $app.repoURL (has $name ($.Values.nodes | default list))) }}
+{{- fail (printf "applications.%s is not a chart under cluster-nodes/ (nodes lists them); set its path, chart or repoURL, or check the name" $name) }}
+{{- end }}
 {{- $values := mustMergeOverwrite (dict "global" (deepCopy $.Values.global)) (deepCopy (default dict $app.values)) }}
 ---
 apiVersion: argoproj.io/v1alpha1

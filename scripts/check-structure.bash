@@ -30,6 +30,10 @@ for dir in cluster-nodes/*/; do
 done
 
 echo "==> Checking the app-of-apps application list"
+nodes_listed="$(yq '.nodes | sort | .[]' "$aoa/values.yaml")"
+nodes_on_disk="$(find cluster-nodes -mindepth 2 -maxdepth 2 -name Chart.yaml -printf '%h\n' | xargs -n1 basename | sort)"
+[[ "$nodes_listed" == "$nodes_on_disk" ]] ||
+  fail "$aoa/values.yaml" "nodes must list exactly the charts under cluster-nodes/: ${nodes_on_disk//$'\n'/ }"
 while IFS= read -r app; do
   [[ -d "cluster-nodes/$app" ]] || fail "$aoa/values.yaml" "application $app has no cluster-nodes/$app chart"
   [[ "$(yq ".applications.\"$app\".syncWave" "$aoa/values.yaml")" =~ ^[0-9]+$ ]] ||
