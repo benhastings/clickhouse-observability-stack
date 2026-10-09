@@ -61,9 +61,10 @@ add a target. `make help` lists everything.
 | `make check/structure`      | the cluster-configs and cluster-nodes layout rules below                      |
 | `make check/golden`         | fails when `tests/golden` differs from a fresh render                         |
 | `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits and pinned images         |
+| `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
 | `make generate`             | re-renders `tests/golden`; run it after any chart or values change            |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
-| `make test`                 | every offline test; today `test/unit`                                        |
+| `make test`                 | every offline test: `test/unit` and `test/credentials`                         |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack   |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |

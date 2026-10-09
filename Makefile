@@ -73,7 +73,7 @@ setup/hooks: ## Point git at git/hooks so the pre-commit check runs
 ##@ Checks
 
 .PHONY: check
-check: check/lint check/golden check/manifests ## The whole gate CI runs
+check: check/lint check/golden check/manifests check/credentials ## The whole gate CI runs
 
 .PHONY: check/lint
 check/lint: check/yaml check/shell check/structure check/workflows check/spelling ## Offline checks, what the pre-commit hook runs
@@ -110,6 +110,10 @@ check/spelling: ## cspell against cspell.json (American and British English)
 check/manifests: ## kubeconform tests/golden against pinned schemas; require memory limits and pinned images
 	KUBE_VERSION=$(KUBE_VERSION) scripts/check-manifests.bash
 
+.PHONY: check/credentials
+check/credentials: ## Fail when tests/golden renders a Secret value or a literal password, token or client secret
+	scripts/check-credentials.bash tests/golden
+
 ##@ Generate
 
 .PHONY: generate
@@ -135,12 +139,18 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit ## Every offline test
+test: test/unit test/credentials ## Every offline test
 
 .PHONY: test/e2e
 test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack
 	scripts/kind-up.sh $(REVISION)
 	scripts/e2e.bash
+
+.PHONY: test/credentials
+test/credentials: ## Prove check-credentials.bash rejects the leaky fixture in tests/credentials/leaky
+	@if scripts/check-credentials.bash tests/credentials/leaky >/dev/null 2>&1; then \
+	  echo 'test/credentials: check-credentials.bash passed a render that leaks a password'; exit 1; \
+	else echo 'test/credentials: ok, the leaky fixture is rejected'; fi
 
 .PHONY: test/unit
 test/unit: deps ## helm-unittest suites for the common library and every cluster node
