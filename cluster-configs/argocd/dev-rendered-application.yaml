@@ -6,7 +6,7 @@
 # Applying both makes two sets of Applications fight over the same objects.
 #
 # The branch has the operator's CRDs, both Namespaces and every object of the dev environment, under
-# clickhouse-operator/ and observability/. It has no Secrets: create clickhouse-credentials, grafana-admin and
+# clickhouse-operator/ and observability/. It has no Secrets: create clickhouse-admin, clickhouse-writer, clickhouse-reader, grafana-admin and
 # clickhouse-operator-credentials first (make cluster/preflight ENV=dev lists them).
 apiVersion: argoproj.io/v1alpha1
 kind: Application

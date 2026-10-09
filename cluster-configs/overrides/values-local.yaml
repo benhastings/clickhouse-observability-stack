@@ -9,7 +9,7 @@ global:
   labels:
     environment: local
 
-# No credentials here: scripts/kind-up.sh creates clickhouse-credentials, grafana-admin and
+# No credentials here: scripts/kind-up.sh creates clickhouse-admin, clickhouse-writer, clickhouse-reader, grafana-admin and
 # clickhouse-operator-credentials in the cluster with random passwords before Argo CD syncs.
 applications:
   otel-collector:

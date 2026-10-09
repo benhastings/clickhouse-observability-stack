@@ -43,12 +43,12 @@ spec:
                 - name: CLICKHOUSE_USERNAME
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "common.fullname" . }}-credentials
+                      name: {{ include "common.fullname" . }}-admin
                       key: username
                 - name: CLICKHOUSE_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "common.fullname" . }}-credentials
+                      name: {{ include "common.fullname" . }}-admin
                       key: password
                 - name: CLICKHOUSE_USE_EMBEDDED_BACKUP_RESTORE
                   value: "true"

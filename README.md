@@ -173,8 +173,8 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
 
 ### Before any install
 
-- **Secrets.** No path creates passwords. Create `clickhouse-credentials`, `grafana-admin` and
-  `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
+- **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`,
+  `grafana-admin` and `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
   [External Secrets operator](#secrets-kubernetes-or-vault) create them.
 - **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
   [Service mesh](#service-mesh-istio-or-plain-kubernetes).
@@ -256,14 +256,42 @@ Resulting metric names, as queried through Cerberus:
 - `traces_span_metrics_duration_bucket` / `_sum` / `_count` — histogram in milliseconds
 - `traces_service_graph_request_total`, `traces_service_graph_request_failed_total`, and related metrics
 
-### Cerberus creates the tables, not the collector
+### The schema and the ClickHouse users
 
-Cerberus is validated against the ClickHouse exporter's **v0.152** table layout. The latest exporter (v0.161) changed some column types; for example, metrics `TimeUnix` went from `DateTime64(9)` to `DateTime`. So:
+The tables are written down in this repository, in
+[`cluster-nodes/clickhouse/files/schema.sql.tpl`](cluster-nodes/clickhouse/files/schema.sql.tpl): the ClickHouse
+exporter's **v0.152** layout, which Cerberus is validated against, plus the projections, indexes, materialized
+columns and trace-ID view Cerberus adds. The latest exporter (v0.161) changed some column types (metrics
+`TimeUnix` went from `DateTime64(9)` to `DateTime`), so neither the collector nor Cerberus creates tables:
+the collector runs with `create_schema: false`, and Cerberus with `CERBERUS_AUTO_CREATE_SCHEMA=false`.
 
-- Cerberus runs with `CERBERUS_AUTO_CREATE_SCHEMA=true` and creates the database and tables in the layout it expects.
-- The collector's exporter runs with `create_schema: false` and inserts into those tables.
+A Job in the `clickhouse` app, `clickhouse-schema-<hash>`, applies the file. It is named for the SQL it runs,
+so it runs again only when the file or the retention changes, and every statement is idempotent. It runs in
+Argo CD's wave after the installation is `Completed`, and the `clickhouse` Application is not Healthy until it
+succeeds, so Cerberus and the collector start against tables that exist.
 
-This combination was tested: exporter v0.161 inserts into the v0.152 layout without errors, and Cerberus answers PromQL, LogQL and TraceQL correctly over the result.
+Each ClickHouse user does one job, with its own Secret (keys `username` and `password`):
+
+| user | Secret | privileges | used by |
+|---|---|---|---|
+| `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
+| `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*` | Cerberus |
+
+A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
+The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`
+needs no `SELECT`. `make test/e2e` checks each user is refused the others' work, and compares the deployed
+tables with what the pinned Cerberus image prints for `cerberus migrate schema`.
+
+Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default) on the
+`clickhouse` app. A change rewrites each table's TTL without rewriting its parts: data written before the
+change expires on the old TTL.
+
+To change a table, edit its `CREATE` in the schema file and add an `ALTER ... IF [NOT] EXISTS` below it, so
+installs whose table already exists get the change too.
+
+Exporter v0.161 inserting into the v0.152 layout was tested: no insert errors, and Cerberus answers PromQL,
+LogQL and TraceQL correctly over the result.
 
 ### Sync order
 
@@ -281,7 +309,7 @@ The waves are set in `cluster-configs/app-of-apps/values.yaml`. Argo CD doesn't 
 - one that treats a child Application as healthy only when it's synced *and* healthy
 - one that treats the ClickHouse installation as healthy only once the operator reports it `Completed`
 
-On the very first install, expect a few minutes of retry noise. The collector logs DNS and "database does not exist" errors, and Cerberus reports not-ready, until ClickHouse is up and Cerberus has created the tables. Both recover on their own.
+On the very first install, expect a few minutes of retry noise from the schema Job, which logs `waiting for ClickHouse` until the server accepts `otel_admin`. Waves keep Cerberus and the collector behind it.
 
 ### Secrets: Kubernetes or Vault
 
@@ -299,8 +327,8 @@ once, under `secretEnv` (Secret name and key), and `vault.enabled` picks how the
   auth role bound to it.
 
 Vault mode needs the injector running in the cluster and the secrets already stored in Vault. The
-ClickHouse server, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
-`clickhouse-credentials`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
+ClickHouse server, its schema Job, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
+`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
 both modes, so with Vault you sync those from Vault; `global.externalSecrets` below does that. The same goes for
 the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
 
@@ -324,7 +352,7 @@ global:
     remotePath: observability     # each Secret is read from <remotePath>/<Secret name>
 ```
 
-`clickhouse-credentials` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
+`clickhouse-admin`, `clickhouse-writer` and `clickhouse-reader` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
 and `grafana-admin` (`admin-user`, `admin-password`) are then each an `ExternalSecret` with the same name, so the
 pods read the same Secrets as before. The chart doesn't install the operator or a store, and
 `make cluster/preflight` fails when the operator's CRD is missing. A node declares another Secret for this by
@@ -472,18 +500,18 @@ else in `observability`.
 | app | name | namespace | Service ports | Secrets it reads (keys) | wave |
 |---|---|---|---|---|---|
 | operator | `clickhouse-operator` | `clickhouse-operator` | none; the pod exposes `9999` (metrics) | `clickhouse-operator-credentials` (`username`, `password`) | 0 |
-| ClickHouse | installation `otel`; Service `clickhouse` | `observability` | `8123` http, `9000` tcp | `clickhouse-credentials` (`password`; `username` is set to `otel` when the Secret is created) | 1 |
-| Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-credentials` (`password`) | 2 |
-| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-credentials` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
+| ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader` when the Secret is created) | 1 |
+| Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
+| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
 | Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
 | demo load | `demo-load` | `observability` | none; it only sends | none | 4 |
 
 The ClickHouse pod is `chi-otel-main-0-0-0`. The operator owns the Service `clickhouse` (from
 `generateName`) and the installation `otel`, so `nameOverride` on the `clickhouse` node does not rename
-either of them. It does rename the Secret: the installation reads `<name>-credentials`, which is
-`clickhouse-credentials` only while the release is called `clickhouse`. Likewise the operator's Secret is
-`<name>-credentials` and Grafana's is `<name>-admin`. Cerberus and the collector name
-`clickhouse-credentials` literally, so renaming the ClickHouse Secret means changing both.
+either of them. It does rename the Secrets: the installation reads `<name>-admin`, `<name>-writer` and
+`<name>-reader`, which are `clickhouse-...` only while the release is called `clickhouse`. Likewise the
+operator's Secret is `<name>-credentials` and Grafana's is `<name>-admin`. Cerberus names `clickhouse-reader`
+and the collector `clickhouse-writer` literally, so renaming the ClickHouse Secrets means changing both.
 
 `nameOverride` (or renaming the app key) changes the Service name and the Secret names built from it. These
 have to move together. The three addresses are `global.services` keys, so an environment changes each one
@@ -497,20 +525,21 @@ once, for example to the DNS form a split namespace needs (`clickhouse.observabi
   `OTEL_EXPORTER_OTLP_ENDPOINT` reads, the
   `svc/otel-collector` port-forwards in `scripts/port-forward.sh` and `scripts/e2e.bash`, and anything you
   send telemetry from.
-- **ClickHouse Secret**: the `secretKeyRef` in the installation, Cerberus and the collector, plus the Secret
-  every environment pre-creates.
+- **ClickHouse Secrets**: the `secretKeyRef`s in the installation, the schema Job, Cerberus and the collector,
+  plus the Secrets every environment pre-creates.
 - **Namespace**: the operator's `watch.namespaces.include` must list `observability`, where the installation
   lives, and its ClusterRoleBinding subject must name the operator's own namespace.
 
 The node tests fail when one of these moves:
 
 - `cluster-nodes/clickhouse/tests/clickhouse_test.yaml`: the installation name `otel`, its namespace, the
-  `clickhouse` Service template, and the `clickhouse-credentials` Secret and its `password` key.
-- `cluster-nodes/cerberus/tests/cerberus_test.yaml`: Service `cerberus` on `8080`, the Secret read, and
-  `CERBERUS_CH_ADDR`.
+  `clickhouse` Service template, the three users, their grants and Secrets, and the schema Job running as
+  `otel_admin`.
+- `cluster-nodes/cerberus/tests/cerberus_test.yaml`: Service `cerberus` on `8080`, the `clickhouse-reader`
+  Secret, `otel_reader`, schema creation off, and `CERBERUS_CH_ADDR`.
 - `cluster-nodes/otel-collector/tests/otel_collector_test.yaml`: Service `otel-collector` on `4317` and
-  `4318`, OTLP listening on every interface in the pod (which `kubectl port-forward` needs), and the
-  exporter's `create_schema: false`.
+  `4318`, OTLP listening on every interface in the pod (which `kubectl port-forward` needs), the
+  `clickhouse-writer` Secret, `otel_writer` in the gateway and the agent, and the exporter's `create_schema: false`.
 - `cluster-nodes/grafana/tests/grafana_test.yaml`: every datasource pointing at Cerberus, the `grafana-admin`
   Secret, and the Service on `80`.
 - `cluster-nodes/clickhouse-operator/tests/clickhouse_operator_test.yaml`: the watched namespace, the
@@ -527,7 +556,7 @@ node's own `values.yaml` (the nodes are environment-neutral; no `values-<env>.ya
 
 | Moves together | Where | Why |
 |---|---|---|
-| Cerberus and the collector image | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`) and `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), plus each `Chart.yaml` `appVersion` | Cerberus creates the tables and the collector inserts into them with `create_schema: false`. A bump to either can break inserts or queries without any manifest changing. |
+| Cerberus, the collector image and the schema | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`), `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), each `Chart.yaml` `appVersion`, and `cluster-nodes/clickhouse/files/schema.sql.tpl` | The schema file is what Cerberus queries and the collector inserts into. A bump to either can break inserts or queries without any manifest changing. For a Cerberus bump, diff `docker run --rm -e CERBERUS_CH_DATABASE=otel -e CERBERUS_CH_OPTIMIZATIONS=auto -e CERBERUS_AUTO_CREATE_SCHEMA=true ghcr.io/tsouza/cerberus:<tag> migrate schema` against the schema file and carry the differences over, with an `ALTER` for existing tables; `make test/e2e` fails until they match. |
 | The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). Argo CD applies the new CRDs on sync; a Helm install does not, so apply them by hand there (see [Helm](#helm) under Install). |
 | The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.1.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
 
@@ -594,13 +623,15 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
 - **Installation `Aborted` with `RemovedSecretRefSyntax`:** operator 0.27.4 removed `user/k8s_secret_password`. Use `user/password: {valueFrom: {secretKeyRef: ...}}` instead, as this repo does.
 - **Grafana restarts when you open a Drilldown app (`OOMKilled`):** the apps send their queries through Grafana's server, and Metrics Drilldown sends one per metric at once. Grafana peaked near 700 Mi in testing; its limit is 1 Gi. If you add many more metrics or dashboards, check `kubectl -n observability get pod -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].status.containerStatuses[0].lastState}'` and raise it.
 - **Grafana is slow to become Ready, or Drilldown pages are empty:** Grafana installs the three Drilldown apps from grafana.com, in the background, when it starts; other default plugins are switched off in `grafana.ini` (`disable_plugins`). If grafana.com is unreachable, Grafana still starts, without Drilldown; check `kubectl -n observability logs deploy/grafana | grep -i plugin`. In `local` only (`values-local.yaml`), the plugins are kept on a `grafana-plugins` volume so they download once, Grafana's database lives in memory so its startup migrations don't crawl on a laptop disk, and a startup probe allows a slow start up to 10 minutes. Other environments keep plugins and the database in emptyDirs, so each restart downloads the plugins again.
-- **Cerberus stays `0/1 Ready`:** it reports not-ready until it has created the schema. Check `kubectl -n observability logs deploy/cerberus`.
+- **Cerberus stays `0/1 Ready`, or the `clickhouse` app stays Progressing:** Cerberus reports not-ready until the tables exist, and the schema Job creates them. Check `kubectl -n observability logs job -l app.kubernetes.io/name=clickhouse-schema` and `kubectl -n observability logs deploy/cerberus`.
+- **The collector logs `ACCESS_DENIED` or `Not enough privileges`:** it inserts as `otel_writer`, which has only `INSERT` on `otel.*`. A table outside `otel`, or an exporter setting that reads before writing, needs a grant in `cluster-nodes/clickhouse/files/installation.yaml.tpl`.
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
   ```bash
-  password="$(kubectl -n observability get secret clickhouse-credentials -o go-template='{{.data.password | base64decode}}')"
+  # clickhouse-reader for queries; clickhouse-admin only to change something
+  password="$(kubectl -n observability get secret clickhouse-reader -o go-template='{{.data.password | base64decode}}')"
   kubectl -n observability exec -it chi-otel-main-0-0-0 -c clickhouse -- \
-    clickhouse-client --user otel --password "$password"
+    clickhouse-client --user otel_reader --password "$password"
   ```
 
 ## Grafana sign-in with Keycloak
@@ -664,15 +695,16 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
   own traffic. Grafana is reachable from `global.networkPolicy.exposureNamespaces` (the ingress gateway or
   controller), queries only Cerberus, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
   answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse and the kubelets.
-  ClickHouse accepts the collector, Cerberus, the backup job and the operator. The operator reaches the
+  ClickHouse accepts the collector, Cerberus, the schema Job, the backup job and the operator. The operator reaches the
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 
-- **Credentials:** no environment commits a password. `prod` expects `clickhouse-credentials`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
+- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
-- **Retention:** set it with `CERBERUS_SCHEMA_TTL` in `cluster-nodes/cerberus/values.yaml` (currently `7d`). Also set `CERBERUS_PROM_METADATA_LOOKBACK` if retention exceeds 14 days.
+- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default). Also set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus if retention exceeds 14 days.
+- **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.
 
 ## Roadmap
@@ -683,4 +715,3 @@ What's left, by epic. The issues are the source of truth; this table was last up
 | ---- | ----------- |
 | [#16](https://github.com/benhastings/clickhouse-observability-stack/issues/16) Site config | every child is done; sync a fresh clone with a new environment file to a cluster that isn't kind |
 | [#21](https://github.com/benhastings/clickhouse-observability-stack/issues/21) Keycloak | every child is done; a real Keycloak sign-in, with realm roles landing as Grafana roles |
-| [#22](https://github.com/benhastings/clickhouse-observability-stack/issues/22) Shared service | [#70](https://github.com/benhastings/clickhouse-observability-stack/issues/70) split the ClickHouse writer and reader users, waiting on a decision (see the issue) |

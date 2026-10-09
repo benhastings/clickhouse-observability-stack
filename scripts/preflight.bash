@@ -105,9 +105,12 @@ if app_enabled clickhouse-operator &&
   [[ "$(yq '.applications.clickhouse-operator.values.secrets.credentials.create' "$values")" != true ]]; then
   require_declared_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
 fi
-if app_enabled clickhouse &&
-  [[ "$(yq '.applications.clickhouse.values.secrets.credentials.create' "$values")" != true ]]; then
-  require_declared_secret "$default_namespace" clickhouse-credentials "clickhouse, cerberus, otel-collector"
+if app_enabled clickhouse; then
+  for user in admin:"clickhouse schema Job" writer:otel-collector reader:cerberus; do
+    if [[ "$(yq ".applications.clickhouse.values.secrets.${user%%:*}.create" "$values")" != true ]]; then
+      require_declared_secret "$default_namespace" "clickhouse-${user%%:*}" "clickhouse, ${user#*:}"
+    fi
+  done
 fi
 if app_enabled grafana &&
   [[ "$(yq '.applications.grafana.values.secrets.admin.create' "$values")" != true ]]; then

@@ -134,7 +134,7 @@ configMaps:
             sending_queue:
               enabled: true
             timeout: 10s
-            username: otel
+            username: otel_writer
         extensions:
           {{- if $auth }}
           bearertokenauth:
@@ -301,7 +301,7 @@ deployment:
         GOMEMLIMIT: 204MiB
       secretEnv:
         CLICKHOUSE_PASSWORD:
-          secret: clickhouse-credentials
+          secret: clickhouse-writer
           key: password
       livenessProbe: &probe
         httpGet:
@@ -356,7 +356,7 @@ daemonset:
               sending_queue:
                 enabled: true
               timeout: 10s
-              username: otel
+              username: otel_writer
           extensions:
             health_check:
               endpoint: ${env:MY_POD_IP}:13133
@@ -395,7 +395,7 @@ daemonset:
                         port: 8888
       secretEnv:
         CLICKHOUSE_PASSWORD:
-          secret: clickhouse-credentials
+          secret: clickhouse-writer
           key: password
       livenessProbe: *probe
       readinessProbe: *probe

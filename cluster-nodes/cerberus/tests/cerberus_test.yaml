@@ -15,7 +15,7 @@ tests:
           path: spec.ports[0].port
           value: 8080
 
-  - it: reads the ClickHouse password from clickhouse-credentials
+  - it: reads the ClickHouse password from clickhouse-reader
     documentSelector:
       path: kind
       value: Deployment
@@ -26,7 +26,7 @@ tests:
             name: CERBERUS_CH_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: clickhouse-credentials
+                name: clickhouse-reader
                 key: password
       - equal:
           path: spec.template.spec.containers[0].envFrom[0].configMapRef.name
@@ -41,7 +41,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-cerberus.yaml"]
-          value: secret/data/clickhouse-credentials
+          value: secret/data/clickhouse-reader
       - equal:
           path: spec.template.metadata.annotations["vault.hashicorp.com/secret-volume-path-cerberus.yaml"]
           value: /etc/cerberus
@@ -54,14 +54,20 @@ tests:
             name: CERBERUS_CH_PASSWORD
           any: true
 
-  - it: owns the OTel table schema
+  - it: queries as the read-only otel_reader and leaves the schema to the clickhouse node
     documentSelector:
       path: metadata.name
       value: cerberus-env
     asserts:
       - equal:
+          path: data.CERBERUS_CH_USERNAME
+          value: otel_reader
+      - equal:
           path: data.CERBERUS_AUTO_CREATE_SCHEMA
-          value: "true"
+          value: "false"
+      - equal:
+          path: data.CERBERUS_AUTO_CREATE_DATABASE
+          value: "false"
       - equal:
           path: data.CERBERUS_CH_ADDR
           value: clickhouse:9000

@@ -80,7 +80,7 @@ data:
         sending_queue:
           enabled: true
         timeout: 10s
-        username: otel
+        username: otel_writer
     extensions:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
@@ -248,7 +248,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: f99c419e473f626d8406a8ef345450a132920ff629d80e0d6fa57f27a3251d33
+        checksum/config: c0c837b0d7dcbe331a1f9e08ef7a973d6744cc47b7318a8a751f501a5b8862b6
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -275,7 +275,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: password
-                  name: clickhouse-credentials
+                  name: clickhouse-writer
             - name: GOMEMLIMIT
               value: "204MiB"
             - name: K8S_NODE_IP

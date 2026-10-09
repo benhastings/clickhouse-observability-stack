@@ -44,6 +44,8 @@ else
     fi
     sleep 15
   done
+  kubectl -n observability wait job -l app.kubernetes.io/name=clickhouse-schema --for=condition=complete \
+    --timeout="${SYNC_TIMEOUT}s"
   for ns in clickhouse-operator observability; do
     for deploy in $(kubectl -n "$ns" get deployments -o name); do
       kubectl -n "$ns" rollout status "$deploy" --timeout="${SYNC_TIMEOUT}s"
@@ -194,6 +196,52 @@ done
 poll "Grafana: the span-metrics dashboard is provisioned" \
   '.dashboard.uid == "span-metrics-red"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/span-metrics-red"
+
+# Each ClickHouse user can do its own job and nothing else: the collector's user inserts but cannot read,
+# Cerberus's reads but cannot write or change a table. The data checks above prove the allowed half.
+clickhouse_pod="$(kubectl -n observability get pods -l clickhouse.altinity.com/chi=otel -o name | head -1)"
+clickhouse_as() { # <admin|writer|reader> <query>
+  local password
+  password="$(kubectl -n observability get secret "clickhouse-$1" -o go-template='{{.data.password | base64decode}}')"
+  kubectl -n observability exec -i "$clickhouse_pod" -c clickhouse -- \
+    clickhouse-client --user "otel_$1" --password "$password" --multiquery --query "$2"
+}
+refused() { # <user> <query>
+  local out
+  if out="$(clickhouse_as "$1" "$2" 2>&1)"; then
+    echo "  otel_$1 was allowed: $2"
+    exit 1
+  fi
+  [[ "$out" == *ACCESS_DENIED* || "$out" == *"Not enough privileges"* ]] ||
+    { echo "  otel_$1 failed for another reason: $out"; exit 1; }
+  echo "  otel_$1 refused: $2"
+}
+step "ClickHouse: each user is limited to its own job"
+refused writer "SELECT count() FROM otel.otel_traces"
+refused writer "ALTER TABLE otel.otel_logs DROP COLUMN EventName"
+refused reader "INSERT INTO otel.otel_logs (Body) VALUES ('e2e')"
+refused reader "TRUNCATE TABLE otel.otel_logs"
+refused reader "CREATE TABLE otel.e2e (a UInt8) ENGINE = Memory"
+
+# The schema is files/schema.sql.tpl in the clickhouse node, not Cerberus's. Ask the Cerberus image this
+# stack runs which schema it expects, create that in a scratch database, and compare the two table by table.
+# TTLs come from clickhouse.schema.ttlDays and the view's definer from the schema file, so both are ignored.
+step "ClickHouse: the otel schema is the one Cerberus expects"
+cerberus_image="$(yq '.deployment.containers.cerberus.image | .repository + ":" + .tag' cluster-nodes/cerberus/values.yaml)"
+expected_schema="$(docker run --rm -e CERBERUS_CH_DATABASE=otel_expected -e CERBERUS_CH_OPTIMIZATIONS=auto \
+  -e CERBERUS_AUTO_CREATE_SCHEMA=true "$cerberus_image" migrate schema)"
+clickhouse_as admin "DROP DATABASE IF EXISTS otel_expected; $expected_schema" >/dev/null
+schema_of() { # <database>
+  clickhouse_as admin "SELECT name, replaceRegexpAll(replaceRegexpAll(replaceAll(create_table_query, '$1.', 'DB.'),
+    ' TTL .* SETTINGS', ' SETTINGS'), ' DEFINER = [^ ]+ SQL SECURITY DEFINER', '')
+    FROM system.tables WHERE database = '$1' ORDER BY name FORMAT TSVRaw"
+}
+if ! diff <(schema_of otel) <(schema_of otel_expected); then
+  echo "  the otel schema differs from what $cerberus_image expects (< deployed, > expected)"
+  exit 1
+fi
+clickhouse_as admin "DROP DATABASE otel_expected"
+echo "  $(schema_of otel | wc -l) tables and views match $cerberus_image"
 
 # MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
 # the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.

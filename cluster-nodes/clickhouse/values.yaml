@@ -2,12 +2,29 @@
 serviceAccount:
   create: false
 
+# One ClickHouse user per job, each with its own Secret (keys username and password), so a leaked password
+# reaches only what that user may do. files/installation.yaml.tpl defines the users and their grants:
+#   clickhouse-admin   otel_admin, every privilege; only the schema Job and the backup CronJob use it
+#   clickhouse-writer  otel_writer, INSERT on otel.*; the collector
+#   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus
+# With global.externalSecrets.enabled, each is synced from <remotePath>/<its name>.
 secrets:
-  credentials:
+  admin:
     create: false
     stringData:
-      username: otel
-    # With global.externalSecrets.enabled, synced from <remotePath>/clickhouse-credentials.
+      username: otel_admin
+    external:
+      keys: [username, password]
+  writer:
+    create: false
+    stringData:
+      username: otel_writer
+    external:
+      keys: [username, password]
+  reader:
+    create: false
+    stringData:
+      username: otel_reader
     external:
       keys: [username, password]
   # The backup CronJob's S3 credentials, keys access_key and secret_key. Never created here: an environment
@@ -34,6 +51,23 @@ clickhouse:
     limits:
       memory: 1Gi
   lowMemory: true
+  # The otel database's tables are files/schema.sql.tpl, applied as otel_admin by a Job that runs whenever
+  # the rendered SQL changes. ttlDays is the retention per signal, in days. The Job connects to one server
+  # through the clickhouse Service, so with more than one shard or replica the tables exist on one of them:
+  # see "Before using this beyond a laptop" in the README.
+  schema:
+    ttlDays:
+      logs: 7
+      metrics: 7
+      traces: 7
+    backoffLimit: 3
+    activeDeadlineSeconds: 900
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
   # An optional nightly clickhouse-backup run against the otel cluster, uploading to S3-compatible storage.
   # It uses ClickHouse's own BACKUP ... TO S3 (embedded mode with no backup disk), so the job needs only the
   # clickhouse:9000 Service, not the data volume. keep is how many remote backups to retain; older ones are
@@ -86,9 +120,16 @@ clickhouse:
 # objects.installation to a whole ClickHouseInstallation map; it replaces the rendered one.
 objects:
   installation: '--{{ "-" }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}'
+  schema: '--{{ "-" }}{{ tpl (.Files.Get "files/schema-job.yaml.tpl") . }}'
+
+# The SQL the schema Job applies, rendered with the TTLs.
+configMaps:
+  schema:
+    data:
+      schema.sql: '{{ tpl (.Files.Get "files/schema.sql.tpl") . }}'
 
 # With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
-# operator's own label. The collector, Cerberus and the backup job reach the native and HTTP ports, the
+# operator's own label. The collector, Cerberus, the schema Job and the backup job reach the native and HTTP ports, the
 # operator reaches them from its namespace, and replicas reach each other on the interserver port.
 networkPolicy:
   podSelector:
@@ -100,7 +141,7 @@ networkPolicy:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [otel-collector, otel-collector-agent, cerberus, clickhouse-backup]
+                values: [otel-collector, otel-collector-agent, cerberus, clickhouse-schema, clickhouse-backup]
       ports:
         - port: 9000
           protocol: TCP
