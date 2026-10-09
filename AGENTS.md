@@ -19,7 +19,7 @@ cluster-configs/app-of-apps/app-of-apps-<env>.yaml   the one Application you kub
 cluster-configs/overrides/values-<env>.yaml   per-environment values the app-of-apps chart ingests
 cluster-configs/argocd/values.yaml            Argo CD's own Helm values: footprint and the custom health checks
 cluster-nodes/<app>/                          one chart per installed app, rendered entirely through common
-helm-templates/common/                        the library chart every object is rendered through (see its README)
+helm-templates/common/                        the templates every object is rendered through, one file per kind (see its README)
 tests/charts/common-fixture/                  an application chart that exercises common, with its unit tests
 tests/golden/<env>/                           every node rendered as Argo CD deploys it, per environment (generated)
 scripts/render.bash                           produces tests/golden, or one environment with its CRDs
@@ -140,15 +140,17 @@ commit from GitHub, so e2e runs on pushed commits only.
 `otel-collector`, `grafana` and `demo-load`. Each has the same shape:
 
 ```text
-Chart.yaml               depends on file://../../helm-templates/common; appVersion is the app's version
-Chart.lock               committed; charts/*.tgz is gitignored and rebuilt by make deps
+Chart.yaml               no dependencies; appVersion is the app's version
 values.yaml              the whole workload, in the schema helm-templates/common/README.md documents
-templates/common.yaml    {{ include "common.all" . }} and nothing else
+values.schema.extra.yaml the node's own top-level keys; make generate builds values.schema.json from it
+templates                a symlink to ../../helm-templates/common/templates, nothing else
 tests/*_test.yaml        helm-unittest suites
 ```
 
-- **Never add a template to a node.** If a node needs something `common` can't express, add it to `common`
-  with a fixture test, or use `objects` for a one-off manifest such as a custom resource.
+- **Never add a template to a node.** Its `templates/` is the common templates (`check/structure` requires the
+  link). If a node needs something `common` can't express, add it to `common` with a fixture test, or use
+  `objects` for a one-off manifest such as a custom resource. A helm-unittest suite names no template, or the
+  common template it means (`templates/deployment.yaml`); `hasDocuments` counts per template.
 - **A node's `values.yaml` is environment-neutral.** It holds what every environment shares, sized for the
   laptop profile that is actually tested. Credentials are never in a node: a Secret there is `create: false`,
   and an environment turns it on or pre-creates it.
@@ -170,9 +172,9 @@ tests/*_test.yaml        helm-unittest suites
 - **A change to `helm-templates/common` needs a helm-unittest case** in
   `tests/charts/common-fixture/tests/`. Turn the feature on in the fixture's `values.yaml` and assert on the
   rendered object.
-- **Always run tests through `make test/unit`.** helm-unittest renders the packaged
-  `charts/common-<version>.tgz`, not the source directory, so a test run without `make deps` first can pass
-  against stale templates. The tarballs are gitignored; `Chart.lock` is committed.
+- **Always run tests through `make test/unit`.** The nodes render the common templates from the source tree,
+  but the umbrella chart's suite renders the packaged nodes in `cluster-configs/stack/charts/`, which only
+  `make deps` refreshes. The tarballs are gitignored; that chart's `Chart.lock` is committed.
 - **Check that a new test can fail.** Break the template it covers, watch it go red, and put the template back.
 
 ### Cluster configs

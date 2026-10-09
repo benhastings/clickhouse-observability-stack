@@ -1,5 +1,5 @@
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: local
 automountServiceAccountToken: false
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -52,7 +52,7 @@ data:
   CERBERUS_QUERY_MAX_SAMPLES: "5000000"
   CERBERUS_SCHEMA_TTL: "7d"
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -78,7 +78,7 @@ spec:
       protocol: TCP
       appProtocol: http
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -106,7 +106,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: f643d5ece6bf13e554bc5b8bda77d0fe82e7bb6a238af4ffd92db185f4fb117e
+        checksum/config: 5c844c916d913ffe853b06055f6bcdc61429a59e2762f0c9935b03fc98d110bd
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false

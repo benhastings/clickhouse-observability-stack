@@ -1,5 +1,5 @@
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: dev
 automountServiceAccountToken: false
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -52,7 +52,7 @@ data:
   CERBERUS_QUERY_MAX_SAMPLES: "5000000"
   CERBERUS_SCHEMA_TTL: "7d"
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -78,7 +78,7 @@ spec:
       protocol: TCP
       appProtocol: http
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -106,7 +106,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: aa05980f6c8355c3f82280feaa50bd9ef728f45fbe129c54dd2d3207d1160e1c
+        checksum/config: 676c87e66d3c922a8afb7ab77dc3141200c535f366c3ec01eeee853fff4913b9
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false
@@ -167,7 +167,7 @@ spec:
             privileged: false
             readOnlyRootFilesystem: true
 ---
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:

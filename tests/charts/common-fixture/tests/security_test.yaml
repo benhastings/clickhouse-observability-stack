@@ -1,6 +1,4 @@
 suite: restricted security context defaults
-templates:
-  - templates/common.yaml
 release:
   name: fixture
   namespace: demo

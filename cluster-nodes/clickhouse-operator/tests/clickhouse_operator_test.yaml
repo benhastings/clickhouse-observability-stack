@@ -1,6 +1,4 @@
 suite: clickhouse-operator
-templates:
-  - templates/common.yaml
 release:
   name: clickhouse-operator
   namespace: clickhouse-operator

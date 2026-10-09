@@ -1,5 +1,5 @@
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: local
 automountServiceAccountToken: true
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -147,7 +147,7 @@ data:
                   host: ${env:MY_POD_IP}
                   port: 8888
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -168,7 +168,7 @@ rules:
     verbs:
     - get
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -190,7 +190,7 @@ subjects:
     name: otel-collector
     namespace: observability
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -220,7 +220,7 @@ spec:
       targetPort: otlp-http
       protocol: TCP
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -248,7 +248,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 3d50c7630c8e6fc7cf9a2642fb12459a9fd478d7032e6410870d6d6e2dd12957
+        checksum/config: f99c419e473f626d8406a8ef345450a132920ff629d80e0d6fa57f27a3251d33
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

@@ -1,6 +1,4 @@
 suite: grafana plugins
-templates:
-  - templates/common.yaml
 release:
   name: grafana
   namespace: observability

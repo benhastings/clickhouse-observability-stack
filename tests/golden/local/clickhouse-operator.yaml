@@ -1,5 +1,5 @@
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: local
 automountServiceAccountToken: true
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -109,7 +109,7 @@ data:
         </trace_log>
     </yandex>
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -171,7 +171,7 @@ data:
       </profiles>
     </yandex>
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -265,7 +265,7 @@ data:
         </keeper_server>
     </clickhouse>
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -495,7 +495,7 @@ data:
         include:
         - observability
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -693,7 +693,7 @@ rules:
     - create
     - delete
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -715,7 +715,7 @@ subjects:
     name: clickhouse-operator
     namespace: clickhouse-operator
 ---
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -743,7 +743,7 @@ spec:
         app.kubernetes.io/name: clickhouse-operator
         app.kubernetes.io/instance: clickhouse-operator
       annotations:
-        checksum/config: 3f511e4fad3593b8ca7007618a766fd1dcbf2a806df8028a5a395f6dc7d4fd36
+        checksum/config: d8881b2205dc2871e29e7a710412b730a2b781d509b50377e793a796a528453a
     spec:
       serviceAccountName: clickhouse-operator
       automountServiceAccountToken: true

@@ -1,9 +1,3 @@
-{{- /*
-An app that sets exposure.host is reachable on global.exposure.hosts.<exposure.host>. With global.mesh
-kubernetes that is one Ingress per app, to the app's Service port exposure.port. The hosts and TLS are
-global, so a site names each host once and every app that serves one picks it up.
-*/ -}}
-{{- define "common.ingress" -}}
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $x := $v.global.exposure -}}
 {{- $key := $v.exposure.host -}}
@@ -50,4 +44,3 @@ spec:
                 port:
                   name: {{ $port }}
 {{- end }}
-{{- end -}}

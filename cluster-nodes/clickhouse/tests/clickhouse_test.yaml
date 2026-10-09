@@ -1,6 +1,4 @@
 suite: clickhouse
-templates:
-  - templates/common.yaml
 release:
   name: clickhouse
   namespace: observability
@@ -130,6 +128,10 @@ tests:
     asserts:
       - hasDocuments:
           count: 1
+        template: templates/objects.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/secret.yaml
       - containsDocument:
           kind: CronJob
           apiVersion: batch/v1

@@ -1,6 +1,4 @@
 suite: common.rbac and common.serviceAccount
-templates:
-  - templates/common.yaml
 release:
   name: fixture
   namespace: demo

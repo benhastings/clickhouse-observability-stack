@@ -1,5 +1,5 @@
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: prod
 automountServiceAccountToken: false
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -121,7 +121,7 @@ data:
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -517,7 +517,7 @@ data:
       "uid": "span-metrics-red"
     }
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -542,7 +542,7 @@ spec:
       targetPort: grafana
       protocol: TCP
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -570,7 +570,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 57dd545f143c18748616bb7985cee7fa5342903ac01758f9697933d2b1e046b9
+        checksum/config: c567c7605b840148204aef884463a5c8f43d6793d67f489daf285b027bef51b1
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
@@ -686,7 +686,7 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:
@@ -706,7 +706,7 @@ spec:
     tls:
       mode: ISTIO_MUTUAL
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/gateway.yaml
 apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
@@ -734,7 +734,7 @@ spec:
       hosts:
         - grafana.example
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/gateway.yaml
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:

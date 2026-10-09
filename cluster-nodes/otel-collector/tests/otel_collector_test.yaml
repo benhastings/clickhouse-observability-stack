@@ -1,7 +1,5 @@
 # cspell:words bearertokenauth
 suite: otel-collector
-templates:
-  - templates/common.yaml
 release:
   name: otel-collector
   namespace: observability

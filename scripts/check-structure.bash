@@ -17,13 +17,10 @@ for dir in cluster-nodes/*/; do
   node="$(basename "$dir")"
   chart="$dir/Chart.yaml"
   [[ "$(yq '.name' "$chart")" == "$node" ]] || fail "$chart" "name must be $node"
-  [[ "$(yq '.dependencies[] | select(.name == "common") | .repository' "$chart")" == file://../../helm-templates/common ]] ||
-    fail "$chart" "must depend on common from file://../../helm-templates/common"
-  [[ -f "$dir/Chart.lock" ]] || fail "$dir" "Chart.lock must be committed (make deps)"
-  templates="$(cd "$dir/templates" && ls)"
-  [[ "$templates" == common.yaml ]] || fail "$dir/templates" "must hold only common.yaml, found: $(echo "$templates" | tr '\n' ' ')"
-  [[ "$(cat "$dir/templates/common.yaml")" == '{{ include "common.all" . }}' ]] ||
-    fail "$dir/templates/common.yaml" 'must be exactly {{ include "common.all" . }}'
+  # A node renders the common templates with its own values: its templates/ is a link to them, not a copy.
+  [[ -L "$dir/templates" && "$(readlink "$dir/templates")" == ../../helm-templates/common/templates ]] ||
+    fail "$dir/templates" "must be a symlink to ../../helm-templates/common/templates"
+  [[ "$(yq '.dependencies // [] | length' "$chart")" == 0 ]] || fail "$chart" "must have no dependencies"
   compgen -G "$dir/tests/*_test.yaml" >/dev/null || fail "$dir" "needs at least one helm-unittest suite in tests/"
   [[ "$(yq ".applications.\"$node\"" "$aoa/values.yaml")" != null ]] ||
     fail "$dir" "is not listed under applications in $aoa/values.yaml"

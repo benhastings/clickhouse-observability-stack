@@ -1,6 +1,4 @@
 suite: deployment.reloader and daemonset.reloader
-templates:
-  - templates/common.yaml
 release:
   name: fixture
   namespace: demo

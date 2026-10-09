@@ -4,7 +4,3 @@ description: OpenTelemetry Collector (contrib) that derives span metrics and wri
 type: application
 version: 0.1.0
 appVersion: "0.161.0"
-dependencies:
-  - name: common
-    version: 0.1.0
-    repository: file://../../helm-templates/common

@@ -1,0 +1,2 @@
+{{- /* Renders nothing: fails the render early on a global.mesh other than istio or kubernetes. */ -}}
+{{- $_ := include "common.mesh" . -}}

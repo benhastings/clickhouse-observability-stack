@@ -1,6 +1,4 @@
 suite: common.objects
-templates:
-  - templates/common.yaml
 release:
   name: fixture
   namespace: demo
@@ -29,11 +27,13 @@ tests:
   - it: skips an object whose body renders empty
     asserts:
       - hasDocuments:
-          count: 12  # includes the DestinationRule the default istio mesh renders
+          count: 1
+        template: templates/objects.yaml
 
   - it: renders that object once its body is not empty
     set:
       ghostEnabled: true
     asserts:
       - hasDocuments:
-          count: 13  # includes the DestinationRule the default istio mesh renders
+          count: 2
+        template: templates/objects.yaml

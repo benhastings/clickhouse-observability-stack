@@ -1,12 +1,12 @@
 suite: stack
 templates:
-  - charts/*/templates/common.yaml
+  - charts/*/templates/*.yaml
 release:
   name: stack
   namespace: observability
 tests:
   - it: renders ClickHouse from the clickhouse block
-    template: charts/clickhouse/templates/common.yaml
+    template: charts/clickhouse/templates/objects.yaml
     set:
       clickhouse.clickhouse.storage: 77Gi
     documentSelector:
@@ -21,7 +21,7 @@ tests:
           value: 77Gi
 
   - it: keeps the Service names the other apps dial, although every node shares one release
-    template: charts/cerberus/templates/common.yaml
+    template: charts/cerberus/templates/service.yaml
     documentSelector:
       path: kind
       value: Service
@@ -31,7 +31,7 @@ tests:
           value: cerberus
 
   - it: names the collector otel-collector
-    template: charts/otel-collector/templates/common.yaml
+    template: charts/otel-collector/templates/service.yaml
     documentSelector:
       path: kind
       value: Service
@@ -41,7 +41,7 @@ tests:
           value: otel-collector
 
   - it: names Grafana grafana and passes global labels through
-    template: charts/grafana/templates/common.yaml
+    template: charts/grafana/templates/service.yaml
     set:
       global.labels.environment: test
     documentSelector:
@@ -56,7 +56,7 @@ tests:
           value: test
 
   - it: renders demo-load by default
-    template: charts/demo-load/templates/common.yaml
+    template: charts/demo-load/templates/deployment.yaml
     documentSelector:
       path: kind
       value: Deployment
