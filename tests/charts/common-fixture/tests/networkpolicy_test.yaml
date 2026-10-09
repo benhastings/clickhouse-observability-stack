@@ -1,0 +1,125 @@
+suite: common.networkPolicy
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renders no NetworkPolicy while global.networkPolicy is off
+    asserts:
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+        not: true
+
+  - it: denies everything the app does not allow, except DNS, when it lists no rules
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              app.kubernetes.io/name: fixture
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - equal:
+          path: spec.ingress
+          value: []
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - namespaceSelector: {}
+                  podSelector:
+                    matchLabels:
+                      k8s-app: kube-dns
+              ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+
+  - it: adds the app's own rules, written as a list or as a templated string
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      networkPolicy.ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: grafana
+          ports:
+            - port: 8080
+      networkPolicy.egress: |-
+        - to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: '{{ .Release.Name }}-db'
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: grafana
+      - equal:
+          path: spec.egress[1].to[0].podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: fixture-db
+
+  - it: lets the sidecar talk to istiod and be probed when the mesh is istio, and only then
+    set:
+      global.networkPolicy.enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: istio-system
+            ports:
+              - port: 15012
+                protocol: TCP
+              - port: 15017
+                protocol: TCP
+      - equal:
+          path: spec.ingress[0].ports[1].port
+          value: 15021
+
+  - it: selects other pods with networkPolicy.podSelector
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      networkPolicy.podSelector:
+        matchLabels:
+          clickhouse.altinity.com/chi: otel
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              clickhouse.altinity.com/chi: otel
+
+  - it: lets one app opt out with networkPolicy.enabled false
+    set:
+      global.networkPolicy.enabled: true
+      networkPolicy.enabled: false
+    asserts:
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+        not: true

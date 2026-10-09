@@ -635,6 +635,14 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 
 ## Before using this beyond a laptop
 
+- **Network policies:** `global.networkPolicy.enabled: true` gives every app a policy that allows only its
+  own traffic. Grafana is reachable from `global.networkPolicy.exposureNamespaces` (the ingress gateway or
+  controller), queries only Cerberus, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
+  answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse and the kubelets.
+  ClickHouse accepts the collector, Cerberus, the backup job and the operator. The operator reaches the
+  Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
+  that enforces NetworkPolicy.
+
 - **Credentials:** no environment commits a password. `prod` expects `clickhouse-credentials`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.

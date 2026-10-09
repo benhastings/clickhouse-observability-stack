@@ -363,3 +363,31 @@ deployment:
       configMap:
         name: '{{ include "common.fullname" . }}-alerts'
         optional: true
+
+# With global.networkPolicy.enabled: users reach Grafana through the exposure namespaces (the ingress
+# gateway or controller; kubectl port-forward isn't subject to NetworkPolicy), and Grafana reaches Cerberus
+# and, on 443, the OAuth provider and grafana.com for its pinned plugins, both outside the cluster.
+networkPolicy:
+  ingress: |-
+    {{- with dig "global" "networkPolicy" "exposureNamespaces" list .Values.AsMap }}
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values: {{ toJson . }}
+      ports:
+        - port: 3000
+          protocol: TCP
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cerberus
+      ports:
+        - port: 8080
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP

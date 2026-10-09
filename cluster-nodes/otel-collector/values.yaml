@@ -404,3 +404,34 @@ daemonset:
           memory: 32Mi
         limits:
           memory: 128Mi
+
+# With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may
+# send OTLP (which includes the ingress gateway or controller for exposed OTLP); the collector reaches
+# ClickHouse and, for kubeletstats, each node's kubelet on 10250.
+networkPolicy:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - '{{ include "common.fullname" . }}'
+          - '{{ include "common.fullname" . }}-agent'
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              clickhouse.altinity.com/chi: otel
+      ports:
+        - port: 9000
+          protocol: TCP
+    - ports:
+        - port: 10250
+          protocol: TCP

@@ -80,3 +80,19 @@ tests:
       - equal:
           path: data.CERBERUS_CH_ADDR
           value: clickhouse.data.svc.cluster.local:9000
+
+  - it: lets only Grafana's pods query Cerberus when network policies are on
+    set:
+      global:
+        networkPolicy:
+          enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: grafana

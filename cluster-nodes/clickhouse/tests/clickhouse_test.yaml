@@ -282,3 +282,20 @@ tests:
         documentSelector:
           path: kind
           value: ClickHouseInstallation
+
+  - it: selects the operator-created ClickHouse pods by the operator's label when network policies are on
+    set:
+      global:
+        networkPolicy:
+          enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            clickhouse.altinity.com/chi: otel
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          value: [otel-collector, otel-collector-agent, cerberus, clickhouse-backup]

@@ -89,3 +89,24 @@ deployment:
             - ALL
         privileged: false
         readOnlyRootFilesystem: true
+
+# With global.networkPolicy.enabled: only Grafana queries Cerberus, and Cerberus reaches only ClickHouse.
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              clickhouse.altinity.com/chi: otel
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 8123
+          protocol: TCP

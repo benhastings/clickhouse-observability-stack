@@ -85,3 +85,58 @@ clickhouse:
 # objects.installation to a whole ClickHouseInstallation map; it replaces the rendered one.
 objects:
   installation: '--{{ "-" }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}'
+
+# With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
+# operator's own label. The collector, Cerberus and the backup job reach the native and HTTP ports, the
+# operator reaches them from its namespace, and replicas reach each other on the interserver port.
+networkPolicy:
+  podSelector:
+    matchLabels:
+      clickhouse.altinity.com/chi: otel
+  ingress: |-
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [otel-collector, otel-collector-agent, cerberus, clickhouse-backup]
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 8123
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ dig "global" "networkPolicy" "namespaces" "operator" "clickhouse-operator" .Values.AsMap }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: clickhouse-operator
+      ports:
+        - port: 8123
+          protocol: TCP
+        - port: 9000
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              clickhouse.altinity.com/chi: otel
+      ports:
+        - port: 9009
+          protocol: TCP
+  egress: |-
+    - to:
+        - podSelector:
+            matchLabels:
+              clickhouse.altinity.com/chi: otel
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 9009
+          protocol: TCP
+    {{- if .Values.clickhouse.backup.enabled }}
+    # BACKUP ... TO S3 runs inside ClickHouse.
+    - ports:
+        - port: 443
+          protocol: TCP
+    {{- end }}
