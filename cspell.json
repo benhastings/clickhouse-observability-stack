@@ -57,6 +57,7 @@
     "metricsdrilldown",
     "mikefarah",
     "mktemp",
+    "mutatingwebhookconfigurations",
     "nindent",
     "percentunit",
     "pipefail",
@@ -81,6 +82,7 @@
     "urlencode",
     "usersd",
     "venv",
+    "virtualservices",
     "vmodule",
     "yannh"
   ]
