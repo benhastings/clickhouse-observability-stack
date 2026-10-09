@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=values.schema.json
 # Keeps Grafana's database, users and UI-made changes across pod restarts. Off by default, so the pod
 # uses an emptyDir and no PersistentVolumeClaim exists. When on, objects.data renders the claim and the
 # storage volume below mounts it at /var/lib/grafana. An empty storageClassName uses the cluster default.

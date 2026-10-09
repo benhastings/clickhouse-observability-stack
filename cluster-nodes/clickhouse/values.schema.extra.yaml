@@ -1,0 +1,27 @@
+# This node's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
+properties:
+  clickhouse:
+    type: object
+    additionalProperties: false
+    properties:
+      shards: {type: integer, minimum: 1}
+      replicas: {type: integer, minimum: 1}
+      storage: {type: string}
+      storageClassName: {type: string}
+      image: {$ref: "#/definitions/image"}
+      resources: {type: object}
+      lowMemory: {type: boolean}
+      backup:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          schedule: {type: string}
+          bucket: {type: string}
+          path: {type: string}
+          endpoint: {type: string}
+          region: {type: string}
+          forcePathStyle: {type: boolean}
+          keep: {type: integer, minimum: 0}
+          image: {$ref: "#/definitions/image"}
+          resources: {type: object}

@@ -1,0 +1,58 @@
+# This node's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
+properties:
+  pluginsClaim: {type: boolean}
+  persistence:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
+      size: {type: string}
+      storageClassName: {type: string}
+  auth:
+    type: object
+    additionalProperties: false
+    properties:
+      disableLoginForm: {type: boolean}
+      genericOauth:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          rootUrl: {type: string}
+          name: {type: string}
+          clientId: {type: string}
+          authUrl: {type: string}
+          tokenUrl: {type: string}
+          apiUrl: {type: string}
+          scopes: {type: string}
+          allowSignUp: {type: boolean}
+          roleAttributePath: {type: string}
+          loginAttributePath: {type: string}
+          nameAttributePath: {type: string}
+          tlsCaConfigMap: {type: string}
+          tlsCaKey: {type: string}
+  alerts:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
+      errorRatio:
+        type: object
+        additionalProperties: false
+        properties:
+          serviceName: {type: string}
+          threshold: {type: number}
+          for: {type: string}
+      clickhouseDisk:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          threshold: {type: number}
+      contactPoint:
+        type: object
+        additionalProperties: false
+        properties:
+          name: {type: string}
+          type: {type: string}
+          settings: {type: object}

@@ -28,6 +28,12 @@ so the output is deterministic.
 
 ## Values reference
 
+The machine copy of this table is `schema/node.schema.yaml`. `make generate` merges it with each node's own
+`values.schema.extra.yaml` into the node's `values.schema.json`, which helm validates on every render: an unknown
+key such as `deployment.replica` fails the render, and an editor with the YAML language server completes and
+checks a values file from it (each `values.yaml` names its schema in its first line). Add a key here, to the
+schema, and to the template in the same change.
+
 | Key | Default | What it does |
 | --- | --- | --- |
 | `nameOverride` | release name | base name of every object |

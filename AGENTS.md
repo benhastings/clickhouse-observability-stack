@@ -59,10 +59,11 @@ add a target. `make help` lists everything.
 | `make check`                | the whole gate CI runs: `check/lint`, `check/golden`, `check/manifests`        |
 | `make check/lint`           | yamllint, shellcheck, `check/structure`, actionlint, cspell                   |
 | `make check/structure`      | the cluster-configs and cluster-nodes layout rules below                      |
+| `make check/schema`         | fails when a `values.schema.json` is stale, or when the schema accepts `deployment.replica` |
 | `make check/golden`         | fails when `tests/golden` differs from a fresh render                         |
 | `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits and pinned images         |
 | `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
-| `make generate`             | re-renders `tests/golden`; run it after any chart or values change            |
+| `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
 | `make test`                 | every offline test: `test/unit` and `test/credentials`                         |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack   |
