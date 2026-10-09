@@ -46,7 +46,7 @@ scripts/port-forward.sh                    # prints URLs and logins
 
 | URL | What |
 |---|---|
-| http://localhost:3000 | Grafana (`admin` / `admin`). Open **Dashboards → Cerberus → Span metrics (RED)**. |
+| http://localhost:3000 | Grafana (`admin` / the password printed by the script). Open **Dashboards → Cerberus → Span metrics (RED)**. |
 | http://localhost:8080 | Argo CD (`admin` / the password printed by the script) |
 | http://localhost:8081 | Cerberus APIs, for curl |
 | `localhost:4317` / `http://localhost:4318` | OTLP gRPC / HTTP into the collector |
@@ -181,6 +181,34 @@ The waves are set in `cluster-configs/app-of-apps/values.yaml`. Argo CD doesn't 
 - one that treats the ClickHouse installation as healthy only once the operator reports it `Completed`
 
 On the very first install, expect a few minutes of retry noise. The collector logs DNS and "database does not exist" errors, and Cerberus reports not-ready, until ClickHouse is up and Cerberus has created the tables. Both recover on their own.
+
+### Secrets: Kubernetes or Vault
+
+No password is committed to this repository. Each Deployment and DaemonSet declares the secrets it needs
+once, under `secretEnv` (Secret name and key), and `vault.enabled` picks how they reach the pod:
+
+- **`vault.enabled: false`** (the default): each one becomes an env var read from a Kubernetes Secret with
+  `secretKeyRef`. On kind, `make cluster/up` and `make dev/up` create those Secrets with random passwords
+  before anything reads them. Elsewhere, you create them.
+- **`vault.enabled: true`**: the pod gets [Vault Agent Injector](https://developer.hashicorp.com/vault/docs/platform/k8s/injector)
+  annotations, and the agent writes each secret to a file, read from `<vault.path>/<Secret name>` (default
+  `secret/data`, KV v2). The app reads the file instead of an env var. Grafana uses `GF_SECURITY_ADMIN_*__FILE`,
+  the collector uses `${file:...}` in its config, and Cerberus reads `/etc/cerberus/cerberus.yaml`. The pod
+  authenticates with its ServiceAccount, so `vault.role` (default: the app's name) must be a Vault Kubernetes
+  auth role bound to it.
+
+Vault mode needs the injector running in the cluster and the secrets already stored in Vault. The
+ClickHouse server, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
+`clickhouse-credentials`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
+both modes, so with Vault you sync those from Vault, for example with the Vault Secrets Operator or External
+Secrets. The same goes for the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
+
+```yaml
+global:
+  vault:
+    enabled: true
+    role: observability
+```
 
 ### Low-memory sizing
 
@@ -401,8 +429,9 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
   ```bash
+  password="$(kubectl -n observability get secret clickhouse-credentials -o go-template='{{.data.password | base64decode}}')"
   kubectl -n observability exec -it chi-otel-main-0-0-0 -c clickhouse -- \
-    clickhouse-client --user otel --password otel-local-dev
+    clickhouse-client --user otel --password "$password"
   ```
 
 ## Grafana sign-in with Keycloak
@@ -442,7 +471,7 @@ The chart does not create it. The environment adds `GF_AUTH_GENERIC_OAUTH_CLIENT
 
 ## Before using this beyond a laptop
 
-- **Credentials:** the ClickHouse password and the Grafana `admin`/`admin` login in `cluster-configs/overrides/values-local.yaml` are **public, local-only credentials**. The `prod` environment creates no Secrets; supply them from a secret manager (for example External Secrets or Sealed Secrets).
+- **Credentials:** no environment commits a password. `prod` expects `clickhouse-credentials`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.

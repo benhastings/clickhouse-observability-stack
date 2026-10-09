@@ -34,6 +34,28 @@ tests:
           path: spec.template.spec.containers[0].envFrom[0].configMapRef.name
           value: cerberus-env
 
+  - it: reads the ClickHouse password from /etc/cerberus/cerberus.yaml when Vault is on
+    set:
+      vault.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-cerberus.yaml"]
+          value: secret/data/clickhouse-credentials
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/secret-volume-path-cerberus.yaml"]
+          value: /etc/cerberus
+      - matchRegex:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-cerberus.yaml"]
+          pattern: "clickhouse:\\n  password: "
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CERBERUS_CH_PASSWORD
+          any: true
+
   - it: owns the OTel table schema
     documentSelector:
       path: metadata.name

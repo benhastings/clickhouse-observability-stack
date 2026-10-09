@@ -74,10 +74,18 @@ exposure:
   annotations: {}
 configMaps: {}
 secrets: {}
+vault:
+  enabled: false
+  role: ""
+  path: secret/data
+  annotations: {}
 objects: {}
 {{- end -}}
 
 {{- define "common.values" -}}
 {{- $defaults := include "common.defaults" . | fromYaml -}}
-{{- toYaml (mustMergeOverwrite $defaults (deepCopy .Values.AsMap)) -}}
+{{- $values := mustMergeOverwrite (deepCopy $defaults) (deepCopy .Values.AsMap) -}}
+{{- $vault := mustMergeOverwrite $defaults.vault (deepCopy (default (dict) $values.global.vault)) (deepCopy (default (dict) .Values.vault)) -}}
+{{- $_ := set $values "vault" $vault -}}
+{{- toYaml $values -}}
 {{- end -}}

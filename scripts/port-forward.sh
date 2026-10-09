@@ -9,7 +9,7 @@ kubectl -n observability port-forward svc/grafana 3000:80 >/dev/null &
 kubectl -n observability port-forward svc/cerberus 8081:8080 >/dev/null &
 kubectl -n observability port-forward svc/otel-collector 4317:4317 4318:4318 >/dev/null &
 
-echo "Grafana     http://localhost:3000   (admin / admin)"
+echo "Grafana     http://localhost:3000   (admin / $(kubectl -n observability get secret grafana-admin -o go-template='{{index .data "admin-password" | base64decode}}'))"
 # make dev/up runs without Argo CD.
 if kubectl get namespace argocd >/dev/null 2>&1; then
   kubectl -n argocd port-forward svc/argocd-server 8080:80 >/dev/null &

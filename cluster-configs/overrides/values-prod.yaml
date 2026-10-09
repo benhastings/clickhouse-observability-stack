@@ -9,9 +9,6 @@ global:
 applications:
   clickhouse-operator:
     values:
-      secrets:
-        credentials:
-          create: false
       deployment:
         containers:
           clickhouse-operator:

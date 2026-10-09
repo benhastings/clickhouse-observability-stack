@@ -208,22 +208,23 @@ deployment:
         grafana:
           containerPort: 3000
       env:
-        GF_SECURITY_ADMIN_USER:
-          valueFrom:
-            secretKeyRef:
-              name: '{{ include "common.fullname" . }}-admin'
-              key: admin-user
-        GF_SECURITY_ADMIN_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: '{{ include "common.fullname" . }}-admin'
-              key: admin-password
         GF_PATHS_DATA: /var/lib/grafana/
         GF_PATHS_LOGS: /var/log/grafana
         GF_PATHS_PLUGINS: /var/lib/grafana/plugins
         GF_PATHS_PROVISIONING: /etc/grafana/provisioning
         GF_UNIFIED_STORAGE_INDEX_PATH: /var/lib/grafana-search/bleve
         GOMEMLIMIT: 920MiB  # about 90% of the limit
+      secretEnv:
+        GF_SECURITY_ADMIN_USER:
+          secret: '{{ include "common.fullname" . }}-admin'
+          key: admin-user
+          vault:
+            env: GF_SECURITY_ADMIN_USER__FILE
+        GF_SECURITY_ADMIN_PASSWORD:
+          secret: '{{ include "common.fullname" . }}-admin'
+          key: admin-password
+          vault:
+            env: GF_SECURITY_ADMIN_PASSWORD__FILE
       livenessProbe:
         httpGet:
           path: /api/health

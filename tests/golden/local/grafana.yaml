@@ -17,25 +17,6 @@ automountServiceAccountToken: false
 ---
 # Source: grafana/templates/common.yaml
 apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-admin
-  namespace: observability
-  labels:
-    app.kubernetes.io/name: grafana
-    app.kubernetes.io/instance: grafana
-    app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: grafana-0.1.0
-    app.kubernetes.io/version: "13.2.2"
-    environment: local
-type: Opaque
-stringData:
-  admin-password: "admin"
-  admin-user: "admin"
----
-# Source: grafana/templates/common.yaml
-apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-config
@@ -610,7 +591,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: a244b0b10a63add9d74ff3058121600a4fea67bc88e151afed82468bd4f7a4e0
+        checksum/config: 5e901d0bfa84728b0452842f7a2c34f583a1c30b8e24f0b80349fda67922beda
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
@@ -641,12 +622,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: admin-password
-                  name: 'grafana-admin'
+                  name: grafana-admin
             - name: GF_SECURITY_ADMIN_USER
               valueFrom:
                 secretKeyRef:
                   key: admin-user
-                  name: 'grafana-admin'
+                  name: grafana-admin
             - name: GF_UNIFIED_STORAGE_INDEX_PATH
               value: "/var/lib/grafana-search/bleve"
             - name: GOMEMLIMIT

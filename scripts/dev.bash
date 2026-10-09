@@ -14,6 +14,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/apps.bash
 source scripts/apps.bash
+# shellcheck source=scripts/local-secrets.bash
+source scripts/local-secrets.bash
 
 ENV=local
 CLUSTER=clickhouse-obs
@@ -82,6 +84,7 @@ case "${1:-}" in
       kind create cluster --config kind-config.yaml
     fi
     use_cluster
+    create_local_secrets
     while IFS= read -r name; do
       app="${name%"-$ENV"}"
       # Traffic is opt-in here: make dev/load.

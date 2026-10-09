@@ -50,11 +50,13 @@ deployment:
           containerPort: 8080
       env:
         GOMEMLIMIT: 322122547B
+      secretEnv:
         CERBERUS_CH_PASSWORD:
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-credentials
-              key: password
+          secret: clickhouse-credentials
+          key: password
+          vault:
+            file: /etc/cerberus/cerberus.yaml
+            yamlKey: clickhouse.password
       envFrom:
         - configMapRef:
             name: '{{ include "common.fullname" . }}-env'

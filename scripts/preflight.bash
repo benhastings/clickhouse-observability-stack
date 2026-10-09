@@ -51,9 +51,9 @@ require_secret() {
 }
 
 # A Secret the environment creates itself (create: true) is made by the first sync, so only the
-# others have to exist already. The operator's credentials are created unless the environment says not.
+# others have to exist already.
 if app_enabled clickhouse-operator &&
-  [[ "$(yq '.applications.clickhouse-operator.values.secrets.credentials.create' "$values")" == false ]]; then
+  [[ "$(yq '.applications.clickhouse-operator.values.secrets.credentials.create' "$values")" != true ]]; then
   require_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
 fi
 if app_enabled clickhouse &&

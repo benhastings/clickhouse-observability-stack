@@ -4,6 +4,8 @@
 # Pass a git revision to deploy that commit or branch instead of main.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/local-secrets.bash
+source scripts/local-secrets.bash
 
 REVISION=${1:-}
 CLUSTER=clickhouse-obs
@@ -19,6 +21,8 @@ helm upgrade --install argocd argo-cd \
   --repo https://argoproj.github.io/argo-helm --version "$ARGOCD_CHART_VERSION" \
   --namespace argocd --create-namespace \
   -f cluster-configs/argocd/values.yaml --wait --timeout 10m
+
+create_local_secrets
 
 # The bootstrap Application belongs to the project the chart renders, and Argo CD
 # will not sync an Application whose project does not exist yet.

@@ -166,9 +166,6 @@ spec:
         global:
           labels:
             environment: prod
-        secrets:
-          credentials:
-            create: false
   destination:
     server: https://kubernetes.default.svc
     namespace: clickhouse-operator
