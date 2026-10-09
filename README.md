@@ -29,7 +29,7 @@ flowchart LR
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
 
-Argo CD itself is installed by `scripts/kind-up.sh` (chart `argo/argo-cd` 10.9.2, Argo CD v3.5.3).
+Argo CD itself is installed by `scripts/bootstrap.bash`, which `make cluster/up` and `make cluster/bootstrap` run (chart `argo/argo-cd` 10.9.2, Argo CD v3.5.3).
 
 ## Quick start (local kind cluster)
 
@@ -39,9 +39,9 @@ Argo CD itself is installed by `scripts/kind-up.sh` (chart `argo/argo-cd` 10.9.2
 - About 3 GB of free RAM. The whole cluster used about 2.4 GB in testing.
 
 ```bash
-scripts/kind-up.sh                         # cluster + Argo CD + the local app-of-apps (~10 min on first run)
+make cluster/up                            # cluster + Secrets + Argo CD + the local app-of-apps (~10 min on first run)
 kubectl -n argocd get applications -w      # wait for all 7 apps: Synced / Healthy
-scripts/port-forward.sh                    # prints URLs and logins
+make cluster/port-forward                  # prints URLs and logins
 ```
 
 | URL | What |
@@ -51,7 +51,13 @@ scripts/port-forward.sh                    # prints URLs and logins
 | http://localhost:8081 | Cerberus APIs, for curl |
 | `localhost:4317` / `http://localhost:4318` | OTLP gRPC / HTTP into the collector |
 
-Tear down with `scripts/kind-down.sh`.
+Tear down with `make cluster/down`.
+
+On a cluster you already run, `make cluster/bootstrap ENV=<env>` does the Argo CD half against the current
+kube context: it runs `make cluster/preflight` and stops on anything missing (it never creates passwords, so
+create the Secrets first), installs Argo CD with this repo's health checks unless an Argo CD is already
+running, then applies the environment's AppProject and `app-of-apps-<env>.yaml`. `make cluster/up` is that
+same bootstrap, after creating the kind cluster and its Secrets.
 
 ### What you should see
 
