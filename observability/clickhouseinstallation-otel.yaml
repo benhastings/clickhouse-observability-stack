@@ -39,6 +39,8 @@ spec:
   templates:
     podTemplates:
       - metadata:
+          annotations:
+            traffic.sidecar.istio.io/excludeInboundPorts: "8123"
           labels:
             sidecar.istio.io/inject: "true"
         name: clickhouse

@@ -27,6 +27,7 @@ spec:
         app.kubernetes.io/instance: clickhouse-operator
       annotations:
         checksum/config: e8a2dcf9a38e2a905f53279b0e6876e6680500a0f461e6c828a3a91ec620e37f
+        traffic.sidecar.istio.io/excludeOutboundPorts: "8123"
     spec:
       serviceAccountName: clickhouse-operator
       automountServiceAccountToken: true
