@@ -1,0 +1,19 @@
+# Source: grafana/templates/common.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: grafana
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: grafana-0.1.0
+    app.kubernetes.io/version: "13.2.2"
+    environment: dev
+spec:
+  host: grafana.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
