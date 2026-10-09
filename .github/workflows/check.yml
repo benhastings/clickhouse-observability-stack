@@ -41,3 +41,6 @@ jobs:
       - name: Validate manifests
         run: |
           make check/manifests
+      - name: No credentials in the golden renders
+        run: |
+          make check/credentials
