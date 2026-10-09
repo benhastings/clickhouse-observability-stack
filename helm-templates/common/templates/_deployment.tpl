@@ -66,7 +66,8 @@
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with $c.securityContext }}
+  {{- $workload := index (include "common.values" $root | fromYaml) $key }}
+  {{- with mustMergeOverwrite (deepCopy ($workload.containerSecurityContext | default dict)) (deepCopy ($c.securityContext | default dict)) }}
   securityContext:
     {{- toYaml . | nindent 4 }}
   {{- end }}

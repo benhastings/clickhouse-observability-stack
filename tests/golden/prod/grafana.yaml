@@ -579,6 +579,8 @@ spec:
         runAsGroup: 472
         runAsNonRoot: true
         runAsUser: 472
+        seccompProfile:
+          type: RuntimeDefault
       terminationGracePeriodSeconds: 30
       containers:
         - name: grafana

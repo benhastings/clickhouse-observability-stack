@@ -67,6 +67,7 @@
     "readyz",
     "reqps",
     "rhysd",
+    "seccomp",
     "servicegraph",
     "shellcheck",
     "spanmetrics",

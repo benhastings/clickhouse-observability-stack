@@ -38,7 +38,19 @@ deployment:
     type: RollingUpdate
   podLabels: {}
   podAnnotations: {}
-  podSecurityContext: {}
+  # Restricted by default; a node sets only what it changes. readOnlyRootFilesystem stays true: a
+  # container that writes mounts an emptyDir there, or sets the field false with a comment saying why.
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
   terminationGracePeriodSeconds: 30
   nodeSelector: {}
   affinity: {}
@@ -57,7 +69,19 @@ daemonset:
   selectorLabels: {}
   podLabels: {}
   podAnnotations: {}
-  podSecurityContext: {}
+  # Restricted by default; a node sets only what it changes. readOnlyRootFilesystem stays true: a
+  # container that writes mounts an emptyDir there, or sets the field false with a comment saying why.
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
   terminationGracePeriodSeconds: 30
   nodeSelector: {}
   affinity: {}
