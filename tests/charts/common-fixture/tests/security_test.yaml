@@ -1,0 +1,90 @@
+suite: restricted security context defaults
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: runs the pod as non-root with the runtime's default seccomp profile
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile
+          value:
+            type: RuntimeDefault
+
+  - it: drops every capability and forbids escalation and writes to the root filesystem
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+  - it: lets a container change one field and keeps the rest of the defaults
+    set:
+      deployment.containers.app.securityContext:
+        readOnlyRootFilesystem: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: keeps a node's own pod fields next to the defaults
+    set:
+      deployment.podSecurityContext:
+        runAsUser: 1000
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+
+  - it: applies the same defaults to a DaemonSet
+    set:
+      daemonset.enabled: true
+      daemonset.selectorLabels:
+        app.kubernetes.io/component: agent
+      daemonset.containers:
+        agent:
+          image:
+            repository: example/agent
+            tag: "1.0.0"
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value:
+            - ALL

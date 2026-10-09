@@ -47,6 +47,10 @@ spec:
     spec:
       serviceAccountName: demo-load
       automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       terminationGracePeriodSeconds: 30
       containers:
         - name: correlated-telemetrygen
@@ -71,3 +75,10 @@ spec:
             requests:
               cpu: 10m
               memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true

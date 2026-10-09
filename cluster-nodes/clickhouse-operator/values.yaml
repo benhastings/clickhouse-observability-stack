@@ -415,6 +415,10 @@ configMaps:
     files: files/chk-keeper_config.d/*
 deployment:
   enabled: true
+  # The image's user is "nobody", a name, and runAsNonRoot can only verify a numeric user; 65534 is nobody.
+  podSecurityContext:
+    runAsUser: 65534
+    runAsGroup: 65534
   containers:
     clickhouse-operator:
       image:
