@@ -39,7 +39,7 @@ data:
 {{- define "common.secrets" -}}
 {{- $v := include "common.values" . | fromYaml -}}
 {{- range $key, $secret := $v.secrets }}
-{{- if and $secret (ne $secret.create false) }}
+{{- if and $secret (ne $secret.create false) (not (and $v.global.externalSecrets.enabled $secret.external)) }}
 ---
 apiVersion: v1
 kind: Secret

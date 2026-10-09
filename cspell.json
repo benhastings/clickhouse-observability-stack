@@ -40,6 +40,7 @@
     "distroless",
     "drilldown",
     "exploretraces",
+    "externalsecrets",
     "finalizer",
     "finalizers",
     "fips",

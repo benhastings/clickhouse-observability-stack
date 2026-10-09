@@ -9,6 +9,9 @@ persistence:
 secrets:
   admin:
     create: false
+    # With global.externalSecrets.enabled, synced from <remotePath>/grafana-admin.
+    external:
+      keys: [admin-user, admin-password]
   # grafana-oauth, key client-secret: the generic OAuth client secret. Never created here; an
   # environment that turns OAuth on pre-creates it (or stores it in Vault) and declares it once:
   #   deployment:

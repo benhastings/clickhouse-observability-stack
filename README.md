@@ -244,8 +244,8 @@ once, under `secretEnv` (Secret name and key), and `vault.enabled` picks how the
 Vault mode needs the injector running in the cluster and the secrets already stored in Vault. The
 ClickHouse server, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
 `clickhouse-credentials`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
-both modes, so with Vault you sync those from Vault, for example with the Vault Secrets Operator or External
-Secrets. The same goes for the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
+both modes, so with Vault you sync those from Vault; `global.externalSecrets` below does that. The same goes for
+the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
 
 ```yaml
 global:
@@ -253,6 +253,25 @@ global:
     enabled: true
     role: observability
 ```
+
+With the [External Secrets operator](https://external-secrets.io) in the cluster, the chart can request the
+Secrets instead of you creating them. Set `global.externalSecrets.enabled: true` and name a `SecretStore` or
+`ClusterSecretStore` you run:
+
+```yaml
+global:
+  externalSecrets:
+    enabled: true
+    secretStoreRef:
+      name: vault-backend         # kind defaults to ClusterSecretStore
+    remotePath: observability     # each Secret is read from <remotePath>/<Secret name>
+```
+
+`clickhouse-credentials` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
+and `grafana-admin` (`admin-user`, `admin-password`) are then each an `ExternalSecret` with the same name, so the
+pods read the same Secrets as before. The chart doesn't install the operator or a store, and
+`make cluster/preflight` fails when the operator's CRD is missing. A node declares another Secret for this by
+listing its keys under `secrets.<name>.external.keys`.
 
 Changing a secret doesn't restart the pods that read it, because the chart never sees its value. For a
 Kubernetes Secret, set `deployment.reloader: true` on the app and run

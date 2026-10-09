@@ -6,6 +6,9 @@ secrets:
     create: false
     stringData:
       username: otel
+    # With global.externalSecrets.enabled, synced from <remotePath>/clickhouse-credentials.
+    external:
+      keys: [username, password]
   # The backup CronJob's S3 credentials, keys access_key and secret_key. Never created here: an environment
   # that turns on clickhouse.backup pre-creates clickhouse-backup or sets create: true with its own stringData.
   backup:

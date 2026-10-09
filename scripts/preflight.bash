@@ -85,19 +85,33 @@ if [[ "$(yq '[.global.vault.enabled, .applications[].values.vault.enabled] | any
   fi
 fi
 
+# With global.externalSecrets.enabled, the External Secrets operator creates the declared Secrets from the
+# site's store, so its CRD has to be installed and those Secrets need not exist yet.
+external_secrets="$(yq '.global.externalSecrets.enabled // false' "$values")"
+if [[ "$external_secrets" == true ]]; then
+  kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1 ||
+    fail "global.externalSecrets.enabled is true but the External Secrets operator's CRD externalsecrets.external-secrets.io is not installed"
+  [[ -n "$(yq '.global.externalSecrets.secretStoreRef.name // ""' "$values")" ]] ||
+    fail "global.externalSecrets.enabled is true but global.externalSecrets.secretStoreRef.name is empty"
+fi
+# require_declared_secret <namespace> <name> <consumer>: as require_secret, unless External Secrets makes it.
+require_declared_secret() {
+  [[ "$external_secrets" == true ]] || require_secret "$@"
+}
+
 # A Secret the environment creates itself (create: true) is made by the first sync, so only the
 # others have to exist already.
 if app_enabled clickhouse-operator &&
   [[ "$(yq '.applications.clickhouse-operator.values.secrets.credentials.create' "$values")" != true ]]; then
-  require_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
+  require_declared_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
 fi
 if app_enabled clickhouse &&
   [[ "$(yq '.applications.clickhouse.values.secrets.credentials.create' "$values")" != true ]]; then
-  require_secret "$default_namespace" clickhouse-credentials "clickhouse, cerberus, otel-collector"
+  require_declared_secret "$default_namespace" clickhouse-credentials "clickhouse, cerberus, otel-collector"
 fi
 if app_enabled grafana &&
   [[ "$(yq '.applications.grafana.values.secrets.admin.create' "$values")" != true ]]; then
-  require_secret "$default_namespace" grafana-admin "grafana"
+  require_declared_secret "$default_namespace" grafana-admin "grafana"
 fi
 if app_enabled otel-collector &&
   [[ "$(yq '.applications.otel-collector.values.collector.auth.enabled' "$values")" == true ]] &&

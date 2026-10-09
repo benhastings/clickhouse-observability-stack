@@ -5,6 +5,7 @@
 {{ include "common.rbac" . }}
 {{ include "common.configMaps" . }}
 {{ include "common.secrets" . }}
+{{ include "common.externalSecrets" . }}
 {{ include "common.service" . }}
 {{ include "common.ingress" . }}
 {{ include "common.gateway" . }}

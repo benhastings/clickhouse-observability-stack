@@ -190,6 +190,9 @@ secrets:
     create: false
     stringData:
       username: clickhouse_operator
+    # With global.externalSecrets.enabled, synced from <remotePath>/clickhouse-operator-credentials.
+    external:
+      keys: [username, password]
 configMaps:
   files:
     data:
