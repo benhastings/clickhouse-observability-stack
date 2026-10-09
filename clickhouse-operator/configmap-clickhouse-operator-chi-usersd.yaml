@@ -1,4 +1,4 @@
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:

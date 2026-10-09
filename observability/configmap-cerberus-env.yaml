@@ -1,4 +1,4 @@
-# Source: cerberus/templates/common.yaml
+# Source: cerberus/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:

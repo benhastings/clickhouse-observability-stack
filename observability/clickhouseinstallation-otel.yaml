@@ -1,5 +1,5 @@
 ---
-# Source: clickhouse/templates/common.yaml
+# Source: clickhouse/templates/objects.yaml
 apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
 metadata:

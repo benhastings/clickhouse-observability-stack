@@ -1,4 +1,4 @@
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -1,4 +1,4 @@
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:

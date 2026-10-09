@@ -1,4 +1,4 @@
-# Source: clickhouse-operator/templates/common.yaml
+# Source: clickhouse-operator/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: clickhouse-operator
         app.kubernetes.io/instance: clickhouse-operator
       annotations:
-        checksum/config: 996af8df30a82797712c3a6381814d70c671e76f866e0ccbeed4f42643b4efde
+        checksum/config: e8a2dcf9a38e2a905f53279b0e6876e6680500a0f461e6c828a3a91ec620e37f
     spec:
       serviceAccountName: clickhouse-operator
       automountServiceAccountToken: true

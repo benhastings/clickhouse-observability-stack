@@ -1,4 +1,4 @@
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 391b84de2258c2655a0ddb94bff2711d4c2f3c3c4f5097943ae3f9bb5212585b
+        checksum/config: bddad34aaa19f5d0ba896b41b9d380000b99460ec7378226d8fc4a6861e8698f
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

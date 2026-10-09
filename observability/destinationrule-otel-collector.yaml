@@ -1,4 +1,4 @@
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:

@@ -1,4 +1,4 @@
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: bb8a166a43781d66ec269abd01551522071f82aaadbbc9ca28b0c9a6cb22f56d
+        checksum/config: 5c634cfa1c51271fc6392d1d2b19cd9fa07ff3029d2daba1ca492596d46cde06
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
