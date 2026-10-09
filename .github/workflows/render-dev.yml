@@ -1,0 +1,52 @@
+# Publishes the dev environment, rendered to plain manifests, to the long-lived `dev` branch on every
+# push to main. The branch is an artifact: only this workflow writes it, one commit per render on top of
+# the last, and a render that did not change pushes nothing. scripts/check-credentials.bash runs on the
+# render before anything is pushed, so a credential never reaches the branch.
+#
+# Repository settings this needs (Settings > Rules > Rulesets, a ruleset targeting the `dev` branch):
+#   - Restrict deletions and Block force pushes, so the line of renders can't be rewritten.
+#   - Restrict updates, with the GitHub Actions app ("github-actions") in the bypass list, so only this
+#     workflow pushes. Without that bypass entry the workflow is locked out; check it before turning on
+#     Restrict updates.
+# The workflow's GITHUB_TOKEN needs contents: write, granted below.
+name: Render dev
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+defaults:
+  run:
+    shell: bash
+permissions:
+  contents: write
+concurrency:
+  group: render-dev
+  cancel-in-progress: false
+jobs:
+  render:
+    # Never from a fork: a fork's pushes run with the fork's token against the fork.
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache: false
+      - name: Install tools
+        run: |
+          make setup/tools/go
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Render dev
+        run: |
+          make render ENV=dev
+      - name: No credentials in the render
+        run: |
+          scripts/check-credentials.bash dist/manifests/dev
+      - name: Publish to the dev branch
+        run: |
+          scripts/publish-render.bash dev dev "$GITHUB_SHA"
