@@ -22,7 +22,8 @@ cluster-nodes/<app>/                          one chart per installed app, rende
 helm-templates/common/                        the library chart every object is rendered through (see its README)
 tests/charts/common-fixture/                  an application chart that exercises common, with its unit tests
 tests/golden/<env>/                           every node rendered as Argo CD deploys it, per environment (generated)
-scripts/render.bash                           produces tests/golden
+scripts/render.bash                           produces tests/golden, or one environment with its CRDs
+scripts/split-manifests.bash                  splits one rendered environment into <namespace>/<kind>-<name>.yaml
 scripts/check-structure.bash                  enforces the layout rules below
 scripts/check-manifests.bash                  kubeconform and container policy over tests/golden
 scripts/kind-up.sh, kind-down.sh              create and delete the local kind cluster
@@ -61,6 +62,7 @@ add a target. `make help` lists everything.
 | `make check/golden`         | fails when `tests/golden` differs from a fresh render                         |
 | `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits and pinned images         |
 | `make generate`             | re-renders `tests/golden`; run it after any chart or values change            |
+| `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
 | `make test`                 | every offline test; today `test/unit`                                        |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack   |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |

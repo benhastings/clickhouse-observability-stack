@@ -117,6 +117,13 @@ generate: deps ## Re-render tests/golden: every node, as Argo CD would deploy it
 	rm -rf $(GOLDEN)
 	KUBE_VERSION=$(KUBE_VERSION) scripts/render.bash $(GOLDEN)
 
+.PHONY: render
+render: deps ## Render one environment to dist/manifests/<env>/, one file per object by namespace, CRDs included: ENV=<env>
+	@test -n '$(ENV)' || { echo 'usage: make render ENV=<env>'; exit 1; }
+	@tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && \
+	KUBE_VERSION=$(KUBE_VERSION) scripts/render.bash "$$tmp" '$(ENV)' && \
+	scripts/split-manifests.bash "$$tmp/$(ENV)" dist/manifests/'$(ENV)'
+
 ##@ Tests
 
 .PHONY: deps
