@@ -448,3 +448,12 @@ tests:
       - notMatchRegex:
           path: data["relay.yaml"]
           pattern: "tcp://clickhouse:9000"
+
+  - it: collects kubelet volume metrics, which the ClickHouse disk alert reads
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "metric_groups: \\[node, pod, container, volume\\]"

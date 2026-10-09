@@ -96,6 +96,7 @@ data:
         collection_interval: 30s
         endpoint: https://${env:K8S_NODE_IP}:10250
         insecure_skip_verify: false
+        metric_groups: [node, pod, container, volume]
       # OTLP listens on every interface in the pod, not just the pod IP, because
       # kubectl port-forward (make cluster/port-forward) connects to localhost inside the pod.
       otlp:
@@ -247,7 +248,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 05a8ea8f0347a88c5633a62bf036f748aa7d9622fcdcb853bd1f35a5f190744b
+        checksum/config: 391b84de2258c2655a0ddb94bff2711d4c2f3c3c4f5097943ae3f9bb5212585b
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

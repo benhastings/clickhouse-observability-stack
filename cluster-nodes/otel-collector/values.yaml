@@ -67,7 +67,8 @@ secrets:
     create: false
 
 # The kubeletstats receiver reads CPU, memory, filesystem and network for the node, every pod and
-# every container from this node's kubelet. The gateway runs it only while the agent is off.
+# every container from this node's kubelet, plus each pod volume's capacity and free space (the volume
+# group, which kubeletstats leaves off by default), so ClickHouse's disk can be watched. The gateway runs it only while the agent is off.
 configMaps:
   main:
     data:
@@ -153,6 +154,7 @@ configMaps:
             collection_interval: 30s
             endpoint: https://${env:K8S_NODE_IP}:10250
             insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false $collector }}
+            metric_groups: [node, pod, container, volume]
           {{- end }}
           # OTLP listens on every interface in the pod, not just the pod IP, because
           # kubectl port-forward (make cluster/port-forward) connects to localhost inside the pod.
@@ -369,6 +371,7 @@ daemonset:
               collection_interval: 30s
               endpoint: https://${env:K8S_NODE_IP}:10250
               insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false (.Values.collector | default dict) }}
+              metric_groups: [node, pod, container, volume]
           service:
             extensions:
             - health_check

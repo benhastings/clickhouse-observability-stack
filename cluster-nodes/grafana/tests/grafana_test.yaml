@@ -349,3 +349,91 @@ tests:
       - notMatchRegex:
           path: data["datasources.yaml"]
           pattern: "http://cerberus:8080"
+
+  - it: renders no alert rules by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        documentSelector:
+          path: metadata.name
+          value: grafana-alerts
+          skipEmptyTemplates: true
+
+  - it: provisions the starter alert rules against cerberus-prometheus when alerts are on
+    set:
+      alerts:
+        enabled: true
+        errorRatio:
+          serviceName: checkout|payments
+          threshold: 0.2
+    documentSelector:
+      path: metadata.name
+      value: grafana-alerts
+    asserts:
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "datasourceUid: cerberus-prometheus"
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: 'title: Span error ratio above 0.2'
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: 'service_name=~"checkout\|payments"'
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "evaluator: \\{type: gt, params: \\[0.2\\]\\}"
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "uid: stack-collector-no-spans"
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "uid: stack-clickhouse-disk"
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "notify nobody"
+      - notMatchRegex:
+          path: data["alerts.yaml"]
+          pattern: "notification_settings|contactPoints"
+
+  - it: routes every rule to the contact point when one is set
+    set:
+      alerts:
+        enabled: true
+        clickhouseDisk:
+          enabled: false
+        contactPoint:
+          name: on-call
+          type: webhook
+          settings:
+            url: https://hooks.example/alerts
+    documentSelector:
+      path: metadata.name
+      value: grafana-alerts
+    asserts:
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "contactPoints:\\n  - orgId: 1\\n    name: \"on-call\""
+      - matchRegex:
+          path: data["alerts.yaml"]
+          pattern: "(?s)notification_settings:\\n\\s+receiver: \"on-call\".*notification_settings:\\n\\s+receiver: \"on-call\""
+      - notMatchRegex:
+          path: data["alerts.yaml"]
+          pattern: "stack-clickhouse-disk"
+
+  - it: mounts the alert rules optionally, so Grafana starts while alerts are off
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: alerts
+            configMap:
+              name: grafana-alerts
+              optional: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: alerts
+            mountPath: /etc/grafana/provisioning/alerting

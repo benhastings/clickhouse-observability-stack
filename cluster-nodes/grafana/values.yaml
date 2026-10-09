@@ -50,6 +50,27 @@ auth:
 # Put plugins on the grafana-plugins claim; see deployment.volumes.plugins.
 pluginsClaim: false
 
+# Starter alert rules, off by default. When on, objects.alerts renders the grafana-alerts ConfigMap,
+# which Grafana provisions from /etc/grafana/provisioning/alerting:
+#   - errorRatio: the share of server spans that end in an error, per service_name matching serviceName
+#   - the collector receiving no spans for 15 minutes
+#   - clickhouseDisk: a ClickHouse data volume filling up, from kubeletstats volume metrics. kubelet
+#     reports those for CSI-backed volumes; kind's local-path (hostPath) volumes have none, so on kind the
+#     rule stays in No Data
+# Without a contactPoint the rules fire in Grafana but notify nobody. A contact point is a Grafana
+# integration, for example {name: on-call, type: webhook, settings: {url: https://...}}; keep secrets
+# such as a token out of git (Grafana reads $__env{...} and $__file{...} in settings).
+alerts:
+  enabled: false
+  errorRatio:
+    serviceName: .+
+    threshold: 0.05
+    for: 10m
+  clickhouseDisk:
+    enabled: true
+    threshold: 0.85
+  contactPoint: {}
+
 configMaps:
   config:
     data:
@@ -178,6 +199,7 @@ configMaps:
 # nothing, and common skips it, unless persistence.enabled; '--{{ "-" }}' keeps it a plain YAML scalar.
 objects:
   data: '--{{ "-" }}{{ if .Values.persistence.enabled }}{{ tpl (.Files.Get "files/data-pvc.yaml.tpl") . }}{{ end }}'
+  alerts: '--{{ "-" }}{{ if .Values.alerts.enabled }}{{ tpl (.Files.Get "files/alerts.yaml.tpl") . }}{{ end }}'
 
 service:
   enabled: true
@@ -274,6 +296,8 @@ deployment:
           mountPath: /var/lib/grafana/plugins
         - name: search
           mountPath: /var/lib/grafana-search
+        - name: alerts
+          mountPath: /etc/grafana/provisioning/alerting
   volumes:
     tmp:
       emptyDir: {}
@@ -303,3 +327,8 @@ deployment:
     dashboards:
       configMap:
         name: '{{ include "common.fullname" . }}-dashboards'
+    # Optional, so the pod starts with an empty alerting directory while alerts are off.
+    alerts:
+      configMap:
+        name: '{{ include "common.fullname" . }}-alerts'
+        optional: true

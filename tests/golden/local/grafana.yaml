@@ -685,7 +685,13 @@ spec:
               name: plugins
             - mountPath: /var/lib/grafana-search
               name: search
+            - mountPath: /etc/grafana/provisioning/alerting
+              name: alerts
       volumes:
+        - name: alerts
+          configMap:
+            name: 'grafana-alerts'
+            optional: true
         - name: config
           configMap:
             name: 'grafana-config'
