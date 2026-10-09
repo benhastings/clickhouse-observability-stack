@@ -324,13 +324,15 @@ either of them. It does rename the Secret: the installation reads `<name>-creden
 `clickhouse-credentials` literally, so renaming the ClickHouse Secret means changing both.
 
 `nameOverride` (or renaming the app key) changes the Service name and the Secret names built from it. These
-have to move together:
+have to move together. The three addresses are `global.services` keys, so an environment changes each one
+once, for example to the DNS form a split namespace needs (`clickhouse.observability.svc.cluster.local:9000`):
 
-- **ClickHouse address**: the collector's exporter endpoint `tcp://clickhouse:9000` and Cerberus's
-  `CERBERUS_CH_ADDR: clickhouse:9000`. Both dial the Service the operator generates.
-- **Cerberus URL**: the three datasource `url` fields in Grafana's `datasources.yaml`, all
-  `http://cerberus:8080`.
-- **Collector endpoint**: the demo load's `OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317`, the
+- **ClickHouse address**: `global.services.clickhouse` (default `clickhouse:9000`), which the collector's
+  exporter and Cerberus's `CERBERUS_CH_ADDR` both read. Both dial the Service the operator generates.
+- **Cerberus URL**: `global.services.cerberus` (default `http://cerberus:8080`), which the three datasource
+  `url` fields in Grafana's `datasources.yaml` read.
+- **Collector endpoint**: `global.services.otlpGrpc` (default `otel-collector:4317`), which the demo load's
+  `OTEL_EXPORTER_OTLP_ENDPOINT` reads, the
   `svc/otel-collector` port-forwards in `scripts/port-forward.sh` and `scripts/e2e.bash`, and anything you
   send telemetry from.
 - **ClickHouse Secret**: the `secretKeyRef` in the installation, Cerberus and the collector, plus the Secret

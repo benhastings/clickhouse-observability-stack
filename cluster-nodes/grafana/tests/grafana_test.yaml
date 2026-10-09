@@ -333,3 +333,19 @@ tests:
                         name: grafana
                         port:
                           name: http
+
+  - it: points every datasource at global.services.cerberus
+    set:
+      global:
+        services:
+          cerberus: http://cerberus.query.svc.cluster.local:8080
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - matchRegex:
+          path: data["datasources.yaml"]
+          pattern: "(?s)url: 'http://cerberus.query.svc.cluster.local:8080'.*url: 'http://cerberus.query.svc.cluster.local:8080'.*url: 'http://cerberus.query.svc.cluster.local:8080'"
+      - notMatchRegex:
+          path: data["datasources.yaml"]
+          pattern: "http://cerberus:8080"

@@ -102,7 +102,7 @@ configMaps:
             uid: cerberus-prometheus
             type: prometheus
             access: proxy
-            url: http://cerberus:8080
+            url: '{{ include "common.serviceAddress" (list $ "cerberus") }}'
             isDefault: true
             editable: false
             jsonData:
@@ -114,7 +114,7 @@ configMaps:
             uid: cerberus-loki
             type: loki
             access: proxy
-            url: http://cerberus:8080
+            url: '{{ include "common.serviceAddress" (list $ "cerberus") }}'
             editable: false
             jsonData:
               # Every demo log carries the trace_id of the span it was written in, as structured
@@ -130,7 +130,7 @@ configMaps:
             uid: cerberus-tempo
             type: tempo
             access: proxy
-            url: http://cerberus:8080
+            url: '{{ include "common.serviceAddress" (list $ "cerberus") }}'
             editable: false
             jsonData:
               serviceMap:

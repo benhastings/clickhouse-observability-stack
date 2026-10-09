@@ -1,0 +1,37 @@
+suite: global.services
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renders the default address for a known service
+    set:
+      objects.addresses:
+        apiVersion: v1
+        kind: ConfigMap
+        data:
+          clickhouse: '{{ include "common.serviceAddress" (list $ "clickhouse") }}'
+          cerberus: '{{ include "common.serviceAddress" (list $ "cerberus") }}'
+          otlpGrpc: '{{ include "common.serviceAddress" (list $ "otlpGrpc") }}'
+    documentSelector:
+      path: metadata.name
+      value: fixture-addresses
+    asserts:
+      - equal:
+          path: data
+          value:
+            clickhouse: clickhouse:9000
+            cerberus: http://cerberus:8080
+            otlpGrpc: otel-collector:4317
+
+  - it: fails on a service name global.services does not have
+    set:
+      objects.addresses:
+        apiVersion: v1
+        kind: ConfigMap
+        data:
+          nope: '{{ include "common.serviceAddress" (list $ "nope") }}'
+    asserts:
+      - failedTemplate:
+          errorPattern: 'global.services has no "nope"'

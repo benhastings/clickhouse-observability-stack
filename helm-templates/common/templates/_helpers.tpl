@@ -105,3 +105,18 @@ imagePullSecrets:
   {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- /*
+common.serviceAddress renders global.services.<name>, the address one app uses to reach another. The
+defaults are the short Service names in one namespace; a site that splits namespaces or renames a release
+overrides them once under global. It takes (list $root "<name>") and fails on an unknown name.
+*/ -}}
+{{- define "common.serviceAddress" -}}
+{{- $root := index . 0 -}}
+{{- $name := index . 1 -}}
+{{- $v := include "common.values" $root | fromYaml -}}
+{{- if not (hasKey $v.global.services $name) -}}
+{{- fail (printf "global.services has no %q" $name) -}}
+{{- end -}}
+{{- index $v.global.services $name -}}
+{{- end -}}

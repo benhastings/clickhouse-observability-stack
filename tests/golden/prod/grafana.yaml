@@ -55,7 +55,7 @@ data:
       name: Prometheus (Cerberus)
       type: prometheus
       uid: cerberus-prometheus
-      url: http://cerberus:8080
+      url: 'http://cerberus:8080'
     - access: proxy
       editable: false
       jsonData:
@@ -69,7 +69,7 @@ data:
       name: Loki (Cerberus)
       type: loki
       uid: cerberus-loki
-      url: http://cerberus:8080
+      url: 'http://cerberus:8080'
     - access: proxy
       editable: false
       jsonData:
@@ -101,7 +101,7 @@ data:
       name: Tempo (Cerberus)
       type: tempo
       uid: cerberus-tempo
-      url: http://cerberus:8080
+      url: 'http://cerberus:8080'
   grafana.ini: |-
     [analytics]
     check_for_updates = true
@@ -570,7 +570,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 27407dadc61ce700fc598e6da30046fe41e97ad1668ebca1a94e11bd59149a45
+        checksum/config: 57dd545f143c18748616bb7985cee7fa5342903ac01758f9697933d2b1e046b9
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

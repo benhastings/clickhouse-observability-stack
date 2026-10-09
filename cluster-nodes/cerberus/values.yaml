@@ -1,7 +1,7 @@
 configMaps:
   env:
     data:
-      CERBERUS_CH_ADDR: clickhouse:9000
+      CERBERUS_CH_ADDR: '{{ include "common.serviceAddress" (list $ "clickhouse") }}'
       CERBERUS_CH_DATABASE: otel
       CERBERUS_CH_USERNAME: otel
       CERBERUS_CH_PROTOCOL: native

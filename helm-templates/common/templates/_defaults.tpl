@@ -7,6 +7,10 @@ global:
   labels: {}
   imageRegistry: ""
   imagePullSecrets: []
+  services:
+    clickhouse: clickhouse:9000
+    cerberus: http://cerberus:8080
+    otlpGrpc: otel-collector:4317
   exposure:
     enabled: false
     hosts: {}
