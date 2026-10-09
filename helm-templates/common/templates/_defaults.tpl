@@ -5,6 +5,8 @@ global:
   mesh: istio
   namespace: ""
   labels: {}
+  imageRegistry: ""
+  imagePullSecrets: []
   exposure:
     enabled: false
     hosts: {}

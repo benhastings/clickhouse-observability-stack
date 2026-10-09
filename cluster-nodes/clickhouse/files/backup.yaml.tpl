@@ -22,9 +22,12 @@ spec:
         spec:
           restartPolicy: Never
           automountServiceAccountToken: false
+          {{- with include "common.imagePullSecrets" (list $ list) | trim }}
+          {{- . | nindent 10 }}
+          {{- end }}
           containers:
             - name: clickhouse-backup
-              image: {{ printf "%s:%s" $b.image.repository (toString $b.image.tag) | quote }}
+              image: {{ include "common.image" (list $ $b.image) | quote }}
               command:
                 - /bin/clickhouse-backup
               args:

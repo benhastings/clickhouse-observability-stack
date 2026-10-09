@@ -218,3 +218,32 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: clickhouse.backup.enabled is false
+
+  - it: pulls the ClickHouse server through global.imageRegistry, with the global pull secrets
+    set:
+      global:
+        imageRegistry: registry.example/mirror
+        imagePullSecrets:
+          - mirror-pull
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.templates.podTemplates[0].spec.containers[0].image
+          value: registry.example/mirror/clickhouse/clickhouse-server:26.9.5.2
+      - equal:
+          path: spec.templates.podTemplates[0].spec.imagePullSecrets
+          value:
+            - name: mirror-pull
+
+  - it: pulls the ClickHouse server image as written when no registry is set
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.templates.podTemplates[0].spec.containers[0].image
+          value: clickhouse/clickhouse-server:26.9.5.2
+      - notExists:
+          path: spec.templates.podTemplates[0].spec.imagePullSecrets
