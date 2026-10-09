@@ -68,6 +68,8 @@ add a target. `make help` lists everything.
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack   |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
+| `make helm/install ENV=<env>` | without Argo CD: preflight, the operator and its CRDs, then the `stack` umbrella release |
+| `make helm/uninstall ENV=<env>` | removes both Helm releases; CRDs, namespaces, Secrets and volumes stay   |
 | `make cluster/up`           | kind, Argo CD, the local app-of-apps; `REVISION=<ref>` deploys a branch       |
 | `make cluster/restart APP=<app>` | rolls one app's pods, for a secret rotated outside the cluster (Vault)  |
 | `make cluster/port-forward` | Grafana `:3000`, Argo CD `:8080`, Cerberus `:8081`, OTLP `:4317`/`:4318`       |

@@ -158,6 +158,27 @@ the UI, so the loop is:
 
 Export before the pod restarts (`make dev/apply APP=grafana` restarts it), or the UI changes are gone.
 
+## Install with Helm (no Argo CD)
+
+On a cluster without Argo CD, the same environment file installs with Helm, as two releases:
+
+```bash
+make helm/install ENV=<env>     # the current kube context
+make helm/uninstall ENV=<env>   # removes both releases
+```
+
+`helm/install` runs `make cluster/preflight` first and stops if a Secret or anything else is missing; it never
+creates passwords. It then installs `clickhouse-operator` (with its CRDs) into its namespace, waits until the
+`ClickHouseInstallation` CRD is Established, and installs `stack`, the umbrella chart in `cluster-configs/stack`,
+with ClickHouse, Cerberus, the collector, Grafana and the demo load when the environment enables it. Helm has
+no sync waves, so this order is what the waves do on the Argo CD path; Cerberus and the collector retry until
+ClickHouse is up. `make helm/template ENV=<env>` writes both renders to `dist/helm/<env>/` without installing.
+
+`helm/uninstall` leaves the CRDs and the namespaces, and with them the Secrets and the ClickHouse volume.
+
+Helm installs a chart's CRDs on the first install only and never upgrades them. After an operator bump, apply
+the new CRDs yourself before upgrading: `kubectl apply --server-side -f cluster-nodes/clickhouse-operator/crds/`.
+
 ## Design decisions
 
 ### Span metrics: the collector's `spanmetrics` connector, not a ClickHouse materialized view
@@ -406,7 +427,7 @@ node's own `values.yaml` (the nodes are environment-neutral; no `values-<env>.ya
 | Moves together | Where | Why |
 |---|---|---|
 | Cerberus and the collector image | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`) and `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), plus each `Chart.yaml` `appVersion` | Cerberus creates the tables and the collector inserts into them with `create_schema: false`. A bump to either can break inserts or queries without any manifest changing. |
-| The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). |
+| The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). Argo CD applies the new CRDs on sync; a Helm install does not, so apply them by hand there (see Install with Helm). |
 | The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.1.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
 
 For every bump, also update the Components table above, then run `make generate` to re-render `tests/golden`
