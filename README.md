@@ -210,6 +210,11 @@ global:
     role: observability
 ```
 
+Changing a secret doesn't restart the pods that read it, because the chart never sees its value. For a
+Kubernetes Secret, set `deployment.reloader: true` on the app and run
+[Stakater Reloader](https://github.com/stakater/Reloader) in the cluster; the stack doesn't install it. For a
+secret rotated in Vault, roll the app with `make cluster/restart APP=<app>`.
+
 ### Low-memory sizing
 
 Everything is sized for light local testing:

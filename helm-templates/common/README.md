@@ -52,6 +52,7 @@ so the output is deterministic.
 | `deployment.podLabels`, `deployment.podAnnotations` | `{}` | |
 | `deployment.podSecurityContext` | `{}` | |
 | `deployment.terminationGracePeriodSeconds` | `30` | |
+| `deployment.reloader` | `false` | annotate the Deployment for Stakater Reloader, so a changed Secret or ConfigMap rolls it; see Rollouts |
 | `deployment.nodeSelector` | `{}` | passed through to the pod spec; omitted when empty |
 | `deployment.affinity` | `{}` | passed through to the pod spec; omitted when empty |
 | `deployment.tolerations` | `[]` | passed through to the pod spec; omitted when empty |
@@ -147,7 +148,13 @@ format, belongs in a `files` glob, which is not templated.
 
 Every pod carries a `checksum/config` annotation hashed from the chart's rendered ConfigMaps and Secrets, so a
 config change rolls the Deployment and the DaemonSet. A Secret changed outside the chart, or in Vault, does not roll
-them.
+them, because the chart never sees its data.
+
+For a Secret in the cluster, set `deployment.reloader: true` (or `daemonset.reloader: true`). The workload then
+carries `reloader.stakater.com/auto: "true"`, and [Stakater Reloader](https://github.com/stakater/Reloader) rolls it
+when a Secret or ConfigMap it reads changes. The cluster has to run Reloader; the stack doesn't install it. A secret
+rotated in Vault isn't a Kubernetes object Reloader can watch, so roll the app by hand with
+`make cluster/restart APP=<app>`.
 
 ### DaemonSet
 

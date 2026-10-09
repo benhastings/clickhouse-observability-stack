@@ -169,6 +169,10 @@ cluster/preflight: ## Check the current kube context against an environment befo
 cluster/down: ## Delete the kind cluster
 	scripts/kind-down.sh
 
+.PHONY: cluster/restart
+cluster/restart: ## Roll one app's pods, for a Secret rotated outside the cluster such as in Vault: APP=<app>
+	scripts/restart.bash '$(APP)'
+
 .PHONY: cluster/port-forward
 cluster/port-forward: ## Forward Grafana, Argo CD, Cerberus and OTLP to localhost
 	scripts/port-forward.sh

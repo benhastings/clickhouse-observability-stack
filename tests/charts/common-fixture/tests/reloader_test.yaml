@@ -1,0 +1,46 @@
+suite: deployment.reloader and daemonset.reloader
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: carries no Reloader annotation by default
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: metadata.annotations
+      - notExists:
+          path: spec.template.metadata.annotations["reloader.stakater.com/auto"]
+
+  - it: asks Reloader to roll the Deployment when a Secret or ConfigMap it reads changes
+    set:
+      deployment.reloader: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: metadata.annotations["reloader.stakater.com/auto"]
+          value: "true"
+
+  - it: asks Reloader to roll the DaemonSet too
+    set:
+      daemonset.enabled: true
+      daemonset.reloader: true
+      daemonset.selectorLabels:
+        app.kubernetes.io/component: agent
+      daemonset.containers:
+        agent:
+          image:
+            repository: example/agent
+            tag: "1.0.0"
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - equal:
+          path: metadata.annotations["reloader.stakater.com/auto"]
+          value: "true"
