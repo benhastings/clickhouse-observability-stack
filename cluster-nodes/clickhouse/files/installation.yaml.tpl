@@ -75,10 +75,15 @@ spec:
     podTemplates:
       - name: clickhouse
         {{- if eq (include "common.mesh" $) "istio" }}
-        # The operator creates these pods, so ask for the sidecar here as well as on the namespace.
+        # The operator creates these pods, so ask for the sidecar here as well as on the namespace. The
+        # operator's own user may only connect from the operator pod's IP, and through a sidecar every
+        # connection arrives from 127.0.0.6, so the operator's port, HTTP 8123, bypasses the sidecar here and
+        # in the operator pod. The collector and Cerberus use 9000, which stays in the mesh.
         metadata:
           labels:
             sidecar.istio.io/inject: "true"
+          annotations:
+            traffic.sidecar.istio.io/excludeInboundPorts: "8123"
         {{- end }}
         spec:
           {{- with include "common.imagePullSecrets" (list $ list) | trim }}

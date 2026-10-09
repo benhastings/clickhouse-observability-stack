@@ -1,0 +1,16 @@
+# Merged over values-local.yaml when make cluster/up or make test/e2e runs with MESH=istio (kind only; never
+# an environment of its own). Istio, Grafana and OTLP exposed through the gateway on sslip.io hosts over
+# plain HTTP, and the collector declared private, since this kind cluster is.
+global:
+  mesh: istio
+  exposure:
+    enabled: true
+    hosts:
+      grafana: grafana.127.0.0.1.sslip.io
+      otlp: otlp.127.0.0.1.sslip.io
+applications:
+  otel-collector:
+    values:
+      collector:
+        auth:
+          allowUnauthenticatedExposure: true

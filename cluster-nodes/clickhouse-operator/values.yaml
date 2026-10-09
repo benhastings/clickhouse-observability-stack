@@ -419,6 +419,11 @@ configMaps:
     files: files/chk-keeper_config.d/*
 deployment:
   enabled: true
+  # Under Istio the operator reaches ClickHouse's HTTP port outside the mesh, so ClickHouse sees the operator
+  # pod's own IP, the only address its clickhouse_operator user accepts (see the clickhouse node's pod
+  # template, which leaves 8123 out of its sidecar too). Without Istio the annotation does nothing.
+  podAnnotations:
+    traffic.sidecar.istio.io/excludeOutboundPorts: "8123"
   # The image's user is "nobody", a name, and runAsNonRoot can only verify a numeric user; 65534 is nobody.
   podSecurityContext:
     runAsUser: 65534

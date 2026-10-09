@@ -97,3 +97,12 @@ tests:
           value:
             key: observability/clickhouse-operator-credentials
             property: password
+
+  - it: reaches ClickHouse's HTTP port outside its sidecar, so ClickHouse sees the operator pod's IP
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["traffic.sidecar.istio.io/excludeOutboundPorts"]
+          value: "8123"

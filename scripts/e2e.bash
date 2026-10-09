@@ -175,4 +175,54 @@ poll "Grafana: the span-metrics dashboard is provisioned" \
   '.dashboard.uid == "span-metrics-red"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/span-metrics-red"
 
+# MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
+# the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.
+if [[ "${MESH:-kubernetes}" == istio ]]; then
+  step "Istio: Grafana, Cerberus and the collector run with a sidecar"
+  for app in grafana cerberus otel-collector; do
+    containers="$(kubectl -n observability get pods -l "app.kubernetes.io/name=$app" \
+      -o jsonpath='{.items[0].spec.initContainers[*].name} {.items[0].spec.containers[*].name}')"
+    [[ " $containers " == *" istio-proxy "* ]] || { echo "  $app has no istio-proxy: $containers"; exit 1; }
+    echo "  $app: istio-proxy"
+  done
+
+  kubectl -n istio-ingress port-forward svc/istio-ingressgateway 18088:80 >/dev/null 2>&1 &
+  sleep 3
+  gateway=http://localhost:18088
+
+  mesh_routes() { # <label>
+    poll "Istio ($1): Grafana answers through the gateway" \
+      '.database == "ok"' \
+      -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/api/health"
+    local trace span
+    trace="$(openssl rand -hex 16)"
+    span="$(openssl rand -hex 8)"
+    cross_trace="$trace"
+    curl -fsS -o /dev/null -X POST -H 'Host: otlp.127.0.0.1.sslip.io' -H 'Content-Type: application/json' \
+      -d "$(otlp_span e2e-gateway "$span" "" "POST through the gateway")" "$gateway/v1/traces"
+    poll "Istio ($1): a span sent through the gateway is queryable" \
+      "[.batches[].resource.attributes[\"service.name\"]] | index(\"e2e-gateway\") != null" \
+      "$cerberus/api/traces/$trace"
+  }
+  mesh_routes "permissive mTLS"
+
+  step "Istio: require mTLS in observability (PeerAuthentication STRICT)"
+  kubectl apply -f - <<'PA'
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: observability
+spec:
+  mtls:
+    mode: STRICT
+PA
+  sleep 20
+  mesh_routes "STRICT mTLS"
+  now="$(date +%s)"
+  poll "Istio (STRICT mTLS): span metrics still arrive from the demo load" \
+    '.data.result | length > 0' \
+    "$cerberus/api/v1/query" --data-urlencode 'query=sum by (service_name) (rate(traces_span_metrics_calls[1m]))'
+fi
+
 echo "e2e: ok"
