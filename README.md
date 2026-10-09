@@ -466,7 +466,7 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
 
 ## Grafana sign-in with Keycloak
 
-Grafana can sign users in through Keycloak using generic OAuth. The laptop profile leaves it off (`auth.genericOauth.enabled: false` in `cluster-nodes/grafana/values.yaml`), so `make cluster/up` still logs in with `admin`/`admin`. An environment turns it on by setting `auth.genericOauth` under `applications.grafana.values`; this section is the Keycloak side of that.
+Grafana can sign users in through Keycloak using generic OAuth. The laptop profile leaves it off (`auth.genericOauth.enabled: false` in `cluster-nodes/grafana/values.yaml`), so `make cluster/up` still logs in with the generated admin password that `make cluster/port-forward` prints. An environment turns it on by setting `auth.genericOauth` under `applications.grafana.values`; this section is the Keycloak side of that.
 
 Create a client in the realm with these settings:
 
@@ -497,7 +497,27 @@ kubectl -n observability create secret generic grafana-oauth \
   --from-literal=client-secret='<client secret>'
 ```
 
-The chart does not create it. The environment adds `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET` to the Grafana container's `env`, read from that Secret's `client-secret` key; the commented example is at the top of `cluster-nodes/grafana/values.yaml`.
+The chart does not create it. The environment declares it once, under the Grafana container's `secretEnv`:
+
+```yaml
+applications:
+  grafana:
+    values:
+      deployment:
+        containers:
+          grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+                secret: grafana-oauth
+                key: client-secret
+```
+
+With Vault off, the pod reads it from the Secret and `grafana.ini` uses `$__env{...}`. With `vault.enabled`, store it
+in Vault at `<vault.path>/grafana-oauth` instead; the agent writes it to a file and `grafana.ini` uses `$__file{...}`.
+
+If Keycloak's certificate comes from a private CA, put the CA in a ConfigMap in the observability namespace and
+name it in `auth.genericOauth.tlsCaConfigMap` (the key defaults to `ca.crt`, set by `tlsCaKey`). Grafana mounts it
+and sets `tls_client_ca`. Certificate verification stays on; there is no option to skip it.
 
 ## Before using this beyond a laptop
 
