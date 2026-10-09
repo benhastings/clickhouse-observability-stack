@@ -687,6 +687,9 @@ spec:
               name: search
             - mountPath: /etc/grafana/provisioning/alerting
               name: alerts
+            - mountPath: /etc/grafana/oauth-ca
+              name: oauth-ca
+              readOnly: true
       volumes:
         - name: alerts
           configMap:
@@ -698,6 +701,8 @@ spec:
         - name: dashboards
           configMap:
             name: 'grafana-dashboards'
+        - name: oauth-ca
+          emptyDir: {}
         - name: plugins
           persistentVolumeClaim:
             claimName: grafana-plugins

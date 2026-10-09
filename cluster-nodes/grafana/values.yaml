@@ -10,13 +10,15 @@ secrets:
   admin:
     create: false
   # grafana-oauth, key client-secret: the generic OAuth client secret. Never created here; an
-  # environment that turns OAuth on pre-creates it and adds this to the grafana container's env:
-  #   GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
-  #     valueFrom:
-  #       secretKeyRef:
-  #         name: grafana-oauth
-  #         key: client-secret
-  # grafana.ini then reads it with $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}.
+  # environment that turns OAuth on pre-creates it (or stores it in Vault) and declares it once:
+  #   deployment:
+  #     containers:
+  #       grafana:
+  #         secretEnv:
+  #           GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+  #             secret: grafana-oauth
+  #             key: client-secret
+  # grafana.ini then reads it with $__env{...}, or with $__file{...} when vault.enabled.
   oauth:
     create: false
 
@@ -46,6 +48,10 @@ auth:
     roleAttributePath: "contains(realm_access.roles[*], 'grafana-admin') && 'Admin' || contains(realm_access.roles[*], 'grafana-editor') && 'Editor' || 'Viewer'"
     loginAttributePath: preferred_username
     nameAttributePath: name
+    # A ConfigMap with the CA that signed the provider's certificate, for a provider on a private CA. It is
+    # mounted at /etc/grafana/oauth-ca and set as tls_client_ca. Certificate verification is never skipped.
+    tlsCaConfigMap: ""
+    tlsCaKey: ca.crt
 
 # Put plugins on the grafana-plugins claim; see deployment.volumes.plugins.
 pluginsClaim: false
@@ -104,7 +110,14 @@ configMaps:
         enabled = true
         name = {{ required "auth.genericOauth.name is required when auth.genericOauth.enabled" .name }}
         client_id = {{ required "auth.genericOauth.clientId is required when auth.genericOauth.enabled" .clientId }}
-        {{- if hasKey $.Values.deployment.containers.grafana.env "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" }}
+        {{- $grafana := $.Values.deployment.containers.grafana }}
+        {{- if hasKey ($grafana.secretEnv | default dict) "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" }}
+        {{- if (include "common.values" $ | fromYaml).vault.enabled }}
+        client_secret = $__file{{ "{" }}{{ include "common.secretFile" (list $ "grafana" "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET") }}{{ "}" }}
+        {{- else }}
+        client_secret = $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
+        {{- end }}
+        {{- else if hasKey ($grafana.env | default dict) "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" }}
         client_secret = $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
         {{- end }}
         scopes = {{ .scopes }}
@@ -115,6 +128,10 @@ configMaps:
         role_attribute_path = {{ .roleAttributePath }}
         login_attribute_path = {{ .loginAttributePath }}
         name_attribute_path = {{ .nameAttributePath }}
+        tls_skip_verify_insecure = false
+        {{- with .tlsCaConfigMap }}
+        tls_client_ca = /etc/grafana/oauth-ca/{{ $.Values.auth.genericOauth.tlsCaKey }}
+        {{- end }}
         {{- end }}{{ end }}
       datasources.yaml:
         apiVersion: 1
@@ -298,6 +315,9 @@ deployment:
           mountPath: /var/lib/grafana-search
         - name: alerts
           mountPath: /etc/grafana/provisioning/alerting
+        - name: oauth-ca
+          mountPath: /etc/grafana/oauth-ca
+          readOnly: true
   volumes:
     tmp:
       emptyDir: {}
@@ -327,6 +347,14 @@ deployment:
     dashboards:
       configMap:
         name: '{{ include "common.fullname" . }}-dashboards'
+    # The OAuth provider's CA when auth.genericOauth.tlsCaConfigMap names one, otherwise empty.
+    oauth-ca: |-
+      {{- with .Values.auth.genericOauth.tlsCaConfigMap }}
+      configMap:
+        name: {{ . }}
+      {{- else }}
+      emptyDir: {}
+      {{- end }}
     # Optional, so the pod starts with an empty alerting directory while alerts are off.
     alerts:
       configMap:

@@ -437,3 +437,118 @@ tests:
           content:
             name: alerts
             mountPath: /etc/grafana/provisioning/alerting
+
+  - it: reads a secretEnv OAuth client secret through $__env with Vault off
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+      deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+        secret: grafana-oauth
+        key: client-secret
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = \$__env\{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET\}$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: grafana-oauth
+                key: client-secret
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: reads the OAuth client secret from the Vault agent's file with Vault on
+    set:
+      vault.enabled: true
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+      deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+        secret: grafana-oauth
+        key: client-secret
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = \$__file\{/vault/secrets/grafana-oauth-client-secret\}$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - exists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-grafana-oauth-client-secret"]
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: grafana-oauth
+                key: client-secret
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: trusts the OAuth provider's CA from a ConfigMap and never skips verification
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+        tlsCaConfigMap: keycloak-ca
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^tls_skip_verify_insecure = false\ntls_client_ca = /etc/grafana/oauth-ca/ca.crt$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: oauth-ca
+            configMap:
+              name: keycloak-ca
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: oauth-ca
+            mountPath: /etc/grafana/oauth-ca
+            readOnly: true
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: mounts an empty oauth-ca directory and sets no CA when none is given
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: oauth-ca
+            emptyDir: {}
