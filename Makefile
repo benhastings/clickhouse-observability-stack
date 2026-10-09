@@ -186,6 +186,10 @@ helm/uninstall: ## Uninstall both Helm releases of ENV=<env>; CRDs, namespaces, 
 cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch)
 	scripts/kind-up.sh $(REVISION)
 
+.PHONY: cluster/bootstrap
+cluster/bootstrap: ## Install Argo CD (if missing) and ENV=<env>'s app-of-apps on the current context, after preflight
+	scripts/bootstrap.bash '$(ENV)' $(REVISION)
+
 .PHONY: cluster/preflight
 cluster/preflight: ## Check the current kube context against an environment before its first sync: ENV=<env>
 	ENV='$(ENV)' KUBE_VERSION=$(KUBE_VERSION) scripts/preflight.bash

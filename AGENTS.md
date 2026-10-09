@@ -70,6 +70,7 @@ add a target. `make help` lists everything.
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
 | `make helm/install ENV=<env>` | without Argo CD: preflight, the operator and its CRDs, then the `stack` umbrella release |
 | `make helm/uninstall ENV=<env>` | removes both Helm releases; CRDs, namespaces, Secrets and volumes stay   |
+| `make cluster/bootstrap ENV=<env>` | any cluster: preflight, Argo CD if missing, the AppProject and app-of-apps; `REVISION=<ref>` as for `cluster/up` |
 | `make cluster/up`           | kind, Argo CD, the local app-of-apps; `REVISION=<ref>` deploys a branch       |
 | `make cluster/restart APP=<app>` | rolls one app's pods, for a secret rotated outside the cluster (Vault)  |
 | `make cluster/port-forward` | Grafana `:3000`, Argo CD `:8080`, Cerberus `:8081`, OTLP `:4317`/`:4318`       |
