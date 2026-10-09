@@ -172,6 +172,14 @@ helm/template: deps ## Render ENV=<env> for a Helm install into dist/helm/<env>:
 	helm template stack cluster-configs/stack --namespace observability \
 		--kube-version $(KUBE_VERSION) -f $(HELM_OUT)/$(ENV)/stack.yaml >$(HELM_OUT)/$(ENV)/stack-manifests.yaml
 
+.PHONY: helm/install
+helm/install: deps ## Install ENV=<env> with Helm into the current context: the operator, its CRDs, then the stack
+	HELM_OUT=$(HELM_OUT) scripts/helm-install.bash install '$(ENV)'
+
+.PHONY: helm/uninstall
+helm/uninstall: ## Uninstall both Helm releases of ENV=<env>; CRDs, namespaces, Secrets and volumes stay
+	HELM_OUT=$(HELM_OUT) scripts/helm-install.bash uninstall '$(ENV)'
+
 ##@ Local cluster
 
 .PHONY: cluster/up
