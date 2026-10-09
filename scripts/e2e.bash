@@ -7,29 +7,49 @@ DATA_TIMEOUT=${DATA_TIMEOUT:-300}
 
 step() { echo "==> $*"; }
 
-expected="$(helm template app-of-apps cluster-configs/app-of-apps -f cluster-configs/overrides/values-local.yaml |
-  yq ea '[select(.kind == "Application")] | length')"
-expected=$((expected + 1))
+# On a cluster Argo CD deploys, wait for every Application. Without Argo CD (make helm/install, make dev/up),
+# wait for the workloads themselves: every Deployment rolled out and the ClickHouse installation Completed.
+if kubectl get crd applications.argoproj.io >/dev/null 2>&1 && kubectl get namespace argocd >/dev/null 2>&1; then
+  expected="$(helm template app-of-apps cluster-configs/app-of-apps -f cluster-configs/overrides/values-local.yaml |
+    yq ea '[select(.kind == "Application")] | length')"
+  expected=$((expected + 1))
 
-step "Waiting for $expected Applications to be Synced and Healthy"
-deadline=$((SECONDS + SYNC_TIMEOUT))
-while :; do
-  status="$(kubectl -n argocd get applications -o json)"
-  ready="$(jq '[.items[] | select(.status.sync.status == "Synced" and .status.health.status == "Healthy")] | length' <<<"$status")"
-  total="$(jq '.items | length' <<<"$status")"
-  if ((total == expected && ready == expected)); then
-    break
-  fi
-  if ((SECONDS > deadline)); then
-    kubectl -n argocd get applications
-    jq -r '.items[] | "\(.metadata.name): \(.status.sync.status)/\(.status.health.status) \(.status.conditions // [] | map(.message) | join("; "))"' <<<"$status"
-    kubectl get pods -A
-    echo "Applications did not become Synced and Healthy within ${SYNC_TIMEOUT}s"
-    exit 1
-  fi
-  echo "  $ready/$expected ready ($total present)"
-  sleep 15
-done
+  step "Waiting for $expected Applications to be Synced and Healthy"
+  deadline=$((SECONDS + SYNC_TIMEOUT))
+  while :; do
+    status="$(kubectl -n argocd get applications -o json)"
+    ready="$(jq '[.items[] | select(.status.sync.status == "Synced" and .status.health.status == "Healthy")] | length' <<<"$status")"
+    total="$(jq '.items | length' <<<"$status")"
+    if ((total == expected && ready == expected)); then
+      break
+    fi
+    if ((SECONDS > deadline)); then
+      kubectl -n argocd get applications
+      jq -r '.items[] | "\(.metadata.name): \(.status.sync.status)/\(.status.health.status) \(.status.conditions // [] | map(.message) | join("; "))"' <<<"$status"
+      kubectl get pods -A
+      echo "Applications did not become Synced and Healthy within ${SYNC_TIMEOUT}s"
+      exit 1
+    fi
+    echo "  $ready/$expected ready ($total present)"
+    sleep 15
+  done
+else
+  step "No Argo CD here: waiting for the workloads"
+  deadline=$((SECONDS + SYNC_TIMEOUT))
+  until [[ "$(kubectl -n observability get chi otel -o jsonpath='{.status.status}' 2>/dev/null)" == Completed ]]; do
+    if ((SECONDS > deadline)); then
+      kubectl get pods -A
+      echo "the ClickHouse installation did not complete within ${SYNC_TIMEOUT}s"
+      exit 1
+    fi
+    sleep 15
+  done
+  for ns in clickhouse-operator observability; do
+    for deploy in $(kubectl -n "$ns" get deployments -o name); do
+      kubectl -n "$ns" rollout status "$deploy" --timeout="${SYNC_TIMEOUT}s"
+    done
+  done
+fi
 
 kubectl -n observability port-forward svc/cerberus 18081:8080 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/grafana 13000:80 >/dev/null 2>&1 &

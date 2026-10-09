@@ -134,6 +134,9 @@ CPU and memory and per-pod memory from `kubeletstats`, checkout logs, failing pa
 opening its trace, a trace's ID finding its logs, healthy Grafana datasources and the provisioned dashboard. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
+`scripts/e2e.bash` also runs against a cluster without Argo CD (`make helm/install`, `make dev/up`): it then waits
+for the ClickHouse installation to complete and every Deployment to roll out instead of for Applications.
+
 `.github/workflows/e2e-mesh.yml` runs `make test/e2e MESH=istio` on pull requests labelled `mesh` and on demand: the
 same checks with Istio installed and `mesh: istio`, plus sidecars, the gateway routes, and `STRICT` mTLS. Label a
 PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules, injection, NetworkPolicies).
