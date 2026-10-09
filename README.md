@@ -53,11 +53,7 @@ make cluster/port-forward                  # prints URLs and logins
 
 Tear down with `make cluster/down`.
 
-On a cluster you already run, `make cluster/bootstrap ENV=<env>` does the Argo CD half against the current
-kube context: it runs `make cluster/preflight` and stops on anything missing (it never creates passwords, so
-create the Secrets first), installs Argo CD with this repo's health checks unless an Argo CD is already
-running, then applies the environment's AppProject and `app-of-apps-<env>.yaml`. `make cluster/up` is that
-same bootstrap, after creating the kind cluster and its Secrets.
+For any cluster other than this kind one, see [Install](#install).
 
 ### What you should see
 
@@ -164,7 +160,35 @@ the UI, so the loop is:
 
 Export before the pod restarts (`make dev/apply APP=grafana` restarts it), or the UI changes are gone.
 
-## Install with Helm (no Argo CD)
+## Install
+
+The kind quick start above is for a laptop. On any other cluster, pick one of three paths. All of them deploy
+the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make env/new NAME=<env>` writes one).
+
+| Path | You have | You run |
+|---|---|---|
+| Argo CD | a cluster and this git repository (or a fork) | `make cluster/bootstrap ENV=<env>` |
+| Helm | a cluster, no Argo CD | `make helm/install ENV=<env>` |
+| Rendered manifests | no Helm at apply time | track the `dev` branch, or `kubectl apply` a `make render` tree |
+
+### Before any install
+
+- **Secrets.** No path creates passwords. Create `clickhouse-credentials`, `grafana-admin` and
+  `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
+  [External Secrets operator](#secrets-kubernetes-or-vault) create them.
+- **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
+  [Service mesh](#service-mesh-istio-or-plain-kubernetes).
+- **Preflight.** `make cluster/preflight ENV=<env>` checks the context for all of it and installs nothing. The
+  Argo CD and Helm paths run it first and stop on a failure.
+
+### Argo CD
+
+`make cluster/bootstrap ENV=<env>` runs preflight, installs Argo CD with this repo's health checks unless one is
+already running, then applies the environment's AppProject and `app-of-apps-<env>.yaml`. Argo CD then deploys
+from git, in sync-wave order, and keeps the cluster in step with the branch the environment names.
+`make cluster/up` is the same bootstrap after creating the kind cluster and its Secrets.
+
+### Helm
 
 On a cluster without Argo CD, the same environment file installs with Helm, as two releases:
 
@@ -184,6 +208,33 @@ ClickHouse is up. `make helm/template ENV=<env>` writes both renders to `dist/he
 
 Helm installs a chart's CRDs on the first install only and never upgrades them. After an operator bump, apply
 the new CRDs yourself before upgrading: `kubectl apply --server-side -f cluster-nodes/clickhouse-operator/crds/`.
+
+### Rendered manifests
+
+Every push to `main` renders the `dev` environment to plain manifests and publishes them to the `dev`
+branch (`.github/workflows/render-dev.yml`). The branch holds one file per object under
+`clickhouse-operator/` and `observability/`, the operator's CRDs and both Namespaces, and a README naming the
+`main` commit it came from. It has no Secrets and no Argo CD Applications, and the workflow fails before
+pushing if a render carries a credential. `make render ENV=<env>` produces the same tree locally, under
+`dist/manifests/<env>/`.
+
+There are two ways to deploy `dev`. Pick one per cluster, not both, or two sets of Applications fight over
+the same objects:
+
+- **Helm on `main`**: apply `cluster-configs/app-of-apps/app-of-apps-dev.yaml`, like any other environment.
+- **The rendered branch**: apply `cluster-configs/argocd/dev-rendered-application.yaml`, a single directory
+  Application on `targetRevision: dev`, or run `kubectl apply -R -f .` in a checkout of the branch (twice on a
+  new cluster, so the ClickHouseInstallation applies once its CRD exists). This tracks generated manifests,
+  which move whenever `main` moves.
+
+Either way, create the Secrets first; `make cluster/preflight ENV=dev` lists them.
+
+### What the paths share
+
+The environment file, the Secrets, `global.mesh` and every other value mean the same thing on all three. What
+differs is ordering: sync waves exist only on the Argo CD path. The Helm path installs the operator, waits for
+its CRD, then installs everything else. A rendered tree applies in one pass once the CRDs exist, so apply it
+twice on a new cluster. Sign-in with Keycloak is described in [Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak).
 
 ## Design decisions
 
@@ -384,26 +435,6 @@ An application from elsewhere sets `repoURL` and `path`, or `chart`. Any other n
 "is not a chart under cluster-nodes/", so a typo can't quietly create an Application for a chart that doesn't
 exist.
 
-### The rendered `dev` branch
-
-Every push to `main` renders the `dev` environment to plain manifests and publishes them to the `dev`
-branch (`.github/workflows/render-dev.yml`). The branch holds one file per object under
-`clickhouse-operator/` and `observability/`, the operator's CRDs and both Namespaces, and a README naming the
-`main` commit it came from. It has no Secrets and no Argo CD Applications, and the workflow fails before
-pushing if a render carries a credential. `make render ENV=<env>` produces the same tree locally, under
-`dist/manifests/<env>/`.
-
-There are two ways to deploy `dev`. Pick one per cluster, not both, or two sets of Applications fight over
-the same objects:
-
-- **Helm on `main`**: apply `cluster-configs/app-of-apps/app-of-apps-dev.yaml`, like any other environment.
-- **The rendered branch**: apply `cluster-configs/argocd/dev-rendered-application.yaml`, a single directory
-  Application on `targetRevision: dev`, or run `kubectl apply -R -f .` in a checkout of the branch (twice on a
-  new cluster, so the ClickHouseInstallation applies once its CRD exists). This tracks generated manifests,
-  which move whenever `main` moves.
-
-Either way, create the Secrets first; `make cluster/preflight ENV=dev` lists them.
-
 ### Stable names
 
 The apps find each other by hard-coded name, port and Secret, not by discovery. Every object is named after
@@ -472,7 +503,7 @@ node's own `values.yaml` (the nodes are environment-neutral; no `values-<env>.ya
 | Moves together | Where | Why |
 |---|---|---|
 | Cerberus and the collector image | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`) and `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), plus each `Chart.yaml` `appVersion` | Cerberus creates the tables and the collector inserts into them with `create_schema: false`. A bump to either can break inserts or queries without any manifest changing. |
-| The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). Argo CD applies the new CRDs on sync; a Helm install does not, so apply them by hand there (see Install with Helm). |
+| The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). Argo CD applies the new CRDs on sync; a Helm install does not, so apply them by hand there (see [Helm](#helm) under Install). |
 | The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.1.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
 
 For every bump, also update the Components table above, then run `make generate` to re-render `tests/golden`
