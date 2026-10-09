@@ -238,7 +238,7 @@ tests:
   - it: has no PersistentVolumeClaim and mounts an emptyDir at /var/lib/grafana by default
     asserts:
       - hasDocuments:
-          count: 5
+          count: 6  # includes the DestinationRule the default istio mesh renders
       - contains:
           path: spec.template.spec.volumes
           content:

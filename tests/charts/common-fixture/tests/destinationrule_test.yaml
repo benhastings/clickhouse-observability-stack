@@ -1,0 +1,39 @@
+suite: common.destinationRule
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: sends traffic to the app's Service over Istio mutual TLS when the mesh is istio
+    documentSelector:
+      path: kind
+      value: DestinationRule
+    asserts:
+      - isAPIVersion:
+          of: networking.istio.io/v1
+      - equal:
+          path: spec
+          value:
+            host: fixture.demo.svc.cluster.local
+            trafficPolicy:
+              tls:
+                mode: ISTIO_MUTUAL
+
+  - it: renders no DestinationRule when the mesh is kubernetes
+    set:
+      global.mesh: kubernetes
+    asserts:
+      - containsDocument:
+          kind: DestinationRule
+          apiVersion: networking.istio.io/v1
+        not: true
+
+  - it: renders no DestinationRule for an app without a Service
+    set:
+      service.enabled: false
+    asserts:
+      - containsDocument:
+          kind: DestinationRule
+          apiVersion: networking.istio.io/v1
+        not: true

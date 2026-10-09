@@ -10,6 +10,7 @@
 {{ include "common.networkPolicy" . }}
 {{ include "common.ingress" . }}
 {{ include "common.gateway" . }}
+{{ include "common.destinationRule" . }}
 {{ include "common.deployment" . }}
 {{ include "common.daemonset" . }}
 {{ include "common.podDisruptionBudget" . }}

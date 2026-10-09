@@ -74,6 +74,12 @@ spec:
               port: 9000
     podTemplates:
       - name: clickhouse
+        {{- if eq (include "common.mesh" $) "istio" }}
+        # The operator creates these pods, so ask for the sidecar here as well as on the namespace.
+        metadata:
+          labels:
+            sidecar.istio.io/inject: "true"
+        {{- end }}
         spec:
           {{- with include "common.imagePullSecrets" (list $ list) | trim }}
           {{- . | nindent 10 }}

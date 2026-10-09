@@ -31,7 +31,7 @@ so the output is deterministic.
 | Key | Default | What it does |
 | --- | --- | --- |
 | `nameOverride` | release name | base name of every object |
-| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. With exposure on, `istio` renders a Gateway and VirtualService per app, `kubernetes` an Ingress |
+| `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. `istio` renders a DestinationRule (`ISTIO_MUTUAL`) for every Service and, with exposure on, a Gateway and VirtualService per app; `kubernetes` renders none of them, and an Ingress for exposure |
 | `global.exposure.enabled` | `false` | make the apps that set `exposure.host` reachable from outside the cluster |
 | `global.exposure.hosts.<key>` | `{}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
 | `global.exposure.ingressClassName` | `""` | the Ingress class; empty uses the cluster default |

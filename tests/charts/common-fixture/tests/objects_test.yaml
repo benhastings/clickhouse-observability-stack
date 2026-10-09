@@ -29,11 +29,11 @@ tests:
   - it: skips an object whose body renders empty
     asserts:
       - hasDocuments:
-          count: 11
+          count: 12  # includes the DestinationRule the default istio mesh renders
 
   - it: renders that object once its body is not empty
     set:
       ghostEnabled: true
     asserts:
       - hasDocuments:
-          count: 12
+          count: 13  # includes the DestinationRule the default istio mesh renders

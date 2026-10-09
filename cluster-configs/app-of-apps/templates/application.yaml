@@ -48,5 +48,12 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    {{- if eq (toString ($.Values.global.mesh | default "istio")) "istio" }}
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
+    {{- end }}
 {{- end }}
 {{- end }}

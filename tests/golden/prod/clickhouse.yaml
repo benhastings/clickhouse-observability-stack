@@ -38,7 +38,10 @@ spec:
       serviceTemplate: clickhouse
   templates:
     podTemplates:
-    - name: clickhouse
+    - metadata:
+        labels:
+          sidecar.istio.io/inject: "true"
+      name: clickhouse
       spec:
         containers:
         - image: clickhouse/clickhouse-server:26.9.5.2
