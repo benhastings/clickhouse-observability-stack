@@ -28,87 +28,96 @@ so the output is deterministic.
 
 ## Values reference
 
-The machine copy of this table is `schema/node.schema.yaml`. `make generate` merges it with each node's own
+This table is generated from `schema/node.schema.yaml` (each property's `description` and `x-default`), so edit it there; `make check` fails when the two differ. `make generate` merges it with each node's own
 `values.schema.extra.yaml` into the node's `values.schema.json`, which helm validates on every render: an unknown
 key such as `deployment.replica` fails the render, and an editor with the YAML language server completes and
 checks a values file from it (each `values.yaml` names its schema in its first line). Add a key here, to the
 schema, and to the template in the same change.
 
+<!-- values-reference:start -->
 | Key | Default | What it does |
 | --- | --- | --- |
 | `nameOverride` | release name | base name of every object |
+| `common` |  | the library dependency's own values, which helm adds under its name; leave it empty |
+| `enabled` |  | read only by the `cluster-configs/stack` umbrella chart, which turns each node on or off with it |
 | `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. `istio` renders a DestinationRule (`ISTIO_MUTUAL`) for every Service and, with exposure on, a Gateway and VirtualService per app; `kubernetes` renders none of them, and an Ingress for exposure |
+| `global.namespace` | release namespace | namespace of every namespaced object |
+| `global.labels.<name>` | `{}` | extra labels on every object |
+| `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
+| `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
+| `global.vault` |  | the same keys as `vault`, for every app at once; an app's own `vault` wins |
+| `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
+| `global.services.cerberus` | `http://cerberus:8080` | where Grafana's datasources reach Cerberus |
+| `global.services.otlpGrpc` | `otel-collector:4317` | where the demo load sends OTLP over gRPC |
+| `global.externalSecrets.enabled` | `false` | render an `ExternalSecret` in place of every Secret in `secrets` that has `external.keys` |
+| `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |
+| `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |
+| `global.externalSecrets.refreshInterval` | `1h` | how often the operator re-reads the store |
 | `global.exposure.enabled` | `false` | make the apps that set `exposure.host` reachable from outside the cluster |
 | `global.exposure.hosts.<key>` | `{}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
 | `global.exposure.ingressClassName` | `""` | the Ingress class; empty uses the cluster default |
 | `global.exposure.tls.credentialName` | `""` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`) |
 | `global.exposure.gateway.name` | `""` | with `istio`, an existing Gateway to bind every VirtualService to; no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without) |
 | `global.exposure.gateway.namespace` | release namespace | the namespace of that existing Gateway |
-| `global.exposure.gateway.selector` | `{istio: ingressgateway}` | which ingress gateway pods the rendered Gateways select |
-| `global.namespace` | release namespace | namespace of every namespaced object |
-| `global.labels` | `{}` | extra labels on every object |
-| `global.externalSecrets.enabled` | `false` | render an `ExternalSecret` in place of every Secret in `secrets` that has `external.keys` |
-| `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |
-| `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |
-| `global.externalSecrets.refreshInterval` | `1h` | how often the operator re-reads the store |
+| `global.exposure.gateway.selector.<name>` | `{istio: ingressgateway}` | which ingress gateway pods the rendered Gateways select |
 | `global.networkPolicy.enabled` | `false` | render a NetworkPolicy for every app; see Network policies |
 | `global.networkPolicy.exposureNamespaces` | `[]` | namespaces whose pods may reach an exposed app (the ingress gateway or controller) |
 | `global.networkPolicy.istioNamespace` | `istio-system` | where istiod runs, for the sidecar's egress under `mesh: istio` |
 | `global.networkPolicy.namespaces` | `{stack: observability, operator: clickhouse-operator}` | the stack's and the operator's namespaces, for rules that cross between them |
-| `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
-| `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
-| `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
-| `global.services.cerberus` | `http://cerberus:8080` | where Grafana's datasources reach Cerberus |
-| `global.services.otlpGrpc` | `otel-collector:4317` | where the demo load sends OTLP over gRPC |
 | `serviceAccount.create` | `true` | render a ServiceAccount named after the chart |
 | `serviceAccount.name` | chart name, or `default` when not created | override the name |
 | `serviceAccount.automountToken` | `false` | also applied to the pod spec |
-| `serviceAccount.annotations` | `{}` | |
+| `serviceAccount.annotations.<name>` | `{}` |  |
 | `rbac.clusterRules` | `[]` | when set, a ClusterRole and ClusterRoleBinding for the ServiceAccount |
 | `rbac.rules` | `[]` | when set, a Role and RoleBinding in the release namespace |
 | `deployment.enabled` | `false` | render a Deployment |
-| `deployment.replicas` | `1` | omitted when `autoscaling.enabled`; see Disruption budget and autoscaling |
-| `deployment.strategy` | `RollingUpdate` | |
-| `deployment.podLabels`, `deployment.podAnnotations` | `{}` | |
-| `deployment.podSecurityContext` | `{}` | |
-| `deployment.terminationGracePeriodSeconds` | `30` | |
 | `deployment.reloader` | `false` | annotate the Deployment for Stakater Reloader, so a changed Secret or ConfigMap rolls it; see Rollouts |
-| `deployment.nodeSelector` | `{}` | passed through to the pod spec; omitted when empty |
+| `deployment.replicas` | `1` | omitted when `autoscaling.enabled`; see Disruption budget and autoscaling |
+| `deployment.strategy` | `RollingUpdate` |  |
+| `deployment.podLabels.<name>` | `{}` |  |
+| `deployment.podAnnotations.<name>` | `{}` |  |
+| `deployment.podSecurityContext` | `{}` |  |
+| `deployment.terminationGracePeriodSeconds` | `30` |  |
+| `deployment.nodeSelector.<name>` | `{}` | passed through to the pod spec; omitted when empty |
 | `deployment.affinity` | `{}` | passed through to the pod spec; omitted when empty |
 | `deployment.tolerations` | `[]` | passed through to the pod spec; omitted when empty |
 | `deployment.topologySpreadConstraints` | `[]` | passed through to the pod spec; omitted when empty |
 | `deployment.priorityClassName` | `""` | omitted when empty |
 | `deployment.runtimeClassName` | `""` | omitted when empty |
 | `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; replaces `global.imagePullSecrets`, and omitted when both are empty |
-| `deployment.containers.<name>` | | see Containers below |
-| `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated. A string is templated and used as the whole source, so it can hold an `if` |
+| `deployment.containers.<name>` |  | see Containers below |
+| `deployment.volumes.<name>` |  | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated. A string is templated and used as the whole source, so it can hold an `if` |
 | `daemonset.enabled` | `false` | render a DaemonSet; see DaemonSet below |
-| `daemonset.updateStrategy` | `RollingUpdate` | |
+| `daemonset.updateStrategy` | `RollingUpdate` |  |
 | `daemonset.selectorLabels` | `{}` | merged over the base selector labels on the DaemonSet's selector and pods |
-| `daemonset.podLabels` … `daemonset.volumes` | as `deployment` | the same pod, scheduling, container and volume keys as `deployment`, except `replicas` and `strategy` |
+| `daemonset.podLabels … daemonset.volumes` | as `deployment` | the same pod, scheduling, container and volume keys as `deployment`, except `replicas` and `strategy` |
 | `podDisruptionBudget.enabled` | `false` | render a `policy/v1` PodDisruptionBudget selecting the Deployment's pods |
 | `podDisruptionBudget.minAvailable` | `1` | a count or a percentage; set to `null` to use `maxUnavailable` |
 | `podDisruptionBudget.maxUnavailable` | unset | a count or a percentage; mutually exclusive with `minAvailable` |
 | `autoscaling.enabled` | `false` | render an `autoscaling/v2` HorizontalPodAutoscaler targeting the Deployment |
-| `autoscaling.minReplicas` | `2` | |
-| `autoscaling.maxReplicas` | `6` | |
+| `autoscaling.minReplicas` | `2` |  |
+| `autoscaling.maxReplicas` | `6` |  |
 | `autoscaling.targetCPUUtilizationPercentage` | `70` | average CPU utilization, relative to the containers' CPU requests |
 | `service.enabled` | `false` | render a Service selecting the Deployment's pods |
-| `service.type` | `ClusterIP` | |
-| `service.annotations` | `{}` | |
-| `service.ports.<name>` | | `port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol` |
+| `service.type` | `ClusterIP` |  |
+| `service.annotations.<name>` | `{}` |  |
+| `service.ports.<name>` |  | `port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol` |
 | `exposure.host` | `""` | the key under `global.exposure.hosts` this app is reachable on, once `global.exposure.enabled` is true: an Ingress with `global.mesh: kubernetes`, a Gateway and VirtualService with `istio` |
 | `exposure.port` | `""` | the name of the `service.ports` entry the host routes to |
-| `exposure.annotations` | `{}` | annotations on the Ingress, such as a controller's body-size limit |
-| `configMaps.<key>` | | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
-| `secrets.<key>` | | a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`) |
-| `secrets.<key>.external.keys` | | the keys an `ExternalSecret` fills when `global.externalSecrets.enabled`, which then replaces this Secret; `external.remoteKey` overrides the remote path |
-| `objects.<key>` | | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |
+| `exposure.annotations.<name>` | `{}` | annotations on the Ingress, such as a controller's body-size limit |
+| `networkPolicy.enabled` | `true` | set `false` to leave this app out when `global.networkPolicy.enabled` |
+| `networkPolicy.podSelector` | `{}` | a full label selector for the pods the policy covers; empty selects `app.kubernetes.io/name: <name>` |
+| `networkPolicy.ingress` | `[]` | NetworkPolicy ingress rules, a list or a templated string; see Network policies |
+| `networkPolicy.egress` | `[]` | NetworkPolicy egress rules after DNS (and istiod under `istio`), a list or a templated string |
+| `configMaps.<key>` |  | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
+| `secrets.<key>` |  | a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`) |
+| `secrets.<key>.external.keys` |  | the keys an `ExternalSecret` fills when `global.externalSecrets.enabled`, which then replaces this Secret; `external.remoteKey` overrides the remote path |
 | `vault.enabled` | `false` | deliver every container's `secretEnv` through the Vault Agent Injector instead of `secretKeyRef`; see Secrets below |
 | `vault.role` | chart name | the Vault Kubernetes auth role the pod logs in as |
 | `vault.path` | `secret/data` | KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>` |
-| `vault.annotations` | `{}` | extra `vault.hashicorp.com/*` pod annotations, such as `agent-pre-populate-only` |
-| `global.vault` | | the same keys for every node at once; a node's own `vault` wins |
+| `vault.annotations.<name>` | `{}` | extra `vault.hashicorp.com/*` pod annotations, such as `agent-pre-populate-only` |
+| `objects.<key>` |  | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |
+<!-- values-reference:end -->
 
 A ConfigMap, Secret or object keyed `main` takes the chart's name; any other key is appended, so
 `secrets.credentials` in the `clickhouse` node is the Secret `clickhouse-credentials`.
