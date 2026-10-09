@@ -38,6 +38,8 @@ so the output is deterministic.
 | `global.exposure.tls.credentialName` | `""` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels` | `{}` | extra labels on every object |
+| `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
+| `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
 | `serviceAccount.create` | `true` | render a ServiceAccount named after the chart |
 | `serviceAccount.name` | chart name, or `default` when not created | override the name |
 | `serviceAccount.automountToken` | `false` | also applied to the pod spec |
@@ -56,7 +58,7 @@ so the output is deterministic.
 | `deployment.topologySpreadConstraints` | `[]` | passed through to the pod spec; omitted when empty |
 | `deployment.priorityClassName` | `""` | omitted when empty |
 | `deployment.runtimeClassName` | `""` | omitted when empty |
-| `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; omitted when empty |
+| `deployment.imagePullSecrets` | `[]` | a list of Secret names, rendered as `{name: <secret>}` entries; replaces `global.imagePullSecrets`, and omitted when both are empty |
 | `deployment.containers.<name>` | | see Containers below |
 | `deployment.volumes.<name>` | | a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated. A string is templated and used as the whole source, so it can hold an `if` |
 | `daemonset.enabled` | `false` | render a DaemonSet; see DaemonSet below |

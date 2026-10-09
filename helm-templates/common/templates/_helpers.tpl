@@ -72,3 +72,36 @@ labels:
 {{- define "common.configChecksum" -}}
 {{- print (include "common.configMaps" .) (include "common.secrets" .) | sha256sum -}}
 {{- end -}}
+
+{{- /*
+common.image renders <repository>:<tag>, prefixed with global.imageRegistry when it is set. It takes
+(list $root $image) so templates outside the common Deployment, such as a node's ClickHouseInstallation,
+can use the same mirror.
+*/ -}}
+{{- define "common.image" -}}
+{{- $root := index . 0 -}}
+{{- $image := index . 1 -}}
+{{- $v := include "common.values" $root | fromYaml -}}
+{{- $ref := printf "%s:%s" $image.repository (toString $image.tag) -}}
+{{- with $v.global.imageRegistry -}}
+{{- printf "%s/%s" (trimSuffix "/" .) $ref -}}
+{{- else -}}
+{{- $ref -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
+common.imagePullSecrets renders an imagePullSecrets list for a pod spec: the workload's own list, or
+global.imagePullSecrets when the workload sets none. A workload's list replaces the global one, as Helm
+does for every list. It takes (list $root $workloadList) and renders nothing when both are empty.
+*/ -}}
+{{- define "common.imagePullSecrets" -}}
+{{- $root := index . 0 -}}
+{{- $v := include "common.values" $root | fromYaml -}}
+{{- with (index . 1) | default $v.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- range . }}
+  - name: {{ . }}
+  {{- end }}
+{{- end }}
+{{- end -}}

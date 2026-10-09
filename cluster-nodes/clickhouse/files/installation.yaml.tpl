@@ -75,9 +75,12 @@ spec:
     podTemplates:
       - name: clickhouse
         spec:
+          {{- with include "common.imagePullSecrets" (list $ list) | trim }}
+          {{- . | nindent 10 }}
+          {{- end }}
           containers:
             - name: clickhouse
-              image: {{ printf "%s:%s" $ch.image.repository (toString $ch.image.tag) | quote }}
+              image: {{ include "common.image" (list $ $ch.image) | quote }}
               resources:
                 {{- toYaml $ch.resources | nindent 16 }}
     volumeClaimTemplates:

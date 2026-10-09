@@ -4,7 +4,9 @@
 {{- $c := index . 2 -}}
 {{- $key := index . 3 -}}
 - name: {{ $name }}
-  image: "{{ required (printf "%s.containers.%s.image.repository is required" $key $name) $c.image.repository }}:{{ required (printf "%s.containers.%s.image.tag is required" $key $name) $c.image.tag }}"
+  {{- $_ := required (printf "%s.containers.%s.image.repository is required" $key $name) $c.image.repository }}
+  {{- $_ := required (printf "%s.containers.%s.image.tag is required" $key $name) $c.image.tag }}
+  image: {{ include "common.image" (list $root $c.image) | quote }}
   imagePullPolicy: {{ $c.image.pullPolicy | default "IfNotPresent" }}
   {{- with $c.command }}
   command:
@@ -108,11 +110,8 @@ spec:
   {{- with $d.runtimeClassName }}
   runtimeClassName: {{ . }}
   {{- end }}
-  {{- with $d.imagePullSecrets }}
-  imagePullSecrets:
-    {{- range . }}
-    - name: {{ . }}
-    {{- end }}
+  {{- with include "common.imagePullSecrets" (list $root $d.imagePullSecrets) | trim }}
+  {{- . | nindent 2 }}
   {{- end }}
   {{- with $d.nodeSelector }}
   nodeSelector:

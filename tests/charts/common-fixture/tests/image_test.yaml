@@ -1,0 +1,56 @@
+suite: global.imageRegistry and global.imagePullSecrets
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: uses each image as written when no registry is set
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: example/app:1.2.3
+      - notExists:
+          path: spec.template.spec.imagePullSecrets
+
+  - it: prefixes every container image with global.imageRegistry
+    set:
+      global.imageRegistry: registry.example/mirror/
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example/mirror/example/app:1.2.3
+
+  - it: puts global.imagePullSecrets on the pod when the workload names none
+    set:
+      global.imagePullSecrets:
+        - mirror-pull
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: mirror-pull
+
+  - it: lets a workload's own imagePullSecrets replace the global list
+    set:
+      global.imagePullSecrets:
+        - mirror-pull
+      deployment.imagePullSecrets:
+        - own-pull
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: own-pull
