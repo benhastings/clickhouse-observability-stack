@@ -1,0 +1,38 @@
+# This node's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
+properties:
+  collector:
+    type: object
+    additionalProperties: false
+    properties:
+      auth:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          allowUnauthenticatedExposure: {type: boolean}
+      extraReceivers: {type: object}
+      extraPipelines:
+        type: object
+        additionalProperties: false
+        properties:
+          traces: {$ref: "#/definitions/pipelineExtras"}
+          metrics: {$ref: "#/definitions/pipelineExtras"}
+          logs: {$ref: "#/definitions/pipelineExtras"}
+      agent:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          kubelet:
+            type: object
+            additionalProperties: false
+            properties:
+              insecureSkipVerify: {type: boolean}
+definitions:
+  pipelineExtras:
+    type: object
+    additionalProperties: false
+    properties:
+      receivers: {type: array, items: {type: string}}
+      processors: {type: array, items: {type: string}}
+      exporters: {type: array, items: {type: string}}

@@ -1,0 +1,3 @@
+# A typo the schema must reject: make check/schema fails if helm renders the common fixture with it.
+deployment:
+  replica: 2

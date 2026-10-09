@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=values.schema.json
 # cspell:words bearertokenauth
 # relay.yaml is one string template, not a map, so it can append the extras below to the default
 # pipelines. That means an environment can no longer deep-merge a single nested key into it:

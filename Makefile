@@ -73,7 +73,7 @@ setup/hooks: ## Point git at git/hooks so the pre-commit check runs
 ##@ Checks
 
 .PHONY: check
-check: check/lint check/golden check/manifests check/credentials ## The whole gate CI runs
+check: check/lint check/schema check/golden check/manifests check/credentials ## The whole gate CI runs
 
 .PHONY: check/lint
 check/lint: check/yaml check/shell check/structure check/workflows check/spelling ## Offline checks, what the pre-commit hook runs
@@ -89,6 +89,16 @@ check/shell: ## shellcheck every script
 .PHONY: check/structure
 check/structure: ## Enforce the cluster-configs and cluster-nodes layout in AGENTS.md
 	scripts/check-structure.bash
+
+.PHONY: check/schema
+check/schema: deps ## Fail when a values.schema.json is stale, or when the schema accepts deployment.replica
+	@tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && scripts/generate-schemas.bash "$$tmp" && \
+	for f in $$(cd "$$tmp" && find . -name values.schema.json); do \
+	  diff -u "$$f" "$$tmp/$$f" >/dev/null || { echo "check/schema: $$f is stale; run make generate"; exit 1; }; \
+	done
+	@if helm template fixture tests/charts/common-fixture -f tests/schema/bad-replica.yaml >/dev/null 2>&1; then \
+	  echo 'check/schema: the common schema accepted deployment.replica'; exit 1; \
+	else echo 'check/schema: ok'; fi
 
 .PHONY: check/golden
 check/golden: deps ## Fail when tests/golden differs from a fresh render
@@ -118,6 +128,7 @@ check/credentials: ## Fail when tests/golden renders a Secret value or a literal
 
 .PHONY: generate
 generate: deps ## Re-render tests/golden: every node, as Argo CD would deploy it, for every environment
+	scripts/generate-schemas.bash
 	rm -rf $(GOLDEN)
 	KUBE_VERSION=$(KUBE_VERSION) scripts/render.bash $(GOLDEN)
 

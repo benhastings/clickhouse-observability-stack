@@ -1,0 +1,3 @@
+# This chart's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
+properties:
+  ghostEnabled: {type: boolean}
