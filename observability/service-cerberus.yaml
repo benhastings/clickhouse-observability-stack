@@ -1,0 +1,25 @@
+# Source: cerberus/templates/common.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: cerberus
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: cerberus
+    app.kubernetes.io/instance: cerberus
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cerberus-0.1.0
+    app.kubernetes.io/version: "1.22.0"
+    environment: dev
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cerberus
+    app.kubernetes.io/instance: cerberus
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

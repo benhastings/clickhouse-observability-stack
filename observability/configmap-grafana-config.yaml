@@ -1,0 +1,105 @@
+# Source: grafana/templates/common.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-config
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: grafana-0.1.0
+    app.kubernetes.io/version: "13.2.2"
+    environment: dev
+data:
+  dashboards.yaml: |-
+    apiVersion: 1
+    providers:
+    - allowUiUpdates: false
+      disableDeletion: true
+      folder: Cerberus
+      name: dashboards
+      options:
+        path: /var/lib/grafana/dashboards
+      orgId: 1
+      type: file
+  datasources.yaml: |-
+    apiVersion: 1
+    datasources:
+    - access: proxy
+      editable: false
+      isDefault: true
+      jsonData:
+        exemplarTraceIdDestinations:
+        - datasourceUid: cerberus-tempo
+          name: trace_id
+        timeInterval: 15s
+      name: Prometheus (Cerberus)
+      type: prometheus
+      uid: cerberus-prometheus
+      url: 'http://cerberus:8080'
+    - access: proxy
+      editable: false
+      jsonData:
+        derivedFields:
+        - datasourceUid: cerberus-tempo
+          matcherRegex: trace_id
+          matcherType: label
+          name: TraceID
+          url: $${__value.raw}
+          urlDisplayLabel: View trace
+      name: Loki (Cerberus)
+      type: loki
+      uid: cerberus-loki
+      url: 'http://cerberus:8080'
+    - access: proxy
+      editable: false
+      jsonData:
+        nodeGraph:
+          enabled: true
+        serviceMap:
+          datasourceUid: cerberus-prometheus
+        tracesToLogsV2:
+          customQuery: true
+          datasourceUid: cerberus-loki
+          query: '{$${__tags}} | trace_id="$${__trace.traceId}"'
+          spanEndTimeShift: 5m
+          spanStartTimeShift: -5m
+          tags:
+          - key: service.name
+            value: service_name
+        tracesToMetrics:
+          datasourceUid: cerberus-prometheus
+          queries:
+          - name: Request rate
+            query: sum(rate(traces_span_metrics_calls{$$__tags}[5m]))
+          - name: p95 latency (ms)
+            query: histogram_quantile(0.95, sum by (le) (rate(traces_span_metrics_duration_bucket{$$__tags}[5m])))
+          spanEndTimeShift: 5m
+          spanStartTimeShift: -5m
+          tags:
+          - key: service.name
+            value: service_name
+      name: Tempo (Cerberus)
+      type: tempo
+      uid: cerberus-tempo
+      url: 'http://cerberus:8080'
+  grafana.ini: |-
+    [analytics]
+    check_for_updates = true
+    [log]
+    mode = console
+    [paths]
+    data = /var/lib/grafana/
+    logs = /var/log/grafana
+    plugins = /var/lib/grafana/plugins
+    provisioning = /etc/grafana/provisioning
+    [plugins]
+    ; Only the Drilldown apps, pinned. Grafana adds its default preinstall list
+    ; to these; everything on it that isn't bundled in the image is disabled.
+    preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1
+    preinstall_auto_update = false
+    disable_plugins = grafana-pyroscope-app,grafana-advisor-app
+    [unified_storage]
+    index_path = /var/lib/grafana-search/bleve

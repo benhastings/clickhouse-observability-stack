@@ -1,0 +1,88 @@
+# Source: cerberus/templates/common.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cerberus
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: cerberus
+    app.kubernetes.io/instance: cerberus
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cerberus-0.1.0
+    app.kubernetes.io/version: "1.22.0"
+    environment: dev
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cerberus
+      app.kubernetes.io/instance: cerberus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cerberus
+        app.kubernetes.io/instance: cerberus
+      annotations:
+        checksum/config: aa05980f6c8355c3f82280feaa50bd9ef728f45fbe129c54dd2d3207d1160e1c
+    spec:
+      serviceAccountName: cerberus
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: cerberus
+          image: "ghcr.io/tsouza/cerberus:1.22.0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CERBERUS_CH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: clickhouse-credentials
+            - name: GOMEMLIMIT
+              value: "1717986918B"
+          envFrom:
+            - configMapRef:
+                name: 'cerberus-env'
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 3
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              cpu: 250m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
