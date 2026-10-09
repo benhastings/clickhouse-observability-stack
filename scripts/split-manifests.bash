@@ -2,8 +2,9 @@
 # split-manifests.bash <rendered-env-dir> <destination>: split one environment rendered by
 # `render.bash <dir> <env>` into one file per object, <destination>/<namespace>/<kind>-<name>.yaml.
 # A cluster-scoped object goes under the namespace of the application that rendered it, so the tree has one
-# directory per destination namespace. The app-of-apps Applications are dropped: they belong to the GitOps
-# path, not to a tree applied as plain manifests. <destination> is emptied first.
+# directory per destination namespace, and each directory also gets that Namespace. The app-of-apps
+# Applications are dropped: they belong to the GitOps path, not to a tree applied as plain manifests.
+# <destination> is emptied first.
 set -euo pipefail
 
 src=${1:?usage: split-manifests.bash <rendered-env-dir> <destination>}
@@ -39,4 +40,9 @@ for stream in "$src"/*.yaml; do
     written=$((written + 1))
   done
 done
-echo "split: wrote $written objects under $dest"
+# Each namespace directory also gets its Namespace, so the tree applies to a cluster that has neither.
+for dir in "$dest"/*/; do
+  ns="$(basename "$dir")"
+  printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: %s\n' "$ns" >"$dir/namespace-$ns.yaml"
+done
+echo "split: wrote $written objects under $dest, plus a Namespace per directory"

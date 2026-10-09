@@ -1,0 +1,36 @@
+# Optional example, never applied by make cluster/up: track the `dev` branch, the rendered manifests the
+# render-dev workflow publishes from main, with a plain directory Application and no Helm.
+#
+# Pick one per cluster. Either apply this file, which tracks generated manifests that move whenever main
+# moves, or apply cluster-configs/app-of-apps/app-of-apps-dev.yaml, which tracks the Helm charts on main.
+# Applying both makes two sets of Applications fight over the same objects.
+#
+# The branch has the operator's CRDs, both Namespaces and every object of the dev environment, under
+# clickhouse-operator/ and observability/. It has no Secrets: create clickhouse-credentials, grafana-admin and
+# clickhouse-operator-credentials first (make cluster/preflight ENV=dev lists them).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-dev-rendered
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: dev
+    path: .
+    directory:
+      recurse: true
+      exclude: README.md
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      # The ClickHouseInstallation is in the same sync as the CRD that defines it.
+      - SkipDryRunOnMissingResource=true

@@ -12,7 +12,7 @@ echo "==> Validating tests/golden, tests/fixtures and the bootstrap Applications
 kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" \
   -schema-location "$K8S_SCHEMAS" \
   -schema-location "$CRD_CATALOG" \
-  tests/golden tests/fixtures cluster-configs/app-of-apps/app-of-apps-*.yaml
+  tests/golden tests/fixtures cluster-configs/app-of-apps/app-of-apps-*.yaml cluster-configs/argocd/dev-rendered-application.yaml
 
 echo "==> Checking every container has a memory limit and a pinned image"
 errors=0

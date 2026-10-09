@@ -338,6 +338,26 @@ An application from elsewhere sets `repoURL` and `path`, or `chart`. Any other n
 "is not a chart under cluster-nodes/", so a typo can't quietly create an Application for a chart that doesn't
 exist.
 
+### The rendered `dev` branch
+
+Every push to `main` renders the `dev` environment to plain manifests and publishes them to the `dev`
+branch (`.github/workflows/render-dev.yml`). The branch holds one file per object under
+`clickhouse-operator/` and `observability/`, the operator's CRDs and both Namespaces, and a README naming the
+`main` commit it came from. It has no Secrets and no Argo CD Applications, and the workflow fails before
+pushing if a render carries a credential. `make render ENV=<env>` produces the same tree locally, under
+`dist/manifests/<env>/`.
+
+There are two ways to deploy `dev`. Pick one per cluster, not both, or two sets of Applications fight over
+the same objects:
+
+- **Helm on `main`**: apply `cluster-configs/app-of-apps/app-of-apps-dev.yaml`, like any other environment.
+- **The rendered branch**: apply `cluster-configs/argocd/dev-rendered-application.yaml`, a single directory
+  Application on `targetRevision: dev`, or run `kubectl apply -R -f .` in a checkout of the branch (twice on a
+  new cluster, so the ClickHouseInstallation applies once its CRD exists). This tracks generated manifests,
+  which move whenever `main` moves.
+
+Either way, create the Secrets first; `make cluster/preflight ENV=dev` lists them.
+
 ### Stable names
 
 The apps find each other by hard-coded name, port and Secret, not by discovery. Every object is named after
