@@ -6,6 +6,13 @@ global:
   namespace: ""
   labels: {}
   imageRegistry: ""
+  externalSecrets:
+    enabled: false
+    secretStoreRef:
+      name: ""
+      kind: ClusterSecretStore
+    remotePath: observability
+    refreshInterval: 1h
   imagePullSecrets: []
   services:
     clickhouse: clickhouse:9000

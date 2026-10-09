@@ -41,6 +41,10 @@ so the output is deterministic.
 | `global.exposure.gateway.selector` | `{istio: ingressgateway}` | which ingress gateway pods the rendered Gateways select |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels` | `{}` | extra labels on every object |
+| `global.externalSecrets.enabled` | `false` | render an `ExternalSecret` in place of every Secret in `secrets` that has `external.keys` |
+| `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |
+| `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |
+| `global.externalSecrets.refreshInterval` | `1h` | how often the operator re-reads the store |
 | `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
 | `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
 | `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
@@ -88,6 +92,7 @@ so the output is deterministic.
 | `exposure.annotations` | `{}` | annotations on the Ingress, such as a controller's body-size limit |
 | `configMaps.<key>` | | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
 | `secrets.<key>` | | a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`) |
+| `secrets.<key>.external.keys` | | the keys an `ExternalSecret` fills when `global.externalSecrets.enabled`, which then replaces this Secret; `external.remoteKey` overrides the remote path |
 | `objects.<key>` | | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |
 | `vault.enabled` | `false` | deliver every container's `secretEnv` through the Vault Agent Injector instead of `secretKeyRef`; see Secrets below |
 | `vault.role` | chart name | the Vault Kubernetes auth role the pod logs in as |

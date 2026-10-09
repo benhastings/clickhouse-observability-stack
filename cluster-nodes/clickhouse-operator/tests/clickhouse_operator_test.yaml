@@ -79,3 +79,23 @@ tests:
               resourceFieldRef:
                 resource: limits.memory
                 divisor: 1Mi
+
+  - it: materializes clickhouse-operator-credentials with External Secrets
+    set:
+      global:
+        externalSecrets:
+          enabled: true
+          secretStoreRef:
+            name: vault-backend
+    documentSelector:
+      path: kind
+      value: ExternalSecret
+    asserts:
+      - equal:
+          path: spec.target.name
+          value: clickhouse-operator-credentials
+      - equal:
+          path: spec.data[1].remoteRef
+          value:
+            key: observability/clickhouse-operator-credentials
+            property: password

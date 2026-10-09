@@ -247,3 +247,38 @@ tests:
           value: clickhouse/clickhouse-server:26.9.5.2
       - notExists:
           path: spec.templates.podTemplates[0].spec.imagePullSecrets
+
+  - it: materializes clickhouse-credentials with External Secrets, and the installation still reads it by name
+    set:
+      global:
+        externalSecrets:
+          enabled: true
+          secretStoreRef:
+            name: vault-backend
+    asserts:
+      - equal:
+          path: spec.target.name
+          value: clickhouse-credentials
+        documentSelector:
+          path: kind
+          value: ExternalSecret
+      - equal:
+          path: spec.data[0].secretKey
+          value: username
+        documentSelector:
+          path: kind
+          value: ExternalSecret
+      - equal:
+          path: spec.data[1].secretKey
+          value: password
+        documentSelector:
+          path: kind
+          value: ExternalSecret
+      - equal:
+          path: spec.configuration.users["otel/password"].valueFrom.secretKeyRef
+          value:
+            name: clickhouse-credentials
+            key: password
+        documentSelector:
+          path: kind
+          value: ClickHouseInstallation
