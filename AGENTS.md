@@ -66,7 +66,7 @@ add a target. `make help` lists everything.
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
 | `make test`                 | every offline test: `test/unit` and `test/credentials`                         |
-| `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack   |
+| `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
 | `make helm/install ENV=<env>` | without Argo CD: preflight, the operator and its CRDs, then the `stack` umbrella release |
@@ -133,6 +133,10 @@ for both demo services, a payments error ratio near 25%, no checkout server erro
 CPU and memory and per-pod memory from `kubeletstats`, checkout logs, failing payments traces, a log's `trace_id`
 opening its trace, a trace's ID finding its logs, healthy Grafana datasources and the provisioned dashboard. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
+
+`.github/workflows/e2e-mesh.yml` runs `make test/e2e MESH=istio` on pull requests labelled `mesh` and on demand: the
+same checks with Istio installed and `mesh: istio`, plus sidecars, the gateway routes, and `STRICT` mTLS. Label a
+PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules, injection, NetworkPolicies).
 
 ### Cluster nodes
 

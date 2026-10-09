@@ -321,3 +321,12 @@ tests:
     asserts:
       - notExists:
           path: spec.templates.podTemplates[0].metadata
+
+  - it: keeps the operator's HTTP port out of the ClickHouse sidecar under istio
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.templates.podTemplates[0].metadata.annotations["traffic.sidecar.istio.io/excludeInboundPorts"]
+          value: "8123"

@@ -343,12 +343,22 @@ explicitly; `local` sets `kubernetes`, because kind runs no mesh.
 - **`istio`**: every destination namespace is labelled `istio-injection: enabled` (the generated Applications
   set it through Argo CD's `managedNamespaceMetadata`; `make helm/install` labels the namespaces itself), the
   operator-created ClickHouse pods ask for a sidecar too, and each app's Service gets a DestinationRule with
-  `ISTIO_MUTUAL`. PeerAuthentication stays at the mesh default, so plaintext is still accepted; requiring mTLS
-  waits for a kind profile that runs Istio. With `global.exposure`, each app also gets a Gateway and a
+  `ISTIO_MUTUAL`. PeerAuthentication stays at the mesh default, so plaintext is still accepted; the stack also
+  works with `STRICT`, which the Istio profile below checks. One connection stays outside the mesh: the operator
+  reaches ClickHouse's HTTP port 8123 directly, because its ClickHouse user only accepts the operator pod's own
+  IP and a sidecar would present `127.0.0.6`. With `global.exposure`, each app also gets a Gateway and a
   VirtualService.
 - **`kubernetes`**: none of that, and exposure renders an Ingress.
 
 `make cluster/preflight` fails when the mesh is `istio` and Istio's CRDs are missing.
+
+To try the mesh on kind, add `MESH=istio` to `make cluster/up` or `make test/e2e`. It installs Istio 1.30.5 (istiod
+and an ingress gateway) first, then deploys `local` with `tests/mesh/local-istio.values.yaml` merged over its
+values: `mesh: istio`, and Grafana and OTLP exposed through the gateway at `grafana.127.0.0.1.sslip.io` and
+`otlp.127.0.0.1.sslip.io` over plain HTTP. The e2e run then checks that the apps have sidecars, reaches Grafana
+and sends a span through the gateway, and repeats that with `PeerAuthentication` `STRICT`. The kind node needs
+about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
+demand (`.github/workflows/e2e-mesh.yml`).
 
 ### Low-memory sizing
 

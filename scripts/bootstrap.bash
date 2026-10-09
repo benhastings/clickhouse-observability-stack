@@ -6,6 +6,8 @@
 #      health checks), unless an argocd-server is already running, in which case it is left alone
 #   3. the environment's AppProject, unless it sets projectCreate: false, then app-of-apps-<env>.yaml
 # A <revision> deploys that commit or branch instead of the environment's targetRevision; never commit that.
+# EXTRA_VALUES=<file> merges that file over the environment's values in the bootstrap Application (the
+# MESH=istio kind profile uses it); never for a real cluster, whose values belong in its environment file.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,13 +39,17 @@ if [[ "$(yq '.projectCreate // true' "$values")" != false ]]; then
     -f "$values" --show-only templates/app-project.yaml | kubectl apply -f -
 fi
 
-echo "==> Applying the $env app-of-apps${revision:+ at $revision}"
+echo "==> Applying the $env app-of-apps${revision:+ at $revision}${EXTRA_VALUES:+ with $EXTRA_VALUES}"
+application="$(cat "$bootstrap")"
 if [[ -n "$revision" ]]; then
-  REVISION="$revision" yq '.spec.source.targetRevision = strenv(REVISION) |
-    .spec.source.helm.valuesObject.targetRevision = strenv(REVISION)' "$bootstrap" | kubectl apply -f -
-else
-  kubectl apply -f "$bootstrap"
+  application="$(REVISION="$revision" yq '.spec.source.targetRevision = strenv(REVISION) |
+    .spec.source.helm.valuesObject.targetRevision = strenv(REVISION)' <<<"$application")"
 fi
+if [[ -n "${EXTRA_VALUES:-}" ]]; then
+  application="$(yq ea 'select(fileIndex == 0) * {"spec": {"source": {"helm": {"valuesObject": select(fileIndex == 1)}}}}' \
+    <(printf '%s\n' "$application") "$EXTRA_VALUES")"
+fi
+kubectl apply -f - <<<"$application"
 
 cat <<MSG
 
