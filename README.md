@@ -420,7 +420,7 @@ the network does: image pulls and the Argo CD chart.
 
 These problems all came up while building this, and the fixes are already in the repo.
 
-Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` checks that the Secrets the environment expects and a StorageClass for the ClickHouse volume exist, and prints what is missing; it installs nothing.
+Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` checks the current context and prints what is missing; it installs nothing. It checks that the cluster is at least the Kubernetes version the manifests are rendered against, that each destination namespace exists or can be created, that the Secrets the environment doesn't create exist, that there is a StorageClass for the ClickHouse volume, that Istio's CRDs are installed when `global.mesh` is `istio` (the default), and that the Vault Agent Injector is installed when `vault.enabled` is true.
 
 - **`kind create cluster` fails at "Starting control-plane" (API server connection refused):**
   - Hosts with a **btrfs root on an encrypted (`/dev/mapper`) volume** need `/dev/mapper` mounted into the kind node, or the kubelet never starts the control plane.

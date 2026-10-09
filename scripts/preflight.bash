@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Checks the current kube context against an environment file before the first sync. Installs nothing.
-# Usage: ENV=<env> scripts/preflight.bash   (or make cluster/preflight ENV=<env>)
+# Usage: ENV=<env> [KUBE_VERSION=<x.y.z>] scripts/preflight.bash   (or make cluster/preflight ENV=<env>)
 #
-# Later checks, once the keys exist in the chart: the Istio CRDs when global.mesh is istio, and the
-# Vault injector webhook when vault.enabled is true.
+# It checks the Kubernetes version against KUBE_VERSION (the version the golden files render against),
+# each destination namespace, the Secrets the environment does not create, a StorageClass for ClickHouse,
+# the Istio CRDs when global.mesh is istio, and the Vault injector when vault.enabled is true.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -49,6 +50,40 @@ require_secret() {
     fail "Secret $2 is missing in namespace $1 ($3)"
   fi
 }
+
+# The cluster has to be at least the Kubernetes version the manifests are rendered and validated against.
+min_version="${KUBE_VERSION:-$(sed -n 's/^KUBE_VERSION := //p' Makefile)}"
+server_version="$(kubectl version -o json 2>/dev/null | yq -p json '.serverVersion.gitVersion' | sed 's/^v//; s/[^0-9.].*//')"
+if [[ -n "$min_version" ]] && [[ "$(printf '%s\n%s\n' "$min_version" "$server_version" | sort -V | head -1)" != "$min_version" ]]; then
+  fail "Kubernetes $server_version is older than $min_version, the version the manifests are rendered against"
+fi
+
+# Each enabled app's destination namespace exists, or the caller may create it (CreateNamespace=true does).
+apps=cluster-configs/app-of-apps/values.yaml
+can_create_ns="$(kubectl auth can-i create namespaces 2>/dev/null || true)"
+for app in $(yq '.applications | keys | .[]' "$apps"); do
+  app_enabled "$app" || continue
+  ns="$(yq ".applications.\"$app\".namespace // .namespace" "$apps")"
+  if ! kubectl get namespace "$ns" >/dev/null 2>&1 && [[ "$can_create_ns" != yes ]]; then
+    fail "namespace $ns ($app) does not exist and this context cannot create namespaces"
+  fi
+done
+
+# global.mesh defaults to istio, so an environment that does not set it needs Istio's CRDs.
+mesh="$(yq '.global.mesh // "istio"' "$values")"
+if [[ "$mesh" == istio ]]; then
+  for crd in gateways.networking.istio.io virtualservices.networking.istio.io; do
+    kubectl get crd "$crd" >/dev/null 2>&1 ||
+      fail "global.mesh is istio but CRD $crd is not installed; install Istio or set global.mesh: kubernetes"
+  done
+fi
+
+# vault.enabled, globally or on any app, needs the Vault Agent Injector's mutating webhook.
+if [[ "$(yq '[.global.vault.enabled, .applications[].values.vault.enabled] | any_c(. == true)' "$values")" == true ]]; then
+  if ! kubectl get mutatingwebhookconfigurations -o name 2>/dev/null | grep -q vault; then
+    fail "vault.enabled is true but no Vault Agent Injector webhook is installed (no MutatingWebhookConfiguration named *vault*)"
+  fi
+fi
 
 # A Secret the environment creates itself (create: true) is made by the first sync, so only the
 # others have to exist already.

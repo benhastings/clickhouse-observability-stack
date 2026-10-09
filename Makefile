@@ -170,7 +170,7 @@ cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-
 
 .PHONY: cluster/preflight
 cluster/preflight: ## Check the current kube context against an environment before its first sync: ENV=<env>
-	ENV='$(ENV)' scripts/preflight.bash
+	ENV='$(ENV)' KUBE_VERSION=$(KUBE_VERSION) scripts/preflight.bash
 
 .PHONY: cluster/down
 cluster/down: ## Delete the kind cluster
