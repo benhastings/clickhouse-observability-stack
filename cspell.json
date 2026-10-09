@@ -46,6 +46,7 @@
     "goarch",
     "gomemlimit",
     "gopath",
+    "ingressgateway",
     "kubeadm",
     "kubeconform",
     "kubelet",

@@ -7,6 +7,7 @@
 {{ include "common.secrets" . }}
 {{ include "common.service" . }}
 {{ include "common.ingress" . }}
+{{ include "common.gateway" . }}
 {{ include "common.deployment" . }}
 {{ include "common.daemonset" . }}
 {{ include "common.podDisruptionBudget" . }}

@@ -1,0 +1,147 @@
+suite: common.gateway
+templates:
+  - templates/common.yaml
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: renders no Gateway or VirtualService by default
+    asserts:
+      - notFailedTemplate: {}
+      - containsDocument:
+          kind: Gateway
+          apiVersion: networking.istio.io/v1
+        not: true
+      - containsDocument:
+          kind: VirtualService
+          apiVersion: networking.istio.io/v1
+        not: true
+
+  - it: renders no Istio objects when the mesh is kubernetes
+    set:
+      global.mesh: kubernetes
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: http
+    asserts:
+      - containsDocument:
+          kind: Gateway
+          apiVersion: networking.istio.io/v1
+        not: true
+      - containsDocument:
+          kind: VirtualService
+          apiVersion: networking.istio.io/v1
+        not: true
+
+  - it: gives the app its own HTTPS Gateway for its host when a TLS credential is set
+    set:
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      global.exposure.tls.credentialName: observability-tls
+      exposure.host: web
+      exposure.port: http
+    documentSelector:
+      path: kind
+      value: Gateway
+    asserts:
+      - equal:
+          path: metadata.name
+          value: fixture
+      - equal:
+          path: spec.selector
+          value:
+            istio: ingressgateway
+      - equal:
+          path: spec.servers
+          value:
+            - port:
+                number: 443
+                name: https
+                protocol: HTTPS
+              tls:
+                mode: SIMPLE
+                credentialName: observability-tls
+              hosts:
+                - web.example
+
+  - it: serves plain HTTP on 80 when no TLS credential is set
+    set:
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: http
+    documentSelector:
+      path: kind
+      value: Gateway
+    asserts:
+      - equal:
+          path: spec.servers[0].port
+          value:
+            number: 80
+            name: http
+            protocol: HTTP
+
+  - it: routes the host through its own Gateway to the Service port number
+    set:
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: http
+    documentSelector:
+      path: kind
+      value: VirtualService
+    asserts:
+      - equal:
+          path: spec
+          value:
+            hosts:
+              - web.example
+            gateways:
+              - demo/fixture
+            http:
+              - route:
+                  - destination:
+                      host: fixture.demo.svc.cluster.local
+                      port:
+                        number: 80
+
+  - it: binds to the site's own Gateway and renders none when gateway.name is set
+    set:
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      global.exposure.gateway.name: shared
+      global.exposure.gateway.namespace: istio-ingress
+      exposure.host: web
+      exposure.port: http
+    asserts:
+      - containsDocument:
+          kind: Gateway
+          apiVersion: networking.istio.io/v1
+        not: true
+      - equal:
+          path: spec.gateways
+          value:
+            - istio-ingress/shared
+        documentSelector:
+          path: kind
+          value: VirtualService
+
+  - it: fails when exposure is enabled and the app's host is empty
+    set:
+      global.exposure.enabled: true
+      exposure.host: web
+      exposure.port: http
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.exposure.enabled is true but global.exposure.hosts.web is empty"
+
+  - it: fails when the port is not one of the Service's ports
+    set:
+      global.exposure.enabled: true
+      global.exposure.hosts.web: web.example
+      exposure.host: web
+      exposure.port: nope
+    asserts:
+      - failedTemplate:
+          errorPattern: 'exposure.port "nope" is not one of service.ports'

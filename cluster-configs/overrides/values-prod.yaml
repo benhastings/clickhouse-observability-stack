@@ -5,6 +5,18 @@ targetRevision: main
 global:
   labels:
     environment: prod
+  # Istio, the chart default, set here so the example says so. Grafana and OTLP over HTTP are reachable on
+  # these placeholder hosts: each app gets its own Gateway on 443 and a VirtualService. Istio reads the TLS
+  # Secret from the ingress gateway's namespace (usually istio-system); the site creates it, for example
+  # with cert-manager. To bind to a Gateway the site already runs, set exposure.gateway.name and .namespace.
+  mesh: istio
+  exposure:
+    enabled: true
+    hosts:
+      grafana: grafana.example
+      otlp: otlp.example
+    tls:
+      credentialName: observability-tls
 
 applications:
   clickhouse-operator:

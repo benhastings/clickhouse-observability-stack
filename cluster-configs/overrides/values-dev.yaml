@@ -2,10 +2,12 @@ environment: dev
 repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
 
-# The mesh default is a later change; until then dev matches prod.
 global:
   labels:
     environment: dev
+  # Istio, the chart default, set explicitly. dev exposes nothing outside the cluster until a site gives it
+  # hostnames under exposure (see values-prod.yaml).
+  mesh: istio
 
 applications:
   clickhouse-operator:

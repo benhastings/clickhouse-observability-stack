@@ -17,6 +17,11 @@ global:
     ingressClassName: ""
     tls:
       credentialName: ""
+    gateway:
+      name: ""
+      namespace: ""
+      selector:
+        istio: ingressgateway
 serviceAccount:
   create: true
   name: ""
