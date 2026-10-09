@@ -1,5 +1,5 @@
 ---
-# Source: demo-load/templates/common.yaml
+# Source: demo-load/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: local
 automountServiceAccountToken: false
 ---
-# Source: demo-load/templates/common.yaml
+# Source: demo-load/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -43,7 +43,7 @@ spec:
         app.kubernetes.io/name: demo-load
         app.kubernetes.io/instance: demo-load
       annotations:
-        checksum/config: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        checksum/config: 75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070
     spec:
       serviceAccountName: demo-load
       automountServiceAccountToken: false

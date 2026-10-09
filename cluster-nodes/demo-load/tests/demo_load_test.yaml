@@ -1,6 +1,4 @@
 suite: demo-load
-templates:
-  - templates/common.yaml
 release:
   name: demo-load
   namespace: observability

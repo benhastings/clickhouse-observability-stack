@@ -1,4 +1,3 @@
-{{- define "common.service" -}}
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $s := $v.service -}}
 {{- if $s.enabled }}
@@ -31,4 +30,3 @@ spec:
     {{- end }}
     {{- end }}
 {{- end }}
-{{- end -}}

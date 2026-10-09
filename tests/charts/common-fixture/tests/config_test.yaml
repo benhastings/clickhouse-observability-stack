@@ -1,6 +1,4 @@
 suite: common.configMaps and common.secrets
-templates:
-  - templates/common.yaml
 release:
   name: fixture
   namespace: demo
@@ -51,7 +49,8 @@ tests:
   - it: skips a Secret marked create false
     asserts:
       - hasDocuments:
-          count: 12  # includes the DestinationRule the default istio mesh renders
+          count: 1
+        template: templates/secret.yaml
       - notFailedTemplate: {}
 
   - it: creates a skipped Secret once create is true

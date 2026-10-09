@@ -1,6 +1,4 @@
 suite: grafana
-templates:
-  - templates/common.yaml
 release:
   name: grafana
   namespace: observability
@@ -238,7 +236,8 @@ tests:
   - it: has no PersistentVolumeClaim and mounts an emptyDir at /var/lib/grafana by default
     asserts:
       - hasDocuments:
-          count: 6  # includes the DestinationRule the default istio mesh renders
+          count: 0
+        template: templates/objects.yaml
       - contains:
           path: spec.template.spec.volumes
           content:

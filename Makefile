@@ -146,7 +146,7 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@for chart in $(sort $(LOCAL_CHARTS)); do \
 		helm dependency build "$$chart" >/dev/null || exit 1; \
 	done
-	@# After the nodes, because it packages each node with its common tarball.
+	@# The umbrella packages each node, with the common templates its templates/ links to.
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test

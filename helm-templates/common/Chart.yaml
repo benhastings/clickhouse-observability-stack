@@ -1,7 +1,8 @@
 apiVersion: v2
 name: common
 description: >-
-  Library chart that renders every Kubernetes object in the stack. Each chart
-  under cluster-nodes/ depends on it and describes its workload in values.
-type: library
+  The templates that render every Kubernetes object in the stack. Each chart
+  under cluster-nodes/ links its templates/ here and describes its workload in
+  values, so the templates render with that node's values, flat.
+type: application
 version: 0.1.0

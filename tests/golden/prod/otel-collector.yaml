@@ -1,5 +1,5 @@
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: prod
 automountServiceAccountToken: true
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -154,7 +154,7 @@ data:
                   host: ${env:MY_POD_IP}
                   port: 8888
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -175,7 +175,7 @@ rules:
     verbs:
     - get
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -197,7 +197,7 @@ subjects:
     name: otel-collector
     namespace: observability
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -227,7 +227,7 @@ spec:
       targetPort: otlp-http
       protocol: TCP
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -255,7 +255,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: ec1d9cddecd6fc9207d3a5af540a6192a2d5134327565f5cd2b4bf8ef07f1921
+        checksum/config: 9e1da113debaf32495ecd01fbf11acfbad137a576d2386625e0994cb778f099c
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -327,7 +327,7 @@ spec:
           configMap:
             name: 'otel-collector'
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:
@@ -347,7 +347,7 @@ spec:
     tls:
       mode: ISTIO_MUTUAL
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/gateway.yaml
 apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
@@ -375,7 +375,7 @@ spec:
       hosts:
         - otlp.example
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/gateway.yaml
 apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:

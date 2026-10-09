@@ -1,13 +1,23 @@
-# `common` library chart
+# `common` chart
 
 <!-- cspell:words daemonset -->
 
-Every Kubernetes object in this stack is rendered by this chart. A chart under `cluster-nodes/` depends on it
-with a `file://` dependency, has one template, `templates/common.yaml`, containing
-`{{ include "common.all" . }}`, and describes its workload entirely in `values.yaml`.
+Every Kubernetes object in this stack is rendered by this chart's templates, one file per kind:
+`templates/deployment.yaml`, `templates/service.yaml`, `templates/networkpolicy.yaml` and so on. A chart under
+`cluster-nodes/` has no templates of its own: its `templates/` is a symlink to `helm-templates/common/templates`,
+so these files render as that node's templates, with that node's `values.yaml`, and an environment's
+`applications.<app>.values` keys reach them unchanged (`deployment.replicas`, not `common.deployment.replicas`).
+Nothing is copied; Helm and Argo CD follow the link, and `helm dependency build` packages the linked files into
+the umbrella chart.
 
-It is a `type: library` chart, so it has no values of its own: the defaults live in
-[`templates/_defaults.tpl`](templates/_defaults.tpl) and are merged under the node's values.
+The other way to share templates, a dependency, was rejected: Helm scopes a dependency's values under its name,
+so every values file and environment file would nest its keys under `common:`.
+
+[`templates/_helpers.tpl`](templates/_helpers.tpl) holds the shared helpers and no object: names, labels and
+metadata, the container and pod template both workloads use, the Vault annotations, and the defaults. Helm only
+merges a chart's own `values.yaml`, and the templates run in each node's chart, so the defaults are a helper,
+`common.defaults`, deep-merged under the node's values by `common.values`; there `null` deletes a key, maps
+merge, and lists replace whole.
 
 ## Why maps instead of lists
 

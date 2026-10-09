@@ -1,5 +1,5 @@
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: dev
 automountServiceAccountToken: true
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -147,7 +147,7 @@ data:
                   host: ${env:MY_POD_IP}
                   port: 8888
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -168,7 +168,7 @@ rules:
     verbs:
     - get
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -190,7 +190,7 @@ subjects:
     name: otel-collector
     namespace: observability
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -220,7 +220,7 @@ spec:
       targetPort: otlp-http
       protocol: TCP
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -248,7 +248,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 391b84de2258c2655a0ddb94bff2711d4c2f3c3c4f5097943ae3f9bb5212585b
+        checksum/config: bddad34aaa19f5d0ba896b41b9d380000b99460ec7378226d8fc4a6861e8698f
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -315,7 +315,7 @@ spec:
           configMap:
             name: 'otel-collector'
 ---
-# Source: otel-collector/templates/common.yaml
+# Source: otel-collector/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:

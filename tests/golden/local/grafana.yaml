@@ -1,5 +1,5 @@
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,7 +15,7 @@ metadata:
     environment: local
 automountServiceAccountToken: false
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -121,7 +121,7 @@ data:
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -517,7 +517,7 @@ data:
       "uid": "span-metrics-red"
     }
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/objects.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -538,7 +538,7 @@ spec:
     requests:
       storage: 1Gi
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -563,7 +563,7 @@ spec:
       targetPort: grafana
       protocol: TCP
 ---
-# Source: grafana/templates/common.yaml
+# Source: grafana/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -591,7 +591,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: ab89ef5ce88901028780b81f026a8bbd939176c7aaf390e375c33b7058bd34b8
+        checksum/config: a38d84c71e3c5249a40d971bf9986d39048e2f1c8a5ca8770fbd786b7317de11
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

@@ -32,6 +32,7 @@
     "clickhouseoperatorconfigurations",
     "confd",
     "configd",
+    "configmap",
     "crds",
     "curlimages",
     "customresourcedefinitions",

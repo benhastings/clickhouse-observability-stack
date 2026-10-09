@@ -1,10 +1,3 @@
-{{- /*
-With global.mesh istio, an app that sets exposure.host is reachable through Istio: a VirtualService routes
-global.exposure.hosts.<exposure.host> to the app's Service port exposure.port. Each app renders its own
-Gateway for its own host, so no app owns another's, unless global.exposure.gateway.name names a Gateway the
-site already runs, in which case the VirtualService binds to that and no Gateway is rendered.
-*/ -}}
-{{- define "common.gateway" -}}
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $x := $v.global.exposure -}}
 {{- $key := $v.exposure.host -}}
@@ -72,4 +65,3 @@ spec:
             port:
               number: {{ $port.port }}
 {{- end }}
-{{- end -}}

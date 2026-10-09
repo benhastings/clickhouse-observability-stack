@@ -4,7 +4,7 @@
 
 A GitOps deployment of an OpenTelemetry pipeline that stores **traces, logs and metrics in ClickHouse** and lets **Grafana query them with PromQL, LogQL and TraceQL**. Grafana doesn't talk to ClickHouse directly: Cerberus sits in between and speaks the Prometheus, Loki and Tempo APIs on ClickHouse's behalf.
 
-One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared library chart, `helm-templates/common`. It's sized for a laptop and verified end to end on a local kind cluster.
+One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared set of templates, `helm-templates/common`. It's sized for a laptop and verified end to end on a local kind cluster.
 
 ```mermaid
 flowchart LR
@@ -386,13 +386,13 @@ cluster-configs/
     values-prod.yaml
   argocd/values.yaml           Argo CD's own Helm values: small footprint, health checks for waves
 cluster-nodes/<app>/
-  Chart.yaml                   Depends on helm-templates/common
+  Chart.yaml                   No dependencies
   values.yaml                  The whole app, environment-neutral
-  templates/common.yaml        {{ include "common.all" . }}
+  templates -> ../../helm-templates/common/templates
   tests/                       helm-unittest suites
-helm-templates/common/         Library chart: Deployment, Service, RBAC, ConfigMaps, Secrets, custom resources
+helm-templates/common/         The templates: Deployment, Service, RBAC, ConfigMaps, Secrets, custom resources
 tests/
-  charts/common-fixture/       Exercises the library in unit tests
+  charts/common-fixture/       Exercises the templates in unit tests
   golden/<env>/                Every node rendered as Argo CD deploys it (generated, checked in CI)
 scripts/                       kind-up / dev / port-forward / kind-down, render, and the check scripts
 git/hooks/                     pre-commit hook that runs `make check/lint`

@@ -1,4 +1,3 @@
-{{- define "common.rbac" -}}
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $name := include "common.fullname" . -}}
 {{- with $v.rbac.clusterRules }}
@@ -45,4 +44,3 @@ subjects:
     name: {{ include "common.serviceAccountName" $ }}
     namespace: {{ include "common.namespace" $ }}
 {{- end }}
-{{- end -}}
