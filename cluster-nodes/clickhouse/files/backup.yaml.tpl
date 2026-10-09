@@ -19,6 +19,9 @@ spec:
     spec:
       backoffLimit: 1
       template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: clickhouse-backup
         spec:
           restartPolicy: Never
           automountServiceAccountToken: false

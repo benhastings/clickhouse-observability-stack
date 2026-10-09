@@ -525,3 +525,25 @@ deployment:
       emptyDir:
         medium: Memory
         sizeLimit: 1Mi
+
+# With global.networkPolicy.enabled: nothing calls the operator; it reaches the Kubernetes API and every
+# ClickHouse it manages, in the stack's namespace.
+networkPolicy:
+  egress:
+  - ports:
+    - port: 443
+      protocol: TCP
+    - port: 6443
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: '{{ dig "global" "networkPolicy" "namespaces" "stack" "observability" .Values.AsMap }}'
+      podSelector:
+        matchLabels:
+          clickhouse.altinity.com/app: chop
+    ports:
+    - port: 8123
+      protocol: TCP
+    - port: 9000
+      protocol: TCP

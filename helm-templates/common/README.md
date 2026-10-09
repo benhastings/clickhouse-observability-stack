@@ -45,6 +45,10 @@ so the output is deterministic.
 | `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |
 | `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |
 | `global.externalSecrets.refreshInterval` | `1h` | how often the operator re-reads the store |
+| `global.networkPolicy.enabled` | `false` | render a NetworkPolicy for every app; see Network policies |
+| `global.networkPolicy.exposureNamespaces` | `[]` | namespaces whose pods may reach an exposed app (the ingress gateway or controller) |
+| `global.networkPolicy.istioNamespace` | `istio-system` | where istiod runs, for the sidecar's egress under `mesh: istio` |
+| `global.networkPolicy.namespaces` | `{stack: observability, operator: clickhouse-operator}` | the stack's and the operator's namespaces, for rules that cross between them |
 | `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
 | `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
 | `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
@@ -154,6 +158,16 @@ containers' `secretEnv`, and a pod with no `secretEnv` gets no agent.
 String values in the places marked templated go through `tpl`, so they can use `{{ .Release.Name }}` or
 `{{ include "common.fullname" . }}`. Content that contains literal `{{`, such as a Grafana dashboard's legend
 format, belongs in a `files` glob, which is not templated.
+
+### Network policies
+
+With `global.networkPolicy.enabled`, every app renders one NetworkPolicy. It selects the app's pods by
+`app.kubernetes.io/name` (`networkPolicy.podSelector`, a full label selector, overrides that) and lists both
+Ingress and Egress, so anything its rules don't allow is denied for those pods. DNS egress is always allowed,
+and under `mesh: istio` so are the sidecar's ports to istiod and its own health ports. A node adds its traffic
+under `networkPolicy.ingress` and `networkPolicy.egress`, as NetworkPolicy rules (a list, or a templated string
+when a rule depends on values), and names its peers by `app.kubernetes.io/name`, which the Argo CD and Helm
+paths both set to the app's name. `networkPolicy.enabled: false` opts one app out.
 
 ### Rollouts
 

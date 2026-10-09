@@ -7,6 +7,7 @@
 {{ include "common.secrets" . }}
 {{ include "common.externalSecrets" . }}
 {{ include "common.service" . }}
+{{ include "common.networkPolicy" . }}
 {{ include "common.ingress" . }}
 {{ include "common.gateway" . }}
 {{ include "common.deployment" . }}

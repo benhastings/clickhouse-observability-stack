@@ -25,3 +25,14 @@ deployment:
           memory: 16Mi
         limits:
           memory: 64Mi
+
+# With global.networkPolicy.enabled: the demo load only sends OTLP to the collector.
+networkPolicy:
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - port: 4317
+          protocol: TCP

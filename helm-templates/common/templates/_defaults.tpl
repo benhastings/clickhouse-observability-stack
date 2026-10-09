@@ -13,6 +13,15 @@ global:
       kind: ClusterSecretStore
     remotePath: observability
     refreshInterval: 1h
+  networkPolicy:
+    enabled: false
+    # Namespaces whose pods may reach an exposed app: the Istio ingress gateway or the Ingress controller.
+    exposureNamespaces: []
+    istioNamespace: istio-system
+    # Where the stack runs, for rules that cross from the operator's namespace to ClickHouse's.
+    namespaces:
+      stack: observability
+      operator: clickhouse-operator
   imagePullSecrets: []
   services:
     clickhouse: clickhouse:9000
@@ -112,6 +121,11 @@ service:
   type: ClusterIP
   annotations: {}
   ports: {}
+networkPolicy:
+  enabled: true
+  podSelector: {}
+  ingress: []
+  egress: []
 exposure:
   host: ""
   port: ""
