@@ -11,6 +11,21 @@ namespace: observability
 
 global: {}
 
+# The charts under cluster-nodes/ (check/structure keeps this list in step with the directory). An
+# application without its own path, chart or repoURL must be one of these, so a typo in an
+# environment file fails the render instead of creating an Application for a chart that doesn't exist.
+nodes:
+  - cerberus
+  - clickhouse
+  - clickhouse-operator
+  - demo-load
+  - grafana
+  - otel-collector
+
+# The supported set. An environment file may set enabled: false on one, change one under values:, or
+# add its own application next to them; an added one needs a syncWave and, unless it is one of the
+# nodes above (say, a second collector released under another name), a path, chart or repoURL.
+#
 # An application may set repoURL, targetRevision, and path (or chart, for a packaged Helm
 # chart) to deploy its node from another source. Omitted, they default to repoURL,
 # targetRevision, and cluster-nodes/<name> above.

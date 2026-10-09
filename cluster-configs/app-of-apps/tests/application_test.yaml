@@ -195,3 +195,57 @@ tests:
     asserts:
       - notExists:
           path: spec.ignoreDifferences
+
+  - it: renders an application an environment adds next to the supported set
+    set:
+      applications.otel-collector-edge:
+        syncWave: 3
+        path: cluster-nodes/otel-collector
+        values:
+          nameOverride: otel-collector-edge
+    documentSelector:
+      path: metadata.name
+      value: otel-collector-edge-test
+    asserts:
+      - equal:
+          path: spec.source.path
+          value: cluster-nodes/otel-collector
+      - equal:
+          path: spec.source.helm.releaseName
+          value: otel-collector-edge
+      - equal:
+          path: spec.source.helm.valuesObject.nameOverride
+          value: otel-collector-edge
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "3"
+
+  - it: fails on an added application that is not a node and names no source, such as a typo
+    set:
+      applications.grafana-typo:
+        syncWave: 3
+    asserts:
+      - failedTemplate:
+          errorPattern: "applications.grafana-typo is not a chart under cluster-nodes/"
+
+  - it: accepts an added application from its own repository
+    set:
+      applications.extra:
+        syncWave: 5
+        repoURL: https://example.com/charts.git
+        path: charts/extra
+    documentSelector:
+      path: metadata.name
+      value: extra-test
+    asserts:
+      - equal:
+          path: spec.source.repoURL
+          value: https://example.com/charts.git
+
+  - it: requires a sync wave on an added application too
+    set:
+      applications.otel-collector-edge:
+        path: cluster-nodes/otel-collector
+    asserts:
+      - failedTemplate:
+          errorPattern: "applications.otel-collector-edge.syncWave is required"

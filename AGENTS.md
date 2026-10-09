@@ -177,8 +177,11 @@ tests/*_test.yaml        helm-unittest suites
   `cluster-configs/app-of-apps/app-of-apps-<env>.yaml` come in pairs; the bootstrap Application loads
   `../overrides/values-<env>.yaml`, and its `repoURL` and `targetRevision` match that file's.
 - **The application list lives in `cluster-configs/app-of-apps/values.yaml`**, one entry per
-  `cluster-nodes/<app>` with an integer `syncWave` and, when not `observability`, a `namespace`. An
-  environment never adds an app; it disables one with `enabled: false` or changes one under `values:`.
+  `cluster-nodes/<app>` with an integer `syncWave` and, when not `observability`, a `namespace`. It is the
+  supported set, and `nodes` there lists the charts under `cluster-nodes/` (`check/structure` keeps it exact).
+  `local`, `prod` and `dev` only disable an app with `enabled: false` or change one under `values:`. A site's
+  environment file may also add an application; it needs a `syncWave`, and a `path`, `chart` or `repoURL`
+  unless it reuses a node, and the render fails on a name that is neither.
 - **Child Applications are generated.** Their finalizer, automated prune and self-heal, `CreateNamespace` and
   `ServerSideApply` come from `templates/application.yaml`; change them there, with a test in
   `cluster-configs/app-of-apps/tests/`.
