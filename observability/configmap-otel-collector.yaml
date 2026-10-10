@@ -63,7 +63,7 @@ data:
         sending_queue:
           enabled: true
         timeout: 10s
-        username: otel
+        username: otel_writer
     extensions:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133

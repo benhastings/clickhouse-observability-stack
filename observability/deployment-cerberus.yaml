@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: 676c87e66d3c922a8afb7ab77dc3141200c535f366c3ec01eeee853fff4913b9
+        checksum/config: 36eab5a238822ce40ce81d47809ad790cf132966793bb32f4fcaa9461237136d
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false
@@ -51,7 +51,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: password
-                  name: clickhouse-credentials
+                  name: clickhouse-reader
             - name: GOMEMLIMIT
               value: "1717986918B"
           envFrom:

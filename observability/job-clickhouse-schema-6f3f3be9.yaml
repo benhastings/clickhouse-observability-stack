@@ -1,0 +1,85 @@
+# Source: clickhouse/templates/objects.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/instance: clickhouse
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: clickhouse-schema
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/version: 26.9.5.2
+    environment: dev
+    helm.sh/chart: clickhouse-0.1.0
+  name: clickhouse-schema-6f3f3be9
+  namespace: observability
+spec:
+  activeDeadlineSeconds: 900
+  backoffLimit: 3
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/nativeSidecar: "true"
+      labels:
+        app.kubernetes.io/name: clickhouse-schema
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - command:
+            - /bin/sh
+            - -c
+            - |
+              until clickhouse-client --query 'SELECT 1' >/dev/null; do
+                echo "waiting for ClickHouse at $CLICKHOUSE_HOST:$CLICKHOUSE_PORT"
+                sleep 5
+              done
+              exec clickhouse-client --multiquery --queries-file /schema/schema.sql
+          env:
+            - name: CLICKHOUSE_HOST
+              value: clickhouse
+            - name: CLICKHOUSE_PORT
+              value: "9000"
+            - name: CLICKHOUSE_USER
+              value: otel_admin
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: clickhouse-admin
+            - name: HOME
+              value: /tmp
+          image: clickhouse/clickhouse-server:26.9.5.2
+          name: clickhouse-schema
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /schema
+              name: schema
+              readOnly: true
+            - mountPath: /tmp
+              name: tmp
+      restartPolicy: Never
+      securityContext:
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - configMap:
+            name: clickhouse-schema
+          name: schema
+        - emptyDir: {}
+          name: tmp

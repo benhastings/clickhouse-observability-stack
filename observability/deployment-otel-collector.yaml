@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: bddad34aaa19f5d0ba896b41b9d380000b99460ec7378226d8fc4a6861e8698f
+        checksum/config: 0ed1926fa772360b60e38a12b0f0b3d3218c45f7c00841c190dfd62b4a691392
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -53,7 +53,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: password
-                  name: clickhouse-credentials
+                  name: clickhouse-writer
             - name: GOMEMLIMIT
               value: "1638MiB"
             - name: K8S_NODE_IP
