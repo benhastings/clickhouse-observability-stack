@@ -16,6 +16,7 @@ body:
         - cerberus
         - otel-collector
         - grafana
+        - alertmanager
         - demo-load
         - App-of-apps / environments (cluster-configs)
         - Common library chart (helm-templates/common)

@@ -11,8 +11,11 @@ dependencies:
 - name: grafana
   repository: file://../../cluster-nodes/grafana
   version: 0.1.0
+- name: alertmanager
+  repository: file://../../cluster-nodes/alertmanager
+  version: 0.1.0
 - name: demo-load
   repository: file://../../cluster-nodes/demo-load
   version: 0.1.0
-digest: sha256:caf1624c2423ec536be1b2b33ac6881d9bc34102d5b4fcbf92b912194de3dabc
-generated: "2026-10-03T12:12:35.082026015-04:00"
+digest: sha256:a5d09c5122967b987a6caee7281417803fb7162e4ef9820bd17d2493faf7004c
+generated: "2026-10-10T15:07:47.466461737-04:00"

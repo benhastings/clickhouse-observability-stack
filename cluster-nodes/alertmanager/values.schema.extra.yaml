@@ -1,0 +1,9 @@
+# This node's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
+properties:
+  persistence:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
+      size: {type: string}
+      storageClassName: {type: string}

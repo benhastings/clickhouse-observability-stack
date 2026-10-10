@@ -38,6 +38,55 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
+  name: alertmanager-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-prod
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/alertmanager
+    helm:
+      releaseName: alertmanager
+      valuesObject:
+        global:
+          exposure:
+            enabled: true
+            hosts:
+              grafana: grafana.example
+              otlp: otlp.example
+            tls:
+              credentialName: observability-tls
+          labels:
+            environment: prod
+          mesh: istio
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
+    # is rendered for it to fight with.
+    managedNamespaceMetadata:
+      labels:
+        istio-injection: enabled
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
   name: cerberus-prod
   namespace: argocd
   labels:

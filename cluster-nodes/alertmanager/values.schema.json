@@ -1,0 +1,827 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "nameOverride": {
+      "type": "string",
+      "description": "base name of every object",
+      "x-default": "release name"
+    },
+    "common": {
+      "type": "object",
+      "description": "the library dependency's own values, which helm adds under its name; leave it empty"
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "read only by the `cluster-configs/stack` umbrella chart, which turns each node on or off with it"
+    },
+    "global": {
+      "$ref": "#/definitions/global"
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "description": "render a ServiceAccount named after the chart",
+          "x-default": "`true`"
+        },
+        "name": {
+          "type": "string",
+          "description": "override the name",
+          "x-default": "chart name, or `default` when not created"
+        },
+        "automountToken": {
+          "type": "boolean",
+          "description": "also applied to the pod spec",
+          "x-default": "`false`"
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap",
+          "description": "",
+          "x-default": "`{}`"
+        }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clusterRules": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "when set, a ClusterRole and ClusterRoleBinding for the ServiceAccount",
+          "x-default": "`[]`"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "when set, a Role and RoleBinding in the release namespace",
+          "x-default": "`[]`"
+        }
+      }
+    },
+    "deployment": {
+      "$ref": "#/definitions/workload"
+    },
+    "daemonset": {
+      "$ref": "#/definitions/workload",
+      "x-doc-rows": [
+        {
+          "key": "daemonset.enabled",
+          "default": "`false`",
+          "description": "render a DaemonSet; see DaemonSet below"
+        },
+        {
+          "key": "daemonset.updateStrategy",
+          "default": "`RollingUpdate`",
+          "description": ""
+        },
+        {
+          "key": "daemonset.selectorLabels",
+          "default": "`{}`",
+          "description": "merged over the base selector labels on the DaemonSet's selector and pods"
+        },
+        {
+          "key": "daemonset.podLabels … daemonset.volumes",
+          "default": "as `deployment`",
+          "description": "the same pod, scheduling, container and volume keys as `deployment`, except `replicas` and `strategy`"
+        }
+      ],
+      "x-doc-leaf": true
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "render a `policy/v1` PodDisruptionBudget selecting the Deployment's pods",
+          "x-default": "`false`"
+        },
+        "minAvailable": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "description": "a count or a percentage; set to `null` to use `maxUnavailable`",
+          "x-default": "`1`"
+        },
+        "maxUnavailable": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
+          "description": "a count or a percentage; mutually exclusive with `minAvailable`",
+          "x-default": "unset"
+        }
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "render an `autoscaling/v2` HorizontalPodAutoscaler targeting the Deployment",
+          "x-default": "`false`"
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "",
+          "x-default": "`2`"
+        },
+        "maxReplicas": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "",
+          "x-default": "`6`"
+        },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "average CPU utilization, relative to the containers' CPU requests",
+          "x-default": "`70`"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "render a Service selecting the Deployment's pods",
+          "x-default": "`false`"
+        },
+        "type": {
+          "type": "string",
+          "description": "",
+          "x-default": "`ClusterIP`"
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap",
+          "description": "",
+          "x-default": "`{}`"
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "port": {
+                "type": "integer"
+              },
+              "targetPort": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "protocol": {
+                "type": "string"
+              },
+              "appProtocol": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "`port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol`"
+        }
+      }
+    },
+    "exposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "the key under `global.exposure.hosts` this app is reachable on, once `global.exposure.enabled` is true: an Ingress with `global.mesh: kubernetes`, a Gateway and VirtualService with `istio`",
+          "x-default": "`\"\"`"
+        },
+        "port": {
+          "type": "string",
+          "description": "the name of the `service.ports` entry the host routes to",
+          "x-default": "`\"\"`"
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap",
+          "description": "annotations on the Ingress, such as a controller's body-size limit",
+          "x-default": "`{}`"
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "set `false` to leave this app out when `global.networkPolicy.enabled`",
+          "x-default": "`true`"
+        },
+        "podSelector": {
+          "type": "object",
+          "description": "a full label selector for the pods the policy covers; empty selects `app.kubernetes.io/name: <name>`",
+          "x-default": "`{}`"
+        },
+        "ingress": {
+          "type": [
+            "array",
+            "string"
+          ],
+          "description": "NetworkPolicy ingress rules, a list or a templated string; see Network policies",
+          "x-default": "`[]`"
+        },
+        "egress": {
+          "type": [
+            "array",
+            "string"
+          ],
+          "description": "NetworkPolicy egress rules after DNS (and istiod under `istio`), a list or a templated string",
+          "x-default": "`[]`"
+        }
+      }
+    },
+    "configMaps": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "type": "object"
+          },
+          "files": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated)",
+      "x-doc-key": "<key>"
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "create": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          },
+          "stringData": {
+            "type": "object"
+          },
+          "external": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "description": "the keys an `ExternalSecret` fills when `global.externalSecrets.enabled`, which then replaces this Secret; `external.remoteKey` overrides the remote path"
+              },
+              "remoteKey": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "description": "a Secret: `stringData` (templated), `type` (`Opaque`), `create` (`true`)",
+      "x-doc-key": "<key>"
+    },
+    "vault": {
+      "$ref": "#/definitions/vault"
+    },
+    "objects": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "object",
+          "string",
+          "null"
+        ]
+      },
+      "description": "any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty",
+      "x-doc-key": "<key>"
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "string"
+        },
+        "storageClassName": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string"
+        },
+        "tag": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "vault": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "deliver every container's `secretEnv` through the Vault Agent Injector instead of `secretKeyRef`; see Secrets below",
+          "x-default": "`false`"
+        },
+        "role": {
+          "type": "string",
+          "description": "the Vault Kubernetes auth role the pod logs in as",
+          "x-default": "chart name"
+        },
+        "path": {
+          "type": "string",
+          "description": "KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>`",
+          "x-default": "`secret/data`"
+        },
+        "annotations": {
+          "$ref": "#/definitions/stringMap",
+          "description": "extra `vault.hashicorp.com/*` pod annotations, such as `agent-pre-populate-only`",
+          "x-default": "`{}`"
+        }
+      }
+    },
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mesh": {
+          "type": "string",
+          "description": "the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. `istio` renders a DestinationRule (`ISTIO_MUTUAL`) for every Service and, with exposure on, a Gateway and VirtualService per app; `kubernetes` renders none of them, and an Ingress for exposure",
+          "x-default": "`istio`"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "namespace of every namespaced object",
+          "x-default": "release namespace"
+        },
+        "labels": {
+          "$ref": "#/definitions/stringMap",
+          "description": "extra labels on every object",
+          "x-default": "`{}`"
+        },
+        "imageRegistry": {
+          "type": "string",
+          "description": "prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper",
+          "x-default": "`\"\"`"
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists",
+          "x-default": "`[]`"
+        },
+        "vault": {
+          "$ref": "#/definitions/vault",
+          "description": "the same keys as `vault`, for every app at once; an app's own `vault` wins",
+          "x-doc-leaf": true
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "clickhouse": {
+              "type": "string",
+              "description": "where the collector and Cerberus reach ClickHouse's native protocol",
+              "x-default": "`clickhouse:9000`"
+            },
+            "cerberus": {
+              "type": "string",
+              "description": "where Grafana's datasources reach Cerberus",
+              "x-default": "`http://cerberus:8080`"
+            },
+            "otlpGrpc": {
+              "type": "string",
+              "description": "where the demo load sends OTLP over gRPC",
+              "x-default": "`otel-collector:4317`"
+            }
+          }
+        },
+        "externalSecrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "render an `ExternalSecret` in place of every Secret in `secrets` that has `external.keys`",
+              "x-default": "`false`"
+            },
+            "secretStoreRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "SecretStore",
+                    "ClusterSecretStore"
+                  ]
+                }
+              },
+              "description": "the store the site runs; an enabled render fails without a name",
+              "x-default": "`{name: \"\", kind: ClusterSecretStore}`"
+            },
+            "remotePath": {
+              "type": "string",
+              "description": "a Secret is read from `<remotePath>/<Secret name>`, one property per key",
+              "x-default": "`observability`"
+            },
+            "refreshInterval": {
+              "type": "string",
+              "description": "how often the operator re-reads the store",
+              "x-default": "`1h`"
+            }
+          }
+        },
+        "exposure": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "make the apps that set `exposure.host` reachable from outside the cluster",
+              "x-default": "`false`"
+            },
+            "hosts": {
+              "$ref": "#/definitions/stringMap",
+              "description": "the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty",
+              "x-default": "`{}`",
+              "x-doc-key": "<key>"
+            },
+            "ingressClassName": {
+              "type": "string",
+              "description": "the Ingress class; empty uses the cluster default",
+              "x-default": "`\"\"`"
+            },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "credentialName": {
+                  "type": "string",
+                  "description": "a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`)",
+                  "x-default": "`\"\"`"
+                }
+              }
+            },
+            "gateway": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "with `istio`, an existing Gateway to bind every VirtualService to; no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without)",
+                  "x-default": "`\"\"`"
+                },
+                "namespace": {
+                  "type": "string",
+                  "description": "the namespace of that existing Gateway",
+                  "x-default": "release namespace"
+                },
+                "selector": {
+                  "$ref": "#/definitions/stringMap",
+                  "description": "which ingress gateway pods the rendered Gateways select",
+                  "x-default": "`{istio: ingressgateway}`"
+                }
+              }
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "render a NetworkPolicy for every app; see Network policies",
+              "x-default": "`false`"
+            },
+            "exposureNamespaces": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "namespaces whose pods may reach an exposed app (the ingress gateway or controller)",
+              "x-default": "`[]`"
+            },
+            "istioNamespace": {
+              "type": "string",
+              "description": "where istiod runs, for the sidecar's egress under `mesh: istio`",
+              "x-default": "`istio-system`"
+            },
+            "namespaces": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "stack": {
+                  "type": "string"
+                },
+                "operator": {
+                  "type": "string"
+                }
+              },
+              "description": "the stack's and the operator's namespaces, for rules that cross between them",
+              "x-default": "`{stack: observability, operator: clickhouse-operator}`"
+            }
+          }
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "render a Deployment",
+          "x-default": "`false`"
+        },
+        "reloader": {
+          "type": "boolean",
+          "description": "annotate the Deployment for Stakater Reloader, so a changed Secret or ConfigMap rolls it; see Rollouts",
+          "x-default": "`false`"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "omitted when `autoscaling.enabled`; see Disruption budget and autoscaling",
+          "x-default": "`1`"
+        },
+        "strategy": {
+          "type": "object",
+          "description": "",
+          "x-default": "`RollingUpdate`"
+        },
+        "updateStrategy": {
+          "type": "object"
+        },
+        "selectorLabels": {
+          "$ref": "#/definitions/stringMap"
+        },
+        "podLabels": {
+          "$ref": "#/definitions/stringMap",
+          "description": "",
+          "x-default": "`{}`"
+        },
+        "podAnnotations": {
+          "$ref": "#/definitions/stringMap",
+          "description": "",
+          "x-default": "`{}`"
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "",
+          "x-default": "`{}`"
+        },
+        "containerSecurityContext": {
+          "type": "object"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "",
+          "x-default": "`30`"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/stringMap",
+          "description": "passed through to the pod spec; omitted when empty",
+          "x-default": "`{}`"
+        },
+        "affinity": {
+          "type": "object",
+          "description": "passed through to the pod spec; omitted when empty",
+          "x-default": "`{}`"
+        },
+        "tolerations": {
+          "type": "array",
+          "description": "passed through to the pod spec; omitted when empty",
+          "x-default": "`[]`"
+        },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "description": "passed through to the pod spec; omitted when empty",
+          "x-default": "`[]`"
+        },
+        "priorityClassName": {
+          "type": "string",
+          "description": "omitted when empty",
+          "x-default": "`\"\"`"
+        },
+        "runtimeClassName": {
+          "type": "string",
+          "description": "omitted when empty",
+          "x-default": "`\"\"`"
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "a list of Secret names, rendered as `{name: <secret>}` entries; replaces `global.imagePullSecrets`, and omitted when both are empty",
+          "x-default": "`[]`"
+        },
+        "containers": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/definitions/container"
+              }
+            ]
+          },
+          "description": "see Containers below"
+        },
+        "volumes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "object",
+              "string",
+              "null"
+            ]
+          },
+          "description": "a volume source, such as `configMap: {name: ...}` or `emptyDir: {}`; templated. A string is templated and used as the whole source, so it can hold an `if`"
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "$ref": "#/definitions/image"
+        },
+        "command": {
+          "type": "array"
+        },
+        "args": {
+          "type": "array"
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "containerPort": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "object",
+              "null"
+            ]
+          }
+        },
+        "secretEnv": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "secret": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "vault": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "env": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "yamlKey": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "envFrom": {
+          "type": "array"
+        },
+        "startupProbe": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "livenessProbe": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "readinessProbe": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "resources": {
+          "type": "object"
+        },
+        "securityContext": {
+          "type": "object"
+        },
+        "volumeMounts": {
+          "type": "array"
+        }
+      }
+    }
+  }
+}
