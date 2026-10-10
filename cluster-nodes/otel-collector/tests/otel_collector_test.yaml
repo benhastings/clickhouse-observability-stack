@@ -34,7 +34,7 @@ tests:
           path: data["relay.yaml"]
           pattern: "otlp:\\n    protocols:\\n      grpc:\\n        endpoint: 0.0.0.0:4317\\n      http:\\n        endpoint: 0.0.0.0:4318\\n"
 
-  - it: never creates the ClickHouse schema, which Cerberus owns
+  - it: inserts as the write-only otel_writer and never creates the schema, which the clickhouse node owns
     documentSelector:
       path: kind
       value: ConfigMap
@@ -42,6 +42,35 @@ tests:
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "create_schema: false"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "(?m)^ +username: otel_writer$"
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "username: otel_(reader|admin)"
+
+  - it: gives the agent the same write-only user
+    set:
+      collector:
+        agent:
+          enabled: true
+      daemonset:
+        enabled: true
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
+          pattern: "(?m)^ +username: otel_writer$"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-writer
+                key: password
 
   - it: routes traces through the span-metrics and service-graph connectors
     documentSelector:
@@ -376,7 +405,7 @@ tests:
           path: kind
           value: ConfigMap
 
-  - it: reads the ClickHouse password from clickhouse-credentials
+  - it: reads the ClickHouse password from clickhouse-writer
     documentSelector:
       path: kind
       value: Deployment
@@ -387,7 +416,7 @@ tests:
             name: CLICKHOUSE_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: clickhouse-credentials
+                name: clickhouse-writer
                 key: password
 
   - it: reads the ClickHouse password from a Vault-injected file when Vault is on
@@ -396,13 +425,13 @@ tests:
     asserts:
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "password: \\$\\{file:/vault/secrets/clickhouse-credentials-password\\}"
+          pattern: "password: \\$\\{file:/vault/secrets/clickhouse-writer-password\\}"
         documentSelector:
           path: kind
           value: ConfigMap
       - equal:
-          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-credentials-password"]
-          value: secret/data/clickhouse-credentials
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-writer-password"]
+          value: secret/data/clickhouse-writer
         documentSelector:
           path: kind
           value: Deployment
@@ -421,10 +450,10 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
-          pattern: "password: \\$\\{file:/vault/secrets/clickhouse-credentials-password\\}"
+          pattern: "password: \\$\\{file:/vault/secrets/clickhouse-writer-password\\}"
       - equal:
-          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-credentials-password"]
-          value: secret/data/clickhouse-credentials
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-writer-password"]
+          value: secret/data/clickhouse-writer
       - notContains:
           path: spec.template.spec.containers[0].env
           content:

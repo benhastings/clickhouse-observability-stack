@@ -80,7 +80,7 @@ data:
         sending_queue:
           enabled: true
         timeout: 10s
-        username: otel
+        username: otel_writer
     extensions:
       bearertokenauth:
         token: ${env:OTLP_BEARER_TOKEN}
@@ -255,7 +255,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 9e1da113debaf32495ecd01fbf11acfbad137a576d2386625e0994cb778f099c
+        checksum/config: 48e583fb77d73d1943894177f8ae0e41c4dd08f75cd8b649fb437749219ebe62
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -282,7 +282,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   key: password
-                  name: clickhouse-credentials
+                  name: clickhouse-writer
             - name: GOMEMLIMIT
               value: "1638MiB"
             - name: K8S_NODE_IP

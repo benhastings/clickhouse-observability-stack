@@ -18,8 +18,11 @@ ensure_secret() {
 
 create_local_secrets() {
   echo "==> Creating local credentials"
-  ensure_secret observability clickhouse-credentials \
-    --from-literal=username=otel --from-literal=password="$(random_password)"
+  local user
+  for user in admin writer reader; do
+    ensure_secret observability "clickhouse-$user" \
+      --from-literal=username="otel_$user" --from-literal=password="$(random_password)"
+  done
   ensure_secret observability grafana-admin \
     --from-literal=admin-user=admin --from-literal=admin-password="$(random_password)"
   ensure_secret clickhouse-operator clickhouse-operator-credentials \

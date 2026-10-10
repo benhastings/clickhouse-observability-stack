@@ -130,7 +130,7 @@ schema, and to the template in the same change.
 <!-- values-reference:end -->
 
 A ConfigMap, Secret or object keyed `main` takes the chart's name; any other key is appended, so
-`secrets.credentials` in the `clickhouse` node is the Secret `clickhouse-credentials`.
+`secrets.writer` in the `clickhouse` node is the Secret `clickhouse-writer`.
 
 ### Containers
 

@@ -10,17 +10,26 @@ spec:
       dataVolumeClaimTemplate: data
       serviceTemplate: clickhouse
   configuration:
+    # The users values.yaml describes under secrets. otel_admin has no grants list, so it has every
+    # privilege; the others have only theirs. The schema's materialized view runs as otel_admin, so an
+    # insert as otel_writer needs no SELECT.
     users:
-      otel/password:
+      {{- range $user, $grant := dict "admin" "" "writer" "INSERT" "reader" "SELECT" }}
+      otel_{{ $user }}/password:
         valueFrom:
           secretKeyRef:
-            name: {{ include "common.fullname" . }}-credentials
+            name: {{ include "common.fullname" $ }}-{{ $user }}
             key: password
-      otel/networks/ip:
+      otel_{{ $user }}/networks/ip:
         - "0.0.0.0/0"
         - "::/0"
-      otel/profile: default
-      otel/quota: default
+      otel_{{ $user }}/profile: default
+      otel_{{ $user }}/quota: default
+      {{- with $grant }}
+      otel_{{ $user }}/grants/query:
+        - GRANT {{ . }} ON otel.*
+      {{- end }}
+      {{- end }}
     {{- if $ch.lowMemory }}
     profiles:
       default/max_threads: 2

@@ -11,6 +11,20 @@ properties:
       image: {$ref: "#/definitions/image"}
       resources: {type: object}
       lowMemory: {type: boolean}
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          ttlDays:
+            type: object
+            additionalProperties: false
+            properties:
+              logs: {type: integer, minimum: 1}
+              metrics: {type: integer, minimum: 1}
+              traces: {type: integer, minimum: 1}
+          backoffLimit: {type: integer, minimum: 0}
+          activeDeadlineSeconds: {type: integer, minimum: 1}
+          resources: {type: object}
       backup:
         type: object
         additionalProperties: false

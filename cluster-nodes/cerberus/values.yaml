@@ -4,14 +4,15 @@ configMaps:
     data:
       CERBERUS_CH_ADDR: '{{ include "common.serviceAddress" (list $ "clickhouse") }}'
       CERBERUS_CH_DATABASE: otel
-      CERBERUS_CH_USERNAME: otel
+      CERBERUS_CH_USERNAME: otel_reader
       CERBERUS_CH_PROTOCOL: native
       CERBERUS_CH_DIAL_TIMEOUT: 10s
       CERBERUS_OTLP_METRICS_ENABLED: "true"
       CERBERUS_OTLP_LOGS_ENABLED: "true"
       CERBERUS_OTLP_TRACES_ENABLED: "true"
-      CERBERUS_AUTO_CREATE_SCHEMA: "true"
-      CERBERUS_AUTO_CREATE_DATABASE: "true"
+      # The clickhouse node's schema Job creates the tables; otel_reader may only SELECT.
+      CERBERUS_AUTO_CREATE_SCHEMA: "false"
+      CERBERUS_AUTO_CREATE_DATABASE: "false"
       CERBERUS_ADMIT_PROM: "true"
       CERBERUS_ADMIT_LOKI: "true"
       CERBERUS_ADMIT_TEMPO: "true"
@@ -19,7 +20,6 @@ configMaps:
       CERBERUS_ADMIT_DISABLED: "false"
       CERBERUS_CH_OPTIMIZATIONS: auto
       CERBERUS_QUERY_MAX_SAMPLES: "5000000"
-      CERBERUS_SCHEMA_TTL: 7d
       CERBERUS_HTTP_ADDR: ":8080"
       CERBERUS_LOG_LEVEL: info
       CERBERUS_LOG_FORMAT: json
@@ -53,7 +53,7 @@ deployment:
         GOMEMLIMIT: 322122547B
       secretEnv:
         CERBERUS_CH_PASSWORD:
-          secret: clickhouse-credentials
+          secret: clickhouse-reader
           key: password
           vault:
             file: /etc/cerberus/cerberus.yaml

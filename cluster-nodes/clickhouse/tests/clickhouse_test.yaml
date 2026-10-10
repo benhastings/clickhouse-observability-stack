@@ -18,16 +18,109 @@ tests:
           path: spec.templates.serviceTemplates[0].generateName
           value: clickhouse
 
-  - it: reads the otel user's password from the clickhouse-credentials Secret
+  - it: gives the collector an insert-only user and Cerberus a read-only one, each with its own Secret
     documentSelector:
       path: kind
       value: ClickHouseInstallation
     asserts:
       - equal:
-          path: spec.configuration.users["otel/password"].valueFrom.secretKeyRef
+          path: spec.configuration.users["otel_writer/grants/query"]
+          value: [GRANT INSERT ON otel.*]
+      - equal:
+          path: spec.configuration.users["otel_reader/grants/query"]
+          value: [GRANT SELECT ON otel.*]
+      - notExists:
+          path: spec.configuration.users["otel_admin/grants/query"]
+      - equal:
+          path: spec.configuration.users["otel_admin/password"].valueFrom.secretKeyRef
           value:
-            name: clickhouse-credentials
+            name: clickhouse-admin
             key: password
+      - equal:
+          path: spec.configuration.users["otel_writer/password"].valueFrom.secretKeyRef
+          value:
+            name: clickhouse-writer
+            key: password
+      - equal:
+          path: spec.configuration.users["otel_reader/password"].valueFrom.secretKeyRef
+          value:
+            name: clickhouse-reader
+            key: password
+      - notExists:
+          path: spec.configuration.users["otel/password"]
+
+  - it: applies the schema as otel_admin from a Job named for the SQL it runs
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - matchRegex:
+          path: metadata.name
+          pattern: ^clickhouse-schema-[0-9a-f]{8}$
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: clickhouse-schema
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-wave"]
+          value: "1"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_USER
+            value: otel_admin
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-admin
+                key: password
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: clickhouse-schema
+
+  - it: renders the retention per signal into the schema
+    set:
+      clickhouse.schema.ttlDays.logs: 3
+      clickhouse.schema.ttlDays.traces: 30
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: ALTER TABLE otel.otel_logs MODIFY TTL toDateTime\(Timestamp\) \+ toIntervalDay\(3\);
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: ALTER TABLE otel.otel_traces MODIFY TTL toDateTime\(Timestamp\) \+ toIntervalDay\(30\);
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime\(TimeUnix\) \+ toIntervalDay\(7\);
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: MODIFY SQL SECURITY DEFINER DEFINER = otel_admin;
+
+  - it: gives the schema Job a native Istio sidecar, so it can finish
+    set:
+      global.mesh: istio
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["sidecar.istio.io/nativeSidecar"]
+          value: "true"
+
+  - it: asks for no sidecar on the schema Job without Istio
+    set:
+      global.mesh: kubernetes
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
 
   - it: expects the credentials Secret to exist unless an environment creates it
     asserts:
@@ -36,21 +129,21 @@ tests:
           apiVersion: v1
         not: true
 
-  - it: creates clickhouse-credentials when an environment supplies it
+  - it: creates clickhouse-writer when an environment supplies it
     set:
-      secrets.credentials.create: true
-      secrets.credentials.stringData.password: example
+      secrets.writer.create: true
+      secrets.writer.stringData.password: example
     documentSelector:
       path: kind
       value: Secret
     asserts:
       - equal:
           path: metadata.name
-          value: clickhouse-credentials
+          value: clickhouse-writer
       - equal:
           path: stringData
           value:
-            username: otel
+            username: otel_writer
             password: example
 
   - it: renders the default installation as one shard of one replica with the low-memory tuning
@@ -127,7 +220,7 @@ tests:
   - it: renders no backup CronJob and no backup Secret by default
     asserts:
       - hasDocuments:
-          count: 1
+          count: 2
         template: templates/objects.yaml
       - hasDocuments:
           count: 0
@@ -200,7 +293,7 @@ tests:
             name: CLICKHOUSE_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: clickhouse-credentials
+                name: clickhouse-admin
                 key: password
 
   - it: keeps the backup credentials out of the chart even when backup is enabled
@@ -250,7 +343,7 @@ tests:
       - notExists:
           path: spec.templates.podTemplates[0].spec.imagePullSecrets
 
-  - it: materializes clickhouse-credentials with External Secrets, and the installation still reads it by name
+  - it: materializes each user's Secret with External Secrets, and the installation still reads it by name
     set:
       global:
         externalSecrets:
@@ -258,28 +351,34 @@ tests:
           secretStoreRef:
             name: vault-backend
     asserts:
+      - hasDocuments:
+          count: 3
+        template: templates/externalsecret.yaml
       - equal:
           path: spec.target.name
-          value: clickhouse-credentials
+          value: clickhouse-writer
         documentSelector:
-          path: kind
-          value: ExternalSecret
+          path: metadata.name
+          value: clickhouse-writer
+        template: templates/externalsecret.yaml
       - equal:
           path: spec.data[0].secretKey
           value: username
         documentSelector:
-          path: kind
-          value: ExternalSecret
+          path: metadata.name
+          value: clickhouse-writer
+        template: templates/externalsecret.yaml
       - equal:
           path: spec.data[1].secretKey
           value: password
         documentSelector:
-          path: kind
-          value: ExternalSecret
+          path: metadata.name
+          value: clickhouse-writer
+        template: templates/externalsecret.yaml
       - equal:
-          path: spec.configuration.users["otel/password"].valueFrom.secretKeyRef
+          path: spec.configuration.users["otel_writer/password"].valueFrom.secretKeyRef
           value:
-            name: clickhouse-credentials
+            name: clickhouse-writer
             key: password
         documentSelector:
           path: kind
@@ -300,7 +399,7 @@ tests:
             clickhouse.altinity.com/chi: otel
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
-          value: [otel-collector, otel-collector-agent, cerberus, clickhouse-backup]
+          value: [otel-collector, otel-collector-agent, cerberus, clickhouse-schema, clickhouse-backup]
 
   - it: asks for the Istio sidecar on the operator-created ClickHouse pods when the mesh is istio
     documentSelector:

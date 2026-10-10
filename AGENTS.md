@@ -169,10 +169,11 @@ tests/*_test.yaml        helm-unittest suites
 - **Vendored upstream files are copied verbatim at the pinned version**: the operator's CRDs in
   `cluster-nodes/clickhouse-operator/crds/` and its config files. yamllint and cspell skip them. Bumping the
   operator means replacing them from the new release.
-- **Node tests pin the contracts between apps**: the Secret name the others read (`clickhouse-credentials`),
-  the Service names and ports they dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`), and the
-  schema ownership rule (`create_schema: false`, `CERBERUS_AUTO_CREATE_SCHEMA: "true"`). Keep them when you
-  change a node.
+- **Node tests pin the contracts between apps**: the Secret each app reads (`clickhouse-writer` for the
+  collector, `clickhouse-reader` for Cerberus, `clickhouse-admin` for the schema Job and backups), the users and
+  their grants (`otel_writer` INSERT, `otel_reader` SELECT, both on `otel.*`), the Service names and ports they
+  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`), and the schema ownership rule
+  (`create_schema: false`, `CERBERUS_AUTO_CREATE_SCHEMA: "false"`). Keep them when you change a node.
 
 ### Tests
 
@@ -232,9 +233,12 @@ table, and `tests/golden` in the same commit. Bump one component per PR unless t
 
 ### Coupled versions
 
-- **Cerberus owns the ClickHouse tables.** It runs with `autoCreate.schema: true` and is validated against
-  the ClickHouse exporter's v0.152 table layout; the collector's `clickhouse` exporter runs with
-  `create_schema: false`. Bumping either the collector image or Cerberus can break inserts or queries without
+- **The clickhouse node owns the ClickHouse tables.** They are `cluster-nodes/clickhouse/files/schema.sql.tpl`,
+  applied as `otel_admin` by the `clickhouse-schema-<hash>` Job: the exporter's v0.152 layout plus what
+  Cerberus adds. Neither Cerberus (`CERBERUS_AUTO_CREATE_SCHEMA: "false"`) nor the collector
+  (`create_schema: false`) creates tables, and neither user can. Every statement stays idempotent; a change to an
+  existing table is an `ALTER ... IF [NOT] EXISTS` next to its edited `CREATE`. `make test/e2e` fails when the
+  file differs from the pinned Cerberus image's `cerberus migrate schema`, TTLs aside. Bumping either the collector image or Cerberus can break inserts or queries without
   any manifest changing, so a bump to either one needs a kind deploy and a query in Grafana, not just
   `make check`.
 - **The Altinity operator** changes its CRD surface between minor versions (0.27.4 removed
