@@ -1,0 +1,26 @@
+# Source: alertmanager/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: dev
+data:
+  alertmanager.yml: |-
+    receivers:
+    - name: default
+    route:
+      group_by:
+      - alertname
+      - service_name
+      group_interval: 5m
+      group_wait: 30s
+      receiver: default
+      repeat_interval: 4h
