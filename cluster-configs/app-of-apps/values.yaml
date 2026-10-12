@@ -15,6 +15,7 @@ global: {}
 # application without its own path, chart or repoURL must be one of these, so a typo in an
 # environment file fails the render instead of creating an Application for a chart that doesn't exist.
 nodes:
+  - alertmanager
   - cerberus
   - clickhouse
   - clickhouse-operator
@@ -47,6 +48,8 @@ applications:
   otel-collector:
     syncWave: 3
   grafana:
+    syncWave: 3
+  alertmanager:
     syncWave: 3
   demo-load:
     syncWave: 4

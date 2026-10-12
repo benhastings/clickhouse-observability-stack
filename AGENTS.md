@@ -131,7 +131,7 @@ digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at 
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
 for both demo services, a payments error ratio near 25%, no checkout server errors, service-graph metrics, node
 CPU and memory and per-pod memory from `kubeletstats`, checkout logs, failing payments traces, a log's `trace_id`
-opening its trace, a trace's ID finding its logs, healthy Grafana datasources and the provisioned dashboard. Argo CD pulls the
+opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboard, and an alert posted to Alertmanager. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
 `scripts/e2e.bash` also runs against a cluster without Argo CD (`make helm/install`, `make dev/up`): it then waits
@@ -144,7 +144,7 @@ PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules,
 ### Cluster nodes
 
 `cluster-nodes/<app>/` is one Helm chart per app: `clickhouse-operator`, `clickhouse`, `cerberus`,
-`otel-collector`, `grafana` and `demo-load`. Each has the same shape:
+`otel-collector`, `grafana`, `alertmanager` and `demo-load`. Each has the same shape:
 
 ```text
 Chart.yaml               no dependencies; appVersion is the app's version
@@ -172,7 +172,7 @@ tests/*_test.yaml        helm-unittest suites
 - **Node tests pin the contracts between apps**: the Secret each app reads (`clickhouse-writer` for the
   collector, `clickhouse-reader` for Cerberus, `clickhouse-admin` for the schema Job and backups), the users and
   their grants (`otel_writer` INSERT, `otel_reader` SELECT, both on `otel.*`), the Service names and ports they
-  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`), and the schema ownership rule
+  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`, `alertmanager:9093`), and the schema ownership rule
   (`create_schema: false`, `CERBERUS_AUTO_CREATE_SCHEMA: "false"`). Keep them when you change a node.
 
 ### Tests
@@ -208,7 +208,7 @@ it is merged (or until you point `targetRevision` at your branch in a throwaway 
 
 ### Sync waves and health
 
-The waves are: operator `0`, ClickHouse `1`, Cerberus `2`, collector and Grafana `3`, demo load `4`. A new
+The waves are: operator `0`, ClickHouse `1`, Cerberus `2`, collector, Grafana and Alertmanager `3`, demo load `4`. A new
 component takes the wave after everything it needs. Waves only mean something because
 `cluster-configs/argocd/values.yaml` adds two Lua health checks — a child `Application` is healthy only once it
 is Synced and Healthy, and a `ClickHouseInstallation` only once the operator reports `Completed`. If you add a

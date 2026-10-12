@@ -1,0 +1,6 @@
+apiVersion: v2
+name: alertmanager
+description: Prometheus Alertmanager, which groups, silences and sends the alerts every rule evaluator raises.
+type: application
+version: 0.1.0
+appVersion: "0.34.1"

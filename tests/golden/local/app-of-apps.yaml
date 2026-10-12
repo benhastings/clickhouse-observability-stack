@@ -38,6 +38,43 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
+  name: alertmanager-local
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: local
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-local
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/alertmanager
+    helm:
+      releaseName: alertmanager
+      valuesObject:
+        global:
+          labels:
+            environment: local
+          mesh: kubernetes
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
   name: cerberus-local
   namespace: argocd
   labels:

@@ -1,0 +1,119 @@
+suite: alertmanager
+release:
+  name: alertmanager
+  namespace: observability
+tests:
+  - it: serves the API on alertmanager:9093, where rule evaluators send alerts
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: alertmanager
+      - equal:
+          path: spec.ports[0].port
+          value: 9093
+
+  - it: reads alertmanager.yml from the alertmanager-config ConfigMap
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --config.file=/etc/alertmanager/alertmanager.yml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config
+            configMap:
+              name: alertmanager-config
+
+  - it: sends every alert to a default receiver with no integrations until an environment adds one
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "receiver: default"
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "receivers:\\n- name: default\\nroute:"
+
+  - it: runs one replica with no gossip cluster, replaced rather than rolled
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cluster.listen-address=
+
+  - it: keeps its state in an emptyDir by default
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /alertmanager
+
+  - it: renders no claim by default
+    template: templates/objects.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: mounts the alertmanager-data claim when persistence is enabled
+    set:
+      persistence.enabled: true
+      persistence.storageClassName: fast
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: alertmanager-data
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.storageClassName
+          value: fast
+        documentSelector:
+          path: kind
+          value: PersistentVolumeClaim
+      - equal:
+          path: spec.resources.requests.storage
+          value: 256Mi
+        documentSelector:
+          path: kind
+          value: PersistentVolumeClaim
+
+  - it: lets only Grafana reach it when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: grafana
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 9093

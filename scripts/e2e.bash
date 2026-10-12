@@ -56,12 +56,14 @@ fi
 kubectl -n observability port-forward svc/cerberus 18081:8080 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/grafana 13000:80 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/otel-collector 14318:4318 >/dev/null 2>&1 &
+kubectl -n observability port-forward svc/alertmanager 19093:9093 >/dev/null 2>&1 &
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 sleep 3
 
 cerberus=http://localhost:18081
 grafana=http://localhost:13000
 otlp=http://localhost:14318
+alertmanager=http://localhost:19093
 grafana_login="$(kubectl -n observability get secret grafana-admin \
   -o go-template='{{index .data "admin-user" | base64decode}}:{{index .data "admin-password" | base64decode}}')"
 
@@ -243,11 +245,23 @@ fi
 clickhouse_as admin "DROP DATABASE otel_expected"
 echo "  $(schema_of otel | wc -l) tables and views match $cerberus_image"
 
+# Every rule evaluator sends to Alertmanager's v2 API. Post an alert the way one would, and read it back.
+step "Alertmanager: an alert posted to the v2 API is grouped and listed"
+e2e_alert="e2e-$(openssl rand -hex 4)"
+curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "[{\"labels\": {\"alertname\": \"$e2e_alert\", \"severity\": \"none\"},
+       \"annotations\": {\"summary\": \"posted by scripts/e2e.bash\"}}]" \
+  "$alertmanager/api/v2/alerts"
+poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
+  "[.[] | select(.labels.alertname == \"$e2e_alert\" and .status.state == \"active\")
+   | .receivers[].name] | index(\"default\") != null" \
+  "$alertmanager/api/v2/alerts"
+
 # MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
 # the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.
 if [[ "${MESH:-kubernetes}" == istio ]]; then
-  step "Istio: Grafana, Cerberus and the collector run with a sidecar"
-  for app in grafana cerberus otel-collector; do
+  step "Istio: Grafana, Cerberus, the collector and Alertmanager run with a sidecar"
+  for app in grafana cerberus otel-collector alertmanager; do
     containers="$(kubectl -n observability get pods -l "app.kubernetes.io/name=$app" \
       -o jsonpath='{.items[0].spec.initContainers[*].name} {.items[0].spec.containers[*].name}')"
     [[ " $containers " == *" istio-proxy "* ]] || { echo "  $app has no istio-proxy: $containers"; exit 1; }
