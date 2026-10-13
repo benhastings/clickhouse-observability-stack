@@ -129,7 +129,7 @@ configMaps:
       schema.sql: '{{ tpl (.Files.Get "files/schema.sql.tpl") . }}'
 
 # With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
-# operator's own label. The collector, Cerberus, the schema Job and the backup job reach the native and HTTP ports, the
+# operator's own label. The collector, Cerberus, garmr sql-adapter, the schema Job and the backup job reach the native and HTTP ports, the
 # operator reaches them from its namespace, and replicas reach each other on the interserver port.
 networkPolicy:
   podSelector:
@@ -141,7 +141,7 @@ networkPolicy:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [otel-collector, otel-collector-agent, cerberus, clickhouse-schema, clickhouse-backup]
+                values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, clickhouse-schema, clickhouse-backup]
       ports:
         - port: 9000
           protocol: TCP

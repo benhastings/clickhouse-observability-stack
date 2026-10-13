@@ -20,8 +20,10 @@ nodes:
   - clickhouse
   - clickhouse-operator
   - demo-load
+  - garmr-sql-adapter
   - grafana
   - otel-collector
+  - vmalert
 
 # The supported set. An environment file may set enabled: false on one, change one under values:, or
 # add its own application next to them; an added one needs a syncWave and, unless it is one of the
@@ -45,11 +47,15 @@ applications:
           - /status
   cerberus:
     syncWave: 2
+  garmr-sql-adapter:
+    syncWave: 2
   otel-collector:
     syncWave: 3
   grafana:
     syncWave: 3
   alertmanager:
+    syncWave: 3
+  vmalert:
     syncWave: 3
   demo-load:
     syncWave: 4

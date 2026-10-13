@@ -1,0 +1,6 @@
+apiVersion: v2
+name: vmalert
+description: vmalert, which evaluates the stack's alerting rules as ClickHouse SQL and sends what fires to Alertmanager.
+type: application
+version: 0.1.0
+appVersion: "1.153.0"

@@ -59,6 +59,8 @@ schema, and to the template in the same change.
 | `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
 | `global.services.cerberus` | `http://cerberus:8080` | where Grafana's datasources reach Cerberus |
 | `global.services.otlpGrpc` | `otel-collector:4317` | where the demo load sends OTLP over gRPC |
+| `global.services.alertmanager` | `http://alertmanager:9093` | where rule evaluators send alerts |
+| `global.services.sqlAdapter` | `http://garmr-sql-adapter:8080` | where vmalert sends its ClickHouse SQL rules |
 | `global.externalSecrets.enabled` | `false` | render an `ExternalSecret` in place of every Secret in `secrets` that has `external.keys` |
 | `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |
 | `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |

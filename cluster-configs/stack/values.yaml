@@ -12,7 +12,7 @@
 #
 # common names objects after the release, and every node here shares one, so
 # nameOverride keeps the names the other apps dial: clickhouse, cerberus,
-# otel-collector, grafana, alertmanager.
+# otel-collector, grafana, alertmanager, garmr-sql-adapter, vmalert.
 global: {}
 clickhouse:
   enabled: true
@@ -29,6 +29,12 @@ grafana:
 alertmanager:
   enabled: true
   nameOverride: alertmanager
+garmr-sql-adapter:
+  enabled: true
+  nameOverride: garmr-sql-adapter
+vmalert:
+  enabled: true
+  nameOverride: vmalert
 demo-load:
   enabled: true
   nameOverride: demo-load

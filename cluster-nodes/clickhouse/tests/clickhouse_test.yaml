@@ -399,7 +399,7 @@ tests:
             clickhouse.altinity.com/chi: otel
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
-          value: [otel-collector, otel-collector-agent, cerberus, clickhouse-schema, clickhouse-backup]
+          value: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, clickhouse-schema, clickhouse-backup]
 
   - it: asks for the Istio sidecar on the operator-created ClickHouse pods when the mesh is istio
     documentSelector:

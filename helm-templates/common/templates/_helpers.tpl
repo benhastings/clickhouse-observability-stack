@@ -53,6 +53,8 @@ global:
     clickhouse: clickhouse:9000
     cerberus: http://cerberus:8080
     otlpGrpc: otel-collector:4317
+    alertmanager: http://alertmanager:9093
+    sqlAdapter: http://garmr-sql-adapter:8080
   exposure:
     enabled: false
     hosts: {}

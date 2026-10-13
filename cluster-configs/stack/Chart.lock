@@ -14,8 +14,14 @@ dependencies:
 - name: alertmanager
   repository: file://../../cluster-nodes/alertmanager
   version: 0.1.0
+- name: garmr-sql-adapter
+  repository: file://../../cluster-nodes/garmr-sql-adapter
+  version: 0.1.0
+- name: vmalert
+  repository: file://../../cluster-nodes/vmalert
+  version: 0.1.0
 - name: demo-load
   repository: file://../../cluster-nodes/demo-load
   version: 0.1.0
-digest: sha256:a5d09c5122967b987a6caee7281417803fb7162e4ef9820bd17d2493faf7004c
-generated: "2026-10-10T15:07:47.466461737-04:00"
+digest: sha256:87df61dee68b18119c354fd28c6cf3060022b7362b602ead3305a8b2d4051214
+generated: "2026-10-12T23:34:46.089106849-04:00"

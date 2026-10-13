@@ -131,7 +131,7 @@ digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at 
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
 for both demo services, a payments error ratio near 25%, no checkout server errors, service-graph metrics, node
 CPU and memory and per-pod memory from `kubeletstats`, checkout logs, failing payments traces, a log's `trace_id`
-opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboard, and an alert posted to Alertmanager. Argo CD pulls the
+opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboard, an alert posted to Alertmanager, and vmalert's SQL rule firing for payments (and not checkout) through garmr sql-adapter. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
 `scripts/e2e.bash` also runs against a cluster without Argo CD (`make helm/install`, `make dev/up`): it then waits
@@ -144,7 +144,7 @@ PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules,
 ### Cluster nodes
 
 `cluster-nodes/<app>/` is one Helm chart per app: `clickhouse-operator`, `clickhouse`, `cerberus`,
-`otel-collector`, `grafana`, `alertmanager` and `demo-load`. Each has the same shape:
+`otel-collector`, `grafana`, `alertmanager`, `vmalert`, `garmr-sql-adapter` and `demo-load`. Each has the same shape:
 
 ```text
 Chart.yaml               no dependencies; appVersion is the app's version
@@ -162,17 +162,17 @@ tests/*_test.yaml        helm-unittest suites
   laptop profile that is actually tested. Credentials are never in a node: a Secret there is `create: false`,
   and an environment turns it on or pre-creates it.
 - **Content with literal `{{` goes in a file, not in values**: Grafana dashboards live in
-  `cluster-nodes/grafana/dashboards/*.json`, and the operator's ClickHouse config in
-  `cluster-nodes/clickhouse-operator/files/`. Both are loaded with a `files` glob.
+  `cluster-nodes/grafana/dashboards/*.json`, vmalert's rules in `cluster-nodes/vmalert/files/rules/`, and the
+  operator's ClickHouse config in `cluster-nodes/clickhouse-operator/files/`. All three are loaded with a `files` glob.
 - **Dashboards are the JSON files, not Grafana's database**, which is an emptyDir. Edit in the `dev/up`
   Grafana, save, then `make dev/dashboards` writes them back to the repo for review and commit.
 - **Vendored upstream files are copied verbatim at the pinned version**: the operator's CRDs in
   `cluster-nodes/clickhouse-operator/crds/` and its config files. yamllint and cspell skip them. Bumping the
   operator means replacing them from the new release.
 - **Node tests pin the contracts between apps**: the Secret each app reads (`clickhouse-writer` for the
-  collector, `clickhouse-reader` for Cerberus, `clickhouse-admin` for the schema Job and backups), the users and
+  collector, `clickhouse-reader` for Cerberus and garmr sql-adapter, `clickhouse-admin` for the schema Job and backups), the users and
   their grants (`otel_writer` INSERT, `otel_reader` SELECT, both on `otel.*`), the Service names and ports they
-  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`, `alertmanager:9093`), and the schema ownership rule
+  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`, `alertmanager:9093`, `garmr-sql-adapter:8080`), and the schema ownership rule
   (`create_schema: false`, `CERBERUS_AUTO_CREATE_SCHEMA: "false"`). Keep them when you change a node.
 
 ### Tests
@@ -208,7 +208,7 @@ it is merged (or until you point `targetRevision` at your branch in a throwaway 
 
 ### Sync waves and health
 
-The waves are: operator `0`, ClickHouse `1`, Cerberus `2`, collector, Grafana and Alertmanager `3`, demo load `4`. A new
+The waves are: operator `0`, ClickHouse `1`, Cerberus and garmr sql-adapter `2`, collector, Grafana, Alertmanager and vmalert `3`, demo load `4`. A new
 component takes the wave after everything it needs. Waves only mean something because
 `cluster-configs/argocd/values.yaml` adds two Lua health checks — a child `Application` is healthy only once it
 is Synced and Healthy, and a `ClickHouseInstallation` only once the operator reports `Completed`. If you add a

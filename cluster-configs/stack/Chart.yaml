@@ -26,6 +26,14 @@ dependencies:
     version: 0.1.0
     repository: file://../../cluster-nodes/alertmanager
     condition: alertmanager.enabled
+  - name: garmr-sql-adapter
+    version: 0.1.0
+    repository: file://../../cluster-nodes/garmr-sql-adapter
+    condition: garmr-sql-adapter.enabled
+  - name: vmalert
+    version: 0.1.0
+    repository: file://../../cluster-nodes/vmalert
+    condition: vmalert.enabled
   - name: demo-load
     version: 0.1.0
     repository: file://../../cluster-nodes/demo-load

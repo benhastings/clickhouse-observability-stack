@@ -1,0 +1,94 @@
+suite: garmr-sql-adapter
+release:
+  name: garmr-sql-adapter
+  namespace: observability
+tests:
+  - it: serves the Prometheus query API on garmr-sql-adapter:8080, where vmalert points
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: garmr-sql-adapter
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+
+  - it: runs the sql-adapter subcommand
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [sql-adapter]
+
+  - it: queries clickhouse:9000 as the read-only otel_reader
+    documentSelector:
+      path: metadata.name
+      value: garmr-sql-adapter-env
+    asserts:
+      - equal:
+          path: data.CLICKHOUSE_ADDR
+          value: clickhouse:9000
+      - equal:
+          path: data.CLICKHOUSE_USER
+          value: otel_reader
+
+  - it: reads the ClickHouse password from clickhouse-reader
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-reader
+                key: password
+
+  - it: reads the ClickHouse password from a file named by CLICKHOUSE_PASSWORD_FILE when Vault is on
+    set:
+      vault.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-reader-password"]
+          value: secret/data/clickhouse-reader
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD_FILE
+            value: /vault/secrets/clickhouse-reader-password
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+          any: true
+
+  - it: answers only vmalert and reaches only ClickHouse when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: vmalert
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 8080
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    clickhouse.altinity.com/chi: otel
+            ports:
+              - port: 9000
+                protocol: TCP
