@@ -1,0 +1,19 @@
+# Source: vmalert/templates/destinationrule.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: vmalert
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: dev
+spec:
+  host: vmalert.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

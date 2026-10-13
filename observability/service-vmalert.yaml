@@ -1,0 +1,25 @@
+# Source: vmalert/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: dev
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+  ports:
+    - name: http
+      port: 8880
+      targetPort: http
+      protocol: TCP
+      appProtocol: http

@@ -1,0 +1,41 @@
+# Source: vmalert/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: dev
+data:
+  stack.yaml: |
+    # The stack's starter rules. Each expr is ClickHouse SQL that garmr sql-adapter runs as otel_reader: the
+    # column named value is the sample, every other column is a label, and {time:DateTime64(3, 'UTC')} is the
+    # evaluation time. Group by every label column. The labels severity and service_name are what Alertmanager
+    # groups and routes on.
+    groups:
+      - name: stack
+        interval: 1m
+        rules:
+          - alert: ServerErrorRatioHigh
+            expr: |
+              SELECT ServiceName AS service_name,
+                     countIf(StatusCode = 'Error') / count() AS value
+              FROM otel.otel_traces
+              WHERE SpanKind = 'Server'
+                AND Timestamp BETWEEN {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE AND {time:DateTime64(3, 'UTC')}
+              GROUP BY service_name
+              HAVING count() > 10 AND value > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.service_name }} errors on {{ $value | humanizePercentage }} of server spans"
+              description: >-
+                More than 5% of {{ $labels.service_name }}'s server spans ended in an error over the last 5 minutes,
+                for 5 minutes.
