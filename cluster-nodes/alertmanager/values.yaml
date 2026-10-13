@@ -8,9 +8,15 @@ persistence:
   storageClassName: ""
 
 # alertmanager.yml. Every alert goes to the default receiver, which has no integrations: it is grouped,
-# shown in the UI and API, and sent nowhere. An environment adds receivers by replacing route and receivers
-# under applications.alertmanager.values (lists replace whole). A receiver outside the cluster also needs
-# an egress rule under networkPolicy.egress when global.networkPolicy.enabled.
+# shown in the UI and API, and sent nowhere. Every alert also goes to the history receiver first, which
+# posts each notification to the collector, so it is kept in otel_logs as a log of service alertmanager.
+# History groups by every label ('...'), so each notification is one alert, and its continue: true lets the
+# alert carry on to the routes after it; the last route catches whatever is left for default.
+#
+# An environment adds receivers by replacing route and receivers under applications.alertmanager.values.
+# Lists replace whole, so keep the history route first in route.routes and the history receiver in
+# receivers. A receiver outside the cluster also needs an egress rule under networkPolicy.egress when
+# global.networkPolicy.enabled.
 configMaps:
   config:
     data:
@@ -21,8 +27,23 @@ configMaps:
           group_wait: 30s
           group_interval: 5m
           repeat_interval: 4h
+          routes:
+            - receiver: history
+              group_by: ['...']
+              group_wait: 0s
+              group_interval: 1m
+              repeat_interval: 168h
+              continue: true
+            # An alert that matched a route above is not sent to this route's own receiver, so the last route
+            # sends everything that got this far to default.
+            - receiver: default
         receivers:
           - name: default
+          - name: history
+            webhook_configs:
+              - url: '{{ include "common.serviceAddress" (list $ "alertHistory") }}'
+                send_resolved: true
+                max_alerts: 1
 
 service:
   enabled: true
@@ -108,7 +129,7 @@ deployment:
       {{- end }}
 
 # With global.networkPolicy.enabled: only the rule evaluators, Grafana and vmalert, reach Alertmanager, and
-# Alertmanager reaches nothing but DNS until a receiver needs it.
+# Alertmanager reaches only the collector, for the history receiver, until another receiver needs more.
 networkPolicy:
   ingress:
     - from:
@@ -119,4 +140,12 @@ networkPolicy:
                 values: [grafana, vmalert]
       ports:
         - port: 9093
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - port: 8088
           protocol: TCP

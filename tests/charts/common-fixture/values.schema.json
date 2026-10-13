@@ -458,6 +458,11 @@
               "type": "string",
               "description": "where vmalert sends its ClickHouse SQL rules",
               "x-default": "`http://garmr-sql-adapter:8080`"
+            },
+            "alertHistory": {
+              "type": "string",
+              "description": "where Alertmanager posts every notification so it is kept in otel_logs",
+              "x-default": "`http://otel-collector:8088/alertmanager`"
             }
           }
         },

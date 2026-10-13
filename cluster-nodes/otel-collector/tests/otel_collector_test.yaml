@@ -4,7 +4,7 @@ release:
   name: otel-collector
   namespace: observability
 tests:
-  - it: accepts OTLP on otel-collector:4317 and :4318
+  - it: accepts OTLP on otel-collector:4317 and :4318, and Alertmanager's notifications on :8088
     documentSelector:
       path: kind
       value: Service
@@ -15,6 +15,11 @@ tests:
       - equal:
           path: spec.ports
           value:
+            - name: alertmanager
+              port: 8088
+              targetPort: alertmanager
+              protocol: TCP
+              appProtocol: http
             - name: otlp
               port: 4317
               targetPort: otlp
@@ -137,7 +142,7 @@ tests:
           pattern: "syslog"
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "logs:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+metrics:"
+          pattern: "logs:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+logs/alertmanager:"
 
   - it: appends an extra receiver to a default pipeline without restating it
     documentSelector:
@@ -159,7 +164,7 @@ tests:
           pattern: "receivers:\\n(.*\\n)*  syslog:\\n    tcp:\\n      listen_address: \\$\\{env:MY_POD_IP\\}:54527\\nservice:"
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "logs:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+- syslog\\n\\s+metrics:"
+          pattern: "logs:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+- syslog\\n\\s+logs/alertmanager:"
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "traces:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+telemetry:"
@@ -484,3 +489,34 @@ tests:
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "metric_groups: \\[node, pod, container, volume\\]"
+
+  - it: keeps every Alertmanager notification as a log of service alertmanager, through its own pipeline
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "webhook_event:\\n\\s+endpoint: 0.0.0.0:8088\\n\\s+path: /alertmanager"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "logs/alertmanager:\\n\\s+exporters:\\n\\s+- clickhouse\\n\\s+processors:\\n\\s+- memory_limiter\\n\\s+- transform/alertmanager\\n\\s+- batch\\n\\s+receivers:\\n\\s+- webhook_event"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: 'set\(resource.attributes\["service.name"\], "alertmanager"\)'
+
+  - it: accepts Alertmanager's notifications from Alertmanager only when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: alertmanager
+            ports:
+              - port: 8088
+                protocol: TCP

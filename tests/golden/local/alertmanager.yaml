@@ -33,6 +33,11 @@ data:
   alertmanager.yml: |-
     receivers:
     - name: default
+    - name: history
+      webhook_configs:
+      - max_alerts: 1
+        send_resolved: true
+        url: 'http://otel-collector:8088/alertmanager'
     route:
       group_by:
       - alertname
@@ -41,6 +46,15 @@ data:
       group_wait: 30s
       receiver: default
       repeat_interval: 4h
+      routes:
+      - continue: true
+        group_by:
+        - '...'
+        group_interval: 1m
+        group_wait: 0s
+        receiver: history
+        repeat_interval: 168h
+      - receiver: default
 ---
 # Source: alertmanager/templates/service.yaml
 apiVersion: v1
@@ -96,7 +110,7 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/instance: alertmanager
       annotations:
-        checksum/config: bd3a420e88e02d32ceac1e017b44146e3296d513b70c7ef8b6628ea6cd8ecace
+        checksum/config: 2363d83eab1f10c61d6654f684ad1fb3bc0245f2da9a720581f3c718e2039ecd
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false

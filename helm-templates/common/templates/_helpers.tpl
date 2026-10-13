@@ -55,6 +55,7 @@ global:
     otlpGrpc: otel-collector:4317
     alertmanager: http://alertmanager:9093
     sqlAdapter: http://garmr-sql-adapter:8080
+    alertHistory: http://otel-collector:8088/alertmanager
   exposure:
     enabled: false
     hosts: {}

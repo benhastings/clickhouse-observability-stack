@@ -26,8 +26,8 @@ flowchart LR
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. Also creates the OTel tables. |
-| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
-| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, a span-metrics dashboard, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
+| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
 | `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
@@ -339,7 +339,26 @@ Every rule, whichever evaluator runs it, carries the labels Alertmanager groups 
 | `severity` | `critical`, `warning` | how urgently a person needs to look |
 | `service_name` | the OpenTelemetry `service.name` | the service the alert is about; absent on stack-wide alerts |
 
-Grafana's alerts also carry `grafana_folder` (`Observability stack`). `local` turns on Grafana's starter rules;
+Grafana's alerts also carry `grafana_folder` (`Observability stack`).
+
+### Alert history: every notification is a log in ClickHouse
+
+Alertmanager's first route sends every alert to a `history` receiver (`continue: true`, so it then carries on to
+the real receivers). History groups by every label, so each notification is one alert, and posts it to the
+collector's `webhook_event` receiver on `otel-collector:8088/alertmanager` (`global.services.alertHistory`). The
+collector's `logs/alertmanager` pipeline turns it into a log of service `alertmanager` in `otel_logs`, with the
+alert's `alertname`, `severity`, `alert_service_name`, `status` (`firing` or `resolved`), `fingerprint`,
+`starts_at`, and for a resolved alert `ends_at` and `duration_seconds`, as attributes. No new code and no new table:
+what paged and how often is a LogQL query through Cerberus:
+
+```text
+sum by (alertname) (count_over_time({service_name="alertmanager"} | status="firing" [30d]))
+```
+
+The **Alert hygiene** dashboard counts notifications per rule, the median time to resolve, and the rules that
+resolved more than three times (flapping), as input for tuning thresholds. The span-metrics dashboard marks
+firing and resolved alerts as annotations. An environment that replaces Alertmanager's `route` or `receivers`
+keeps the history route first and the `history` receiver, or the history stops. `local` turns on Grafana's starter rules;
 `prod` leaves them off, so vmalert's rules are the only ones. With both on, an error ratio above 5% alerts twice:
 once from each evaluator.
 
@@ -555,7 +574,7 @@ else in `observability`.
 | operator | `clickhouse-operator` | `clickhouse-operator` | none; the pod exposes `9999` (metrics) | `clickhouse-operator-credentials` (`username`, `password`) | 0 |
 | ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader` when the Secret is created) | 1 |
 | Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
-| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
+| collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http, `8088` Alertmanager history | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
 | Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
 | garmr sql-adapter | `garmr-sql-adapter` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | Alertmanager | `alertmanager` | `observability` | `9093` http | none | 3 |
@@ -756,7 +775,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
   controller), queries only Cerberus and Alertmanager, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
   answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse and the kubelets.
   vmalert reaches only garmr sql-adapter and Alertmanager; the adapter answers only vmalert and reaches only
-  ClickHouse. Alertmanager accepts Grafana and vmalert.
+  ClickHouse. Alertmanager accepts Grafana and vmalert, and reaches only the collector's history endpoint.
   ClickHouse accepts the collector, Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
