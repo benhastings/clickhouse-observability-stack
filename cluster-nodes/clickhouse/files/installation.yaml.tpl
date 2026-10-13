@@ -11,10 +11,12 @@ spec:
       serviceTemplate: clickhouse
   configuration:
     # The users values.yaml describes under secrets. otel_admin has no grants list, so it has every
-    # privilege; the others have only theirs. The schema's materialized view runs as otel_admin, so an
-    # insert as otel_writer needs no SELECT.
+    # privilege; the others have only theirs. The schema's materialized views run as otel_admin, so an
+    # insert as otel_writer needs no SELECT. otel_reader also reads the anomaly baselines and their
+    # refresh status, for vmalert's rules.
     users:
-      {{- range $user, $grant := dict "admin" "" "writer" "INSERT" "reader" "SELECT" }}
+      {{- $readerGrants := list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes" }}
+      {{- range $user, $grants := dict "admin" list "writer" (list "INSERT ON otel.*") "reader" $readerGrants }}
       otel_{{ $user }}/password:
         valueFrom:
           secretKeyRef:
@@ -25,9 +27,11 @@ spec:
         - "::/0"
       otel_{{ $user }}/profile: default
       otel_{{ $user }}/quota: default
-      {{- with $grant }}
+      {{- with $grants }}
       otel_{{ $user }}/grants/query:
-        - GRANT {{ . }} ON otel.*
+        {{- range . }}
+        - GRANT {{ . }}
+        {{- end }}
       {{- end }}
       {{- end }}
     {{- if $ch.lowMemory }}

@@ -229,10 +229,12 @@ refused writer "ALTER TABLE otel.otel_logs DROP COLUMN EventName"
 refused reader "INSERT INTO otel.otel_logs (Body) VALUES ('e2e')"
 refused reader "TRUNCATE TABLE otel.otel_logs"
 refused reader "CREATE TABLE otel.e2e (a UInt8) ENGINE = Memory"
+refused reader "INSERT INTO otel_baseline.baseline (Signal) VALUES ('e2e')"
 
 # The schema is files/schema.sql.tpl in the clickhouse node, not Cerberus's. Ask the Cerberus image this
 # stack runs which schema it expects, create that in a scratch database, and compare the two table by table.
 # TTLs come from clickhouse.schema.ttlDays and the view's definer from the schema file, so both are ignored.
+# The anomaly baselines live in otel_baseline, so they are not part of the comparison.
 step "ClickHouse: the otel schema is the one Cerberus expects"
 cerberus_image="$(yq '.deployment.containers.cerberus.image | .repository + ":" + .tag' cluster-nodes/cerberus/values.yaml)"
 expected_schema="$(docker run --rm -e CERBERUS_CH_DATABASE=otel_expected -e CERBERUS_CH_OPTIMIZATIONS=auto \
@@ -249,6 +251,30 @@ if ! diff <(schema_of otel) <(schema_of otel_expected); then
 fi
 clickhouse_as admin "DROP DATABASE otel_expected"
 echo "  $(schema_of otel | wc -l) tables and views match $cerberus_image"
+
+# The clickhouse node's refreshable views keep per-minute signals and hour-of-week baselines in otel_baseline,
+# and write each baseline back as gauge series. signal_1m_mv runs every minute on its own; once it has recorded
+# a minute of payments traffic, refresh the two hourly views now rather than waiting for the hour, then read a
+# baseline through Cerberus. SYSTEM WAIT VIEW fails if the refresh did.
+step "ClickHouse: the per-minute signal view records payments"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until [[ "$(clickhouse_as admin "SELECT count() FROM otel_baseline.signal_1m WHERE ServiceName = 'payments'")" -gt 0 ]]; do
+  if ((SECONDS > deadline)); then
+    clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_baseline'"
+    echo "  otel_baseline.signal_1m has no payments rows after ${DATA_TIMEOUT}s"
+    exit 1
+  fi
+  sleep 10
+done
+echo "  ok"
+step "ClickHouse: the hourly anomaly baseline views refresh without error"
+for view in baseline_mv baseline_series_mv; do
+  clickhouse_as admin "SYSTEM REFRESH VIEW otel_baseline.$view; SYSTEM WAIT VIEW otel_baseline.$view"
+  echo "  otel_baseline.$view refreshed"
+done
+poll "PromQL: the requests-per-minute baseline exists as a series for payments" \
+  '[.data.result[] | select(.metric.service_name == "payments") | .value[1] | tonumber] | length == 1 and .[0] > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=baseline:requests_per_minute:median'
 
 # Every rule evaluator sends to Alertmanager's v2 API. Post an alert the way one would, and read it back.
 step "Alertmanager: an alert posted to the v2 API is grouped and listed"
@@ -295,6 +321,10 @@ poll "LogQL: the resolved notification records how long $e2e_alert fired" \
 # health "err" with ClickHouse's message, so a healthy evaluation proves vmalert -> adapter -> ClickHouse.
 poll "vmalert: ServerErrorRatioHigh evaluated through garmr sql-adapter without error" \
   '[.data.groups[].rules[] | select(.name == "ServerErrorRatioHigh" and .health == "ok" and
+    .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
+  "$vmalert/api/v1/rules"
+poll "vmalert: BaselineRefreshFailing reads system.view_refreshes as otel_reader without error" \
+  '[.data.groups[].rules[] | select(.name == "BaselineRefreshFailing" and .health == "ok" and
     .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
   "$vmalert/api/v1/rules"
 # The demo load fails about 25% of payments calls and none of checkout's. The rule waits 5m (for:) before it

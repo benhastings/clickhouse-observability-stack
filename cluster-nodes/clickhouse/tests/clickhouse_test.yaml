@@ -18,7 +18,7 @@ tests:
           path: spec.templates.serviceTemplates[0].generateName
           value: clickhouse
 
-  - it: gives the collector an insert-only user and Cerberus a read-only one, each with its own Secret
+  - it: gives the collector an insert-only user and Cerberus and vmalert's adapter a read-only one, each with its own Secret
     documentSelector:
       path: kind
       value: ClickHouseInstallation
@@ -28,7 +28,7 @@ tests:
           value: [GRANT INSERT ON otel.*]
       - equal:
           path: spec.configuration.users["otel_reader/grants/query"]
-          value: [GRANT SELECT ON otel.*]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON system.view_refreshes]
       - notExists:
           path: spec.configuration.users["otel_admin/grants/query"]
       - equal:
@@ -100,6 +100,44 @@ tests:
       - matchRegex:
           path: data["schema.sql"]
           pattern: MODIFY SQL SECURITY DEFINER DEFINER = otel_admin;
+
+  - it: computes anomaly baselines in otel_baseline as otel_admin, for the allowlisted signals only
+    set:
+      clickhouse.baselines.weeks: 6
+      clickhouse.baselines.signals: [error_ratio, latency_p95_ms]
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.signal_1m_mv\\nREFRESH EVERY 1 MINUTE APPEND TO otel_baseline.signal_1m\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "WHERE Signal IN \\('error_ratio', 'latency_p95_ms'\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.baseline_mv\\nREFRESH EVERY 1 HOUR TO otel_baseline.baseline\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "WHERE Minute >= now\\(\\) - toIntervalWeek\\(6\\)"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "TTL Minute \\+ toIntervalWeek\\(7\\)"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "REFRESH EVERY 1 HOUR DEPENDS ON otel_baseline.baseline_mv APPEND TO otel.otel_metrics_gauge"
+
+  - it: creates no baseline objects when baselines are off
+    set:
+      clickhouse.baselines.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - notMatchRegex:
+          path: data["schema.sql"]
+          pattern: otel_baseline
 
   - it: gives the schema Job a native Istio sidecar, so it can finish
     set:

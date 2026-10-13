@@ -56,6 +56,26 @@ data:
               description: >-
                 More than 5% of {{ $labels.service_name }}'s server spans ended in an error over the last 5 minutes,
                 for 5 minutes.
+  
+          # The anomaly baselines are refreshable views in otel_baseline (the clickhouse node's schema). A refresh
+          # that fails, or a view that hasn't succeeded for a while (10 minutes for the per-minute signals, 2 hours
+          # for the hourly baselines), leaves the anomaly rules comparing against a stale or empty baseline.
+          - alert: BaselineRefreshFailing
+            expr: |
+              SELECT view, 1 AS value
+              FROM system.view_refreshes
+              WHERE database = 'otel_baseline'
+                AND (exception != ''
+                     OR dateDiff('second', last_success_time, {time:DateTime64(3, 'UTC')})
+                        > if(view = 'signal_1m_mv', 600, 7200))
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The anomaly baseline view otel_baseline.{{ $labels.view }} is failing or late"
+              description: >-
+                Check system.view_refreshes for otel_baseline.{{ $labels.view }}: its exception, or why
+                last_success_time is old. Anomaly rules compare against the last baseline it wrote.
 ---
 # Source: vmalert/templates/service.yaml
 apiVersion: v1
@@ -111,7 +131,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 91ca88594ba6df80b81ca063c62d08c34408cd3b4f703c0fa2245b07c270c480
+        checksum/config: ae457861275641a8afaa996a86e75df0d48e900eaab3f9a61b5459a508ffd6dd
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false

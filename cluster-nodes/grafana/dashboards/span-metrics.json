@@ -334,6 +334,134 @@
         }
       ],
       "type": "table"
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Requests per minute against the hour-of-week baseline",
+      "description": "Observed server requests per minute (solid), the median for this hour of the week over the last 4 weeks (dashed; otel_baseline in ClickHouse), and 3 robust standard deviations (1.4826 \u00d7 MAD) either side (dotted). Empty until the baseline views have run.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cerberus-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dot"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "refId": "A",
+          "legendFormat": "{{service_name}}",
+          "expr": "sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])) * 60"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "refId": "B",
+          "legendFormat": "{{service_name}} baseline",
+          "expr": "max by (service_name) (baseline:requests_per_minute:median{service_name=~\"$service\"})"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "refId": "C",
+          "legendFormat": "{{service_name}} upper",
+          "expr": "max by (service_name) (baseline:requests_per_minute:median{service_name=~\"$service\"} + 3 * 1.4826 * baseline:requests_per_minute:mad{service_name=~\"$service\"})"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "refId": "D",
+          "legendFormat": "{{service_name}} lower",
+          "expr": "max by (service_name) (clamp_min(baseline:requests_per_minute:median{service_name=~\"$service\"} - 3 * 1.4826 * baseline:requests_per_minute:mad{service_name=~\"$service\"}, 0))"
+        }
+      ]
     }
   ],
   "refresh": "30s",

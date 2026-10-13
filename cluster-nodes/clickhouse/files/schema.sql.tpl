@@ -364,3 +364,105 @@ ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime(TimeUnix) + toIntervalDa
 ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay({{ int $ttl.metrics }});
 ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay({{ int $ttl.metrics }});
 ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay({{ int $ttl.metrics }});
+{{- with .Values.clickhouse.baselines }}{{ if .enabled }}
+
+-- Anomaly baselines, in their own database so the otel database stays exactly what Cerberus expects.
+-- Three refreshable views, each running as otel_admin:
+--   signal_1m_mv        every minute, appends each service's signals for the minute before last to signal_1m
+--   baseline_mv         every hour, replaces baseline with the median and MAD (median absolute deviation) of
+--                       each signal, service and hour of the week, over the last {{ int .weeks }} weeks
+--   baseline_series_mv  after baseline_mv, appends this hour's baseline to otel.otel_metrics_gauge as one sample
+--                       a minute, named baseline:<signal>:median, :mad and :samples, so Cerberus, dashboards
+--                       and rules see it as a series. It skips samples already written, so a forced refresh
+--                       adds nothing twice.
+-- A view's query only changes with ALTER TABLE ... MODIFY QUERY: CREATE ... IF NOT EXISTS leaves it as it is.
+
+CREATE DATABASE IF NOT EXISTS otel_baseline;
+
+CREATE TABLE IF NOT EXISTS otel_baseline.signal_1m
+(
+    `Minute` DateTime CODEC(Delta(4), ZSTD(1)),
+    `Signal` LowCardinality(String) CODEC(ZSTD(1)),
+    `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+    `Value` Float64 CODEC(ZSTD(1))
+)
+ENGINE = ReplacingMergeTree
+PARTITION BY toDate(Minute)
+ORDER BY (Signal, ServiceName, Minute)
+TTL Minute + toIntervalWeek({{ add (int .weeks) 1 }})
+SETTINGS ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS otel_baseline.baseline
+(
+    `Signal` LowCardinality(String),
+    `ServiceName` LowCardinality(String),
+    `HourOfWeek` UInt8,
+    `Median` Float64,
+    `MAD` Float64,
+    `Samples` UInt32
+)
+ENGINE = MergeTree
+ORDER BY (Signal, ServiceName, HourOfWeek);
+
+-- requests_per_minute, error_ratio and latency_p95_ms are a service's server spans; error_logs_per_minute is
+-- its logs at ERROR or above, zero for a service that logged but had no errors.
+CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.signal_1m_mv
+REFRESH EVERY 1 MINUTE APPEND TO otel_baseline.signal_1m
+DEFINER = otel_admin SQL SECURITY DEFINER
+AS
+WITH toStartOfMinute(now()) - INTERVAL 2 MINUTE AS m
+SELECT m AS Minute, Signal, ServiceName, Value
+FROM
+(
+    SELECT ServiceName,
+           ['requests_per_minute', 'error_ratio', 'latency_p95_ms'] AS signals,
+           [toFloat64(count()), countIf(StatusCode = 'Error') / count(), quantile(0.95)(Duration) / 1e6] AS values
+    FROM otel.otel_traces
+    WHERE SpanKind = 'Server' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+    GROUP BY ServiceName
+    UNION ALL
+    SELECT ServiceName, ['error_logs_per_minute'], [toFloat64(countIf(SeverityNumber >= 17))]
+    FROM otel.otel_logs
+    WHERE Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+    GROUP BY ServiceName
+)
+ARRAY JOIN signals AS Signal, values AS Value
+WHERE Signal IN ({{ range $i, $s := .signals }}{{ if $i }}, {{ end }}'{{ $s }}'{{ end }});
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.baseline_mv
+REFRESH EVERY 1 HOUR TO otel_baseline.baseline
+DEFINER = otel_admin SQL SECURITY DEFINER
+AS
+SELECT Signal, ServiceName, HourOfWeek, Median,
+       arrayReduce('quantileExact(0.5)', arrayMap(v -> abs(v - Median), vs)) AS MAD,
+       length(vs) AS Samples
+FROM
+(
+    SELECT Signal, ServiceName,
+           toUInt8((toDayOfWeek(Minute) - 1) * 24 + toHour(Minute)) AS HourOfWeek,
+           groupArray(Value) AS vs,
+           quantileExact(0.5)(Value) AS Median
+    FROM otel_baseline.signal_1m FINAL
+    WHERE Minute >= now() - toIntervalWeek({{ int .weeks }})
+    GROUP BY Signal, ServiceName, HourOfWeek
+);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.baseline_series_mv
+REFRESH EVERY 1 HOUR DEPENDS ON otel_baseline.baseline_mv APPEND TO otel.otel_metrics_gauge
+DEFINER = otel_admin SQL SECURITY DEFINER
+AS
+WITH toStartOfHour(now()) AS hour
+SELECT map('service.name', b.ServiceName) AS ResourceAttributes,
+       b.ServiceName AS ServiceName,
+       'baseline:' || b.Signal || ':' || stat AS MetricName,
+       hour AS StartTimeUnix,
+       hour + toIntervalMinute(m.minute) AS TimeUnix,
+       value AS Value
+FROM otel_baseline.baseline AS b
+ARRAY JOIN ['median', 'mad', 'samples'] AS stat, [b.Median, b.MAD, toFloat64(b.Samples)] AS value
+CROSS JOIN (SELECT number AS minute FROM numbers(60)) AS m
+WHERE b.HourOfWeek = toUInt8((toDayOfWeek(hour) - 1) * 24 + toHour(hour))
+  AND (MetricName, ServiceName, TimeUnix) NOT IN (
+      SELECT MetricName, ServiceName, TimeUnix FROM otel.otel_metrics_gauge
+      WHERE MetricName LIKE 'baseline:%' AND TimeUnix >= hour);
+{{- end }}{{ end }}
