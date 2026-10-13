@@ -45,20 +45,25 @@ tests:
             configMap:
               name: vmalert-rules
 
-  - it: ships the starter rules as written, labelled with the keys Alertmanager routes on
+  - it: ships the anomaly and stack rules as written, labelled with the keys Alertmanager routes on
     documentSelector:
       path: metadata.name
       value: vmalert-rules
     asserts:
       - matchRegex:
-          path: data["stack.yaml"]
-          pattern: "alert: ServerErrorRatioHigh"
+          path: data["anomaly.yaml"]
+          pattern: "(?s)alert: RequestRateAnomaly.*alert: ErrorRatioAnomaly.*alert: LatencyAnomaly.*alert: ErrorLogAnomaly.*alert: TelemetryAbsent"
       - matchRegex:
-          path: data["stack.yaml"]
+          path: data["anomaly.yaml"]
+          pattern: "FROM otel_baseline.anomaly\\(at = \\{time:DateTime64\\(3, 'UTC'\\)\\}\\)"
+      - matchRegex:
+          path: data["anomaly.yaml"]
           pattern: "\\{\\{ \\$labels.service_name \\}\\}"
       - matchRegex:
           path: data["stack.yaml"]
-          pattern: "severity: warning"
+          pattern: "(?s)alert: Watchdog.*alert: AlertmanagerNotificationsFailing.*alert: BaselineRefreshFailing"
+      - notExists:
+          path: data["anomaly-reference.yaml"]
 
   - it: follows global.services when the adapter or Alertmanager move
     set:

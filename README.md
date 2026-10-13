@@ -339,7 +339,8 @@ Every rule, whichever evaluator runs it, carries the labels Alertmanager groups 
 | `severity` | `critical`, `warning` | how urgently a person needs to look |
 | `service_name` | the OpenTelemetry `service.name` | the service the alert is about; absent on stack-wide alerts |
 
-Grafana's alerts also carry `grafana_folder` (`Observability stack`).
+Grafana's alerts also carry `grafana_folder` (`Observability stack`). `local` turns on Grafana's starter rules, which
+are fixed thresholds (an error ratio above 5%); `prod` leaves them off, so vmalert's anomaly rules are the only ones.
 
 ### Anomaly baselines: computed by ClickHouse, read as series
 
@@ -393,6 +394,35 @@ For the demo load (two services) `signal_1m` grows by 8 rows a minute, and the s
   carries the failing `integration` as a label, so a site with two receivers routes it to the one that isn't
   failing.
 
+### Anomaly rules: alert on a change from normal
+
+vmalert's default rules, `cluster-nodes/vmalert/files/rules/anomaly.yaml`, alert when a service is behaving
+unlike itself, not when it crosses a number someone picked. Each reads the parameterized view
+`otel_baseline.anomaly(at)`: per service and signal, the observed value over the last 5 minutes (from the raw
+spans and logs, so no refresh lag), the expected median and MAD, and the robust z-score
+`(observed − median) / (1.4826 × MAD)`. The expected value is the hour-of-week baseline once it has two weeks of
+samples for that hour, and until then the hour before the last 5 minutes, so a new install or a new service is
+covered within minutes.
+
+| rule | fires when, for 5 minutes | guard |
+|---|---|---|
+| `RequestRateAnomaly` | \|z\| > 3, either way: a drop is often an outage upstream | normally at least 10 requests a minute |
+| `ErrorRatioAnomaly` | z > 3 | at least 50 requests in 5 minutes, and the ratio above 5% |
+| `LatencyAnomaly` | p95 latency z > 3 | at least 50 requests in 5 minutes |
+| `ErrorLogAnomaly` | error logs a minute z > 3 | at least 5 a minute |
+| `TelemetryAbsent` | a service that sent spans in the last hour sent none for 5 minutes | normally at least 1 request a minute |
+
+Every rule also needs 8 baseline samples, and the denominator is floored (2 points of error ratio, 10% of the
+median otherwise), so a perfectly steady signal doesn't make every wobble infinite. Each notification prints the
+observed value and the baseline, which the annotations query from the same view through garmr.
+
+`files/reference/anomaly.yaml` has the same rules in PromQL over the span metrics, as the classic
+mean-and-standard-deviation rule against the last hour or the same hour last week. vmalert doesn't load it; it
+says what the SQL means, and `make test/e2e` checks the error-ratio one agrees with ErrorRatioAnomaly on the
+injected incident. The e2e waits for the demo load's first incident (15 minutes in), checks no anomaly fired
+before it, then that ErrorRatioAnomaly fires for payments, prints both numbers, agrees with the PromQL, and
+resolves once the incident is over. That makes it the longest part of `make test/e2e`, about 30 minutes.
+
 ### Alert history: every notification is a log in ClickHouse
 
 Alertmanager's first route sends every alert to a `history` receiver (`continue: true`, so it then carries on to
@@ -410,9 +440,7 @@ sum by (alertname) (count_over_time({service_name="alertmanager"} | status="firi
 The **Alert hygiene** dashboard counts notifications per rule, the median time to resolve, and the rules that
 resolved more than three times (flapping), as input for tuning thresholds. The span-metrics dashboard marks
 firing and resolved alerts as annotations. An environment that replaces Alertmanager's `route` or `receivers`
-keeps the history route first and the `history` receiver, or the history stops. `local` turns on Grafana's starter rules;
-`prod` leaves them off, so vmalert's rules are the only ones. With both on, an error ratio above 5% alerts twice:
-once from each evaluator.
+keeps the history route first and the `history` receiver, or the history stops.
 
 ### Sync order
 

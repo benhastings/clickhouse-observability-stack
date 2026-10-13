@@ -19,6 +19,7 @@
   "words": [
     "alsologtostderr",
     "altinity",
+    "argjson",
     "automount",
     "benhastings",
     "bleve",
@@ -83,6 +84,7 @@
     "spanmetrics",
     "sslip",
     "stakater",
+    "stddev",
     "stderrthreshold",
     "strenv",
     "telemetrygen",
