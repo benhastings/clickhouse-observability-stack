@@ -166,6 +166,8 @@ definitions:
           clickhouse: {type: string, description: where the collector and Cerberus reach ClickHouse's native protocol, x-default: '`clickhouse:9000`'}
           cerberus: {type: string, description: where Grafana's datasources reach Cerberus, x-default: '`http://cerberus:8080`'}
           otlpGrpc: {type: string, description: where the demo load sends OTLP over gRPC, x-default: '`otel-collector:4317`'}
+          alertmanager: {type: string, description: where rule evaluators send alerts, x-default: '`http://alertmanager:9093`'}
+          sqlAdapter: {type: string, description: where vmalert sends its ClickHouse SQL rules, x-default: '`http://garmr-sql-adapter:8080`'}
       externalSecrets:
         type: object
         additionalProperties: false

@@ -106,14 +106,14 @@ tests:
           path: kind
           value: PersistentVolumeClaim
 
-  - it: lets only Grafana reach it when network policies are on
+  - it: lets only the rule evaluators, Grafana and vmalert, reach it when network policies are on
     set:
       global.networkPolicy.enabled: true
     template: templates/networkpolicy.yaml
     asserts:
       - equal:
-          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
-          value: grafana
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          value: [grafana, vmalert]
       - equal:
           path: spec.ingress[0].ports[0].port
           value: 9093

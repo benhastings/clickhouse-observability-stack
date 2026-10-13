@@ -20,6 +20,7 @@
     "alsologtostderr",
     "altinity",
     "automount",
+    "benhastings",
     "bleve",
     "brandonapol",
     "btrfs",
@@ -46,6 +47,7 @@
     "finalizer",
     "finalizers",
     "fips",
+    "garmr",
     "goarch",
     "gomemlimit",
     "gopath",
@@ -94,6 +96,7 @@
     "usersd",
     "venv",
     "virtualservices",
+    "vmalert",
     "vmodule",
     "yannh",
     "zstd"

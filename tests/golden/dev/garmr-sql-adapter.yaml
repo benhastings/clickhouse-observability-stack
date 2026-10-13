@@ -1,0 +1,171 @@
+---
+# Source: garmr-sql-adapter/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: garmr-sql-adapter
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr-sql-adapter
+    app.kubernetes.io/instance: garmr-sql-adapter
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-sql-adapter-0.1.0
+    app.kubernetes.io/version: "0.1.0"
+    environment: dev
+automountServiceAccountToken: false
+---
+# Source: garmr-sql-adapter/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garmr-sql-adapter-env
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr-sql-adapter
+    app.kubernetes.io/instance: garmr-sql-adapter
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-sql-adapter-0.1.0
+    app.kubernetes.io/version: "0.1.0"
+    environment: dev
+data:
+  CLICKHOUSE_ADDR: "clickhouse:9000"
+  CLICKHOUSE_DATABASE: "otel"
+  CLICKHOUSE_USER: "otel_reader"
+  GARMR_LISTEN_ADDRESS: ":8080"
+  GARMR_LOG_FORMAT: "json"
+---
+# Source: garmr-sql-adapter/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: garmr-sql-adapter
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr-sql-adapter
+    app.kubernetes.io/instance: garmr-sql-adapter
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-sql-adapter-0.1.0
+    app.kubernetes.io/version: "0.1.0"
+    environment: dev
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: garmr-sql-adapter
+    app.kubernetes.io/instance: garmr-sql-adapter
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+---
+# Source: garmr-sql-adapter/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garmr-sql-adapter
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr-sql-adapter
+    app.kubernetes.io/instance: garmr-sql-adapter
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-sql-adapter-0.1.0
+    app.kubernetes.io/version: "0.1.0"
+    environment: dev
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: garmr-sql-adapter
+      app.kubernetes.io/instance: garmr-sql-adapter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: garmr-sql-adapter
+        app.kubernetes.io/instance: garmr-sql-adapter
+      annotations:
+        checksum/config: bf8f15adc3bbc9b64c68e9af13765d8bb6b38cecfa6581d2e1fda439c06e3bc7
+    spec:
+      serviceAccountName: garmr-sql-adapter
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: garmr
+          image: "ghcr.io/benhastings/garmr:v0.1.0@sha256:e431bf6619f97f280a2e1cb606bf124da0287331de4f207752ef1099febe07b4"
+          imagePullPolicy: IfNotPresent
+          args:
+            - sql-adapter
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: clickhouse-reader
+            - name: GOMEMLIMIT
+              value: "50331648B"
+          envFrom:
+            - configMapRef:
+                name: 'garmr-sql-adapter-env'
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+---
+# Source: garmr-sql-adapter/templates/destinationrule.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: garmr-sql-adapter
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr-sql-adapter
+    app.kubernetes.io/instance: garmr-sql-adapter
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-sql-adapter-0.1.0
+    app.kubernetes.io/version: "0.1.0"
+    environment: dev
+spec:
+  host: garmr-sql-adapter.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

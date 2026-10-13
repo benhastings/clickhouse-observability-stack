@@ -14,6 +14,9 @@ flowchart LR
     COL -- traces, logs, metrics --> CH[(ClickHouse<br/>Altinity operator)]
     CER[Cerberus] -- SQL --> CH
     GF[Grafana] -- PromQL / LogQL / TraceQL --> CER
+    VMA[vmalert<br/>rules in git] -- SQL rules --> GSA[garmr<br/>sql-adapter]
+    GSA -- SQL, read-only --> CH
+    VMA -- firing alerts --> AM[Alertmanager]
 ```
 
 ## Components
@@ -26,6 +29,8 @@ flowchart LR
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that all point at Cerberus, a span-metrics dashboard, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
+| `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
+| `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
 | `demo-load` | `ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen): a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. |
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
@@ -277,7 +282,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*` | Cerberus |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*` | Cerberus, garmr sql-adapter |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
 The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`
@@ -294,6 +299,33 @@ installs whose table already exists get the change too.
 Exporter v0.161 inserting into the v0.152 layout was tested: no insert errors, and Cerberus answers PromQL,
 LogQL and TraceQL correctly over the result.
 
+### Alert rules: vmalert, with ClickHouse SQL through garmr
+
+vmalert evaluates the stack's alerting rules and sends what fires to Alertmanager. The rules are files in git,
+`cluster-nodes/vmalert/files/rules/*.yaml`, in Prometheus rule format, except that each `expr` is **ClickHouse
+SQL**. vmalert only speaks the Prometheus query API, so it queries
+[garmr](https://github.com/benhastings/garmr)'s `sql-adapter`, which serves that API and answers each query by
+running it in ClickHouse (vmalert runs with `-rule.validateExpressions=false` so it passes the SQL through).
+vmalert still owns `for:`, labels, annotation templates, alert state and sending.
+
+Why not the alternatives (#146):
+
+- **Cerberus as the datasource** would limit rules to what PromQL can express, and make alerting depend on the
+  query layer Grafana uses. Querying ClickHouse directly lets a rule use quantiles over any column, ClickHouse's
+  time-series functions, and precomputed baselines.
+- **ClickHouse's own Prometheus endpoints** need its `TimeSeries` table layout, not the exporter's
+  `otel_metrics_*` tables.
+
+A rule returns one row per alert: the column named `value` is the sample, and every other column is a label, so
+group by every label column. `{time:DateTime64(3, 'UTC')}` is the evaluation time, bound as a query parameter.
+The adapter runs every query with `readonly=2`, as `otel_reader`, cancelled after 30 seconds. A rule whose SQL
+fails is `health: err` in vmalert's `/api/v1/rules`, with ClickHouse's message.
+
+vmalert has no remote write here, so there are no recording rules and alert state lives in memory: a restart
+waits out each rule's `for:` again. Precomputed series belong in ClickHouse views instead.
+
+Every rule carries the labels Alertmanager groups and routes on: `severity` and `service_name`.
+
 ### Sync order
 
 Child apps carry sync waves:
@@ -302,8 +334,8 @@ Child apps carry sync waves:
 |---|---|
 | 0 | operator |
 | 1 | ClickHouse |
-| 2 | Cerberus |
-| 3 | collector, Grafana, Alertmanager |
+| 2 | Cerberus, garmr sql-adapter |
+| 3 | collector, Grafana, Alertmanager, vmalert |
 | 4 | demo-load |
 
 The waves are set in `cluster-configs/app-of-apps/values.yaml`. Argo CD doesn't track child-app health by default, so `cluster-configs/argocd/values.yaml` adds two health checks:
@@ -401,6 +433,8 @@ Everything is sized for light local testing:
 | Collector | 64 Mi | 256 Mi |
 | Operator | 48 Mi | 192 Mi |
 | Alertmanager | 32 Mi | 128 Mi |
+| vmalert | 32 Mi | 128 Mi |
+| garmr sql-adapter | 16 Mi | 64 Mi |
 | Collector agent (off; per node when on) | 32 Mi | 128 Mi |
 
 The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
@@ -506,7 +540,9 @@ else in `observability`.
 | Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
 | Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
+| garmr sql-adapter | `garmr-sql-adapter` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | Alertmanager | `alertmanager` | `observability` | `9093` http | none | 3 |
+| vmalert | `vmalert` | `observability` | `8880` http | none | 3 |
 | demo load | `demo-load` | `observability` | none; it only sends | none | 4 |
 
 The ClickHouse pod is `chi-otel-main-0-0-0`. The operator owns the Service `clickhouse` (from
@@ -517,7 +553,7 @@ operator's Secret is `<name>-credentials` and Grafana's is `<name>-admin`. Cerbe
 and the collector `clickhouse-writer` literally, so renaming the ClickHouse Secrets means changing both.
 
 `nameOverride` (or renaming the app key) changes the Service name and the Secret names built from it. These
-have to move together. The three addresses are `global.services` keys, so an environment changes each one
+have to move together. The addresses are `global.services` keys, so an environment changes each one
 once, for example to the DNS form a split namespace needs (`clickhouse.observability.svc.cluster.local:9000`):
 
 - **ClickHouse address**: `global.services.clickhouse` (default `clickhouse:9000`), which the collector's
@@ -528,6 +564,10 @@ once, for example to the DNS form a split namespace needs (`clickhouse.observabi
   `OTEL_EXPORTER_OTLP_ENDPOINT` reads, the
   `svc/otel-collector` port-forwards in `scripts/port-forward.sh` and `scripts/e2e.bash`, and anything you
   send telemetry from.
+- **Alertmanager URL**: `global.services.alertmanager` (default `http://alertmanager:9093`), which vmalert's
+  `-notifier.url` reads.
+- **SQL adapter URL**: `global.services.sqlAdapter` (default `http://garmr-sql-adapter:8080`), which vmalert's
+  `-datasource.url` reads. The adapter itself reads `global.services.clickhouse`.
 - **ClickHouse Secrets**: the `secretKeyRef`s in the installation, the schema Job, Cerberus and the collector,
   plus the Secrets every environment pre-creates.
 - **Namespace**: the operator's `watch.namespaces.include` must list `observability`, where the installation
@@ -698,7 +738,9 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
   own traffic. Grafana is reachable from `global.networkPolicy.exposureNamespaces` (the ingress gateway or
   controller), queries only Cerberus, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
   answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse and the kubelets.
-  ClickHouse accepts the collector, Cerberus, the schema Job, the backup job and the operator. The operator reaches the
+  vmalert reaches only garmr sql-adapter and Alertmanager; the adapter answers only vmalert and reaches only
+  ClickHouse. Alertmanager accepts Grafana and vmalert.
+  ClickHouse accepts the collector, Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 

@@ -1,0 +1,104 @@
+suite: vmalert
+release:
+  name: vmalert
+  namespace: observability
+tests:
+  - it: evaluates rules through garmr-sql-adapter:8080 and sends to alertmanager:9093
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -datasource.url=http://garmr-sql-adapter:8080
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -notifier.url=http://alertmanager:9093
+
+  - it: passes SQL through instead of parsing it as PromQL
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -rule.validateExpressions=false
+
+  - it: loads every rule file from the vmalert-rules ConfigMap
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -rule=/etc/vmalert/rules/*.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: rules
+            mountPath: /etc/vmalert/rules
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: rules
+            configMap:
+              name: vmalert-rules
+
+  - it: ships the starter rules as written, labelled with the keys Alertmanager routes on
+    documentSelector:
+      path: metadata.name
+      value: vmalert-rules
+    asserts:
+      - matchRegex:
+          path: data["stack.yaml"]
+          pattern: "alert: ServerErrorRatioHigh"
+      - matchRegex:
+          path: data["stack.yaml"]
+          pattern: "\\{\\{ \\$labels.service_name \\}\\}"
+      - matchRegex:
+          path: data["stack.yaml"]
+          pattern: "severity: warning"
+
+  - it: follows global.services when the adapter or Alertmanager move
+    set:
+      global:
+        services:
+          sqlAdapter: http://garmr.alerting:8080
+          alertmanager: http://alertmanager.alerting:9093
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -datasource.url=http://garmr.alerting:8080
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -notifier.url=http://alertmanager.alerting:9093
+
+  - it: reaches only the adapter and Alertmanager when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: garmr-sql-adapter
+            ports:
+              - port: 8080
+                protocol: TCP
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: alertmanager
+            ports:
+              - port: 9093
+                protocol: TCP

@@ -1,0 +1,194 @@
+---
+# Source: vmalert/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vmalert
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: prod
+automountServiceAccountToken: false
+---
+# Source: vmalert/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: prod
+data:
+  stack.yaml: |
+    # The stack's starter rules. Each expr is ClickHouse SQL that garmr sql-adapter runs as otel_reader: the
+    # column named value is the sample, every other column is a label, and {time:DateTime64(3, 'UTC')} is the
+    # evaluation time. Group by every label column. The labels severity and service_name are what Alertmanager
+    # groups and routes on.
+    groups:
+      - name: stack
+        interval: 1m
+        rules:
+          - alert: ServerErrorRatioHigh
+            expr: |
+              SELECT ServiceName AS service_name,
+                     countIf(StatusCode = 'Error') / count() AS value
+              FROM otel.otel_traces
+              WHERE SpanKind = 'Server'
+                AND Timestamp BETWEEN {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE AND {time:DateTime64(3, 'UTC')}
+              GROUP BY service_name
+              HAVING count() > 10 AND value > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.service_name }} errors on {{ $value | humanizePercentage }} of server spans"
+              description: >-
+                More than 5% of {{ $labels.service_name }}'s server spans ended in an error over the last 5 minutes,
+                for 5 minutes.
+---
+# Source: vmalert/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmalert
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: prod
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+  ports:
+    - name: http
+      port: 8880
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+---
+# Source: vmalert/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: prod
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmalert
+      app.kubernetes.io/instance: vmalert
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmalert
+        app.kubernetes.io/instance: vmalert
+      annotations:
+        checksum/config: 91ca88594ba6df80b81ca063c62d08c34408cd3b4f703c0fa2245b07c270c480
+    spec:
+      serviceAccountName: vmalert
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: vmalert
+          image: "victoriametrics/vmalert:v1.153.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - -httpListenAddr=:8880
+            - -rule=/etc/vmalert/rules/*.yaml
+            - -rule.validateExpressions=false
+            - -datasource.url=http://garmr-sql-adapter:8080
+            - -notifier.url=http://alertmanager:9093
+            - -loggerFormat=json
+          ports:
+            - name: http
+              containerPort: 8880
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/vmalert/rules
+              name: rules
+              readOnly: true
+      volumes:
+        - name: rules
+          configMap:
+            name: 'vmalert-rules'
+---
+# Source: vmalert/templates/destinationrule.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: vmalert
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: vmalert
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: vmalert-0.1.0
+    app.kubernetes.io/version: "1.153.0"
+    environment: prod
+spec:
+  host: vmalert.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

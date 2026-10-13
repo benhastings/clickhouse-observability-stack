@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=values.schema.json
+# The rule files are files/rules/*.yaml, in Prometheus rule format with ClickHouse SQL as each expr. They are
+# loaded as they are (not templated), so {{ $labels.x }} in an annotation is vmalert's.
+configMaps:
+  rules:
+    files: files/rules/*.yaml
+
+service:
+  enabled: true
+  ports:
+    http:
+      port: 8880
+      targetPort: http
+      appProtocol: http
+
+deployment:
+  enabled: true
+  podSecurityContext:
+    fsGroup: 65534
+    runAsGroup: 65534
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    vmalert:
+      image:
+        repository: victoriametrics/vmalert
+        tag: "v1.153.0"
+      args:
+        - -httpListenAddr=:8880
+        - -rule=/etc/vmalert/rules/*.yaml
+        # Each expr is SQL, which vmalert would reject as PromQL; garmr sql-adapter checks it instead.
+        - -rule.validateExpressions=false
+        - '-datasource.url={{ include "common.serviceAddress" (list $ "sqlAdapter") }}'
+        - '-notifier.url={{ include "common.serviceAddress" (list $ "alertmanager") }}'
+        # No remote write: vmalert keeps alert state in memory, so a restart re-waits each rule's for:.
+        # Recording work is done by ClickHouse views, not recording rules.
+        - -loggerFormat=json
+      ports:
+        http:
+          containerPort: 8880
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: http
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 6
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: http
+        periodSeconds: 5
+        timeoutSeconds: 5
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        privileged: false
+        readOnlyRootFilesystem: true
+      volumeMounts:
+        - name: rules
+          mountPath: /etc/vmalert/rules
+          readOnly: true
+  volumes:
+    rules:
+      configMap:
+        name: '{{ include "common.fullname" . }}-rules'
+
+# With global.networkPolicy.enabled: vmalert reaches only garmr sql-adapter and Alertmanager, and nothing reaches
+# it; its API and UI are for kubectl port-forward.
+networkPolicy:
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: garmr-sql-adapter
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - port: 9093
+          protocol: TCP

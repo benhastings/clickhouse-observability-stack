@@ -57,6 +57,7 @@ kubectl -n observability port-forward svc/cerberus 18081:8080 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/grafana 13000:80 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/otel-collector 14318:4318 >/dev/null 2>&1 &
 kubectl -n observability port-forward svc/alertmanager 19093:9093 >/dev/null 2>&1 &
+kubectl -n observability port-forward svc/vmalert 18880:8880 >/dev/null 2>&1 &
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 sleep 3
 
@@ -64,6 +65,7 @@ cerberus=http://localhost:18081
 grafana=http://localhost:13000
 otlp=http://localhost:14318
 alertmanager=http://localhost:19093
+vmalert=http://localhost:18880
 grafana_login="$(kubectl -n observability get secret grafana-admin \
   -o go-template='{{index .data "admin-user" | base64decode}}:{{index .data "admin-password" | base64decode}}')"
 
@@ -257,11 +259,31 @@ poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
    | .receivers[].name] | index(\"default\") != null" \
   "$alertmanager/api/v2/alerts"
 
+# vmalert evaluates the starter rules as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is
+# health "err" with ClickHouse's message, so a healthy evaluation proves vmalert -> adapter -> ClickHouse.
+poll "vmalert: ServerErrorRatioHigh evaluated through garmr sql-adapter without error" \
+  '[.data.groups[].rules[] | select(.name == "ServerErrorRatioHigh" and .health == "ok" and
+    .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
+  "$vmalert/api/v1/rules"
+# The demo load fails about 25% of payments calls and none of checkout's. The rule waits 5m (for:) before it
+# fires, so this poll gets longer than the others.
+DATA_TIMEOUT=$((DATA_TIMEOUT + 420)) poll "Alertmanager: vmalert's ServerErrorRatioHigh fires for payments" \
+  '[.[] | select(.labels.alertname == "ServerErrorRatioHigh" and .status.state == "active")
+   | .labels.service_name] | index("payments") != null' \
+  "$alertmanager/api/v2/alerts"
+step "Alertmanager: ServerErrorRatioHigh does not fire for checkout, which has no server errors"
+if curl -fsS "$alertmanager/api/v2/alerts" |
+  jq -e '[.[] | select(.labels.alertname == "ServerErrorRatioHigh" and .labels.service_name == "checkout")] | length > 0' >/dev/null; then
+  echo "  ServerErrorRatioHigh fired for checkout"
+  exit 1
+fi
+echo "  ok"
+
 # MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
 # the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.
 if [[ "${MESH:-kubernetes}" == istio ]]; then
-  step "Istio: Grafana, Cerberus, the collector and Alertmanager run with a sidecar"
-  for app in grafana cerberus otel-collector alertmanager; do
+  step "Istio: Grafana, Cerberus, the collector, Alertmanager, vmalert and garmr sql-adapter run with a sidecar"
+  for app in grafana cerberus otel-collector alertmanager vmalert garmr-sql-adapter; do
     containers="$(kubectl -n observability get pods -l "app.kubernetes.io/name=$app" \
       -o jsonpath='{.items[0].spec.initContainers[*].name} {.items[0].spec.containers[*].name}')"
     [[ " $containers " == *" istio-proxy "* ]] || { echo "  $app has no istio-proxy: $containers"; exit 1; }

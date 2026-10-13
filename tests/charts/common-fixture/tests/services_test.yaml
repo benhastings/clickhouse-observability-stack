@@ -12,6 +12,8 @@ tests:
           clickhouse: '{{ include "common.serviceAddress" (list $ "clickhouse") }}'
           cerberus: '{{ include "common.serviceAddress" (list $ "cerberus") }}'
           otlpGrpc: '{{ include "common.serviceAddress" (list $ "otlpGrpc") }}'
+          alertmanager: '{{ include "common.serviceAddress" (list $ "alertmanager") }}'
+          sqlAdapter: '{{ include "common.serviceAddress" (list $ "sqlAdapter") }}'
     documentSelector:
       path: metadata.name
       value: fixture-addresses
@@ -22,6 +24,8 @@ tests:
             clickhouse: clickhouse:9000
             cerberus: http://cerberus:8080
             otlpGrpc: otel-collector:4317
+            alertmanager: http://alertmanager:9093
+            sqlAdapter: http://garmr-sql-adapter:8080
 
   - it: fails on a service name global.services does not have
     set:

@@ -75,3 +75,13 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: names the rule evaluator and its adapter vmalert and garmr-sql-adapter, where each other points
+    template: charts/garmr-sql-adapter/templates/service.yaml
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: garmr-sql-adapter
