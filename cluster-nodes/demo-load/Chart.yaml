@@ -3,4 +3,4 @@ name: demo-load
 description: Synthetic checkout and payments traffic whose logs and traces correlate.
 type: application
 version: 0.1.0
-appVersion: "v0.1.0"
+appVersion: "v0.2.0"

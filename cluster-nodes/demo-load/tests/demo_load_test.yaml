@@ -13,7 +13,25 @@ tests:
           count: 1
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0
+          value: ghcr.io/benhastings/correlated-telemetrygen:v0.2.0
+
+  - it: injects an hourly payments error incident, the first fifteen minutes in
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --incident-kind=errors
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --incident-after=15m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --incident-duration=10m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --incident-every=1h
 
   - it: sends to the collector Service
     documentSelector:

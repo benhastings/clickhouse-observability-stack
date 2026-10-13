@@ -33,6 +33,7 @@ data:
   alertmanager.yml: |-
     receivers:
     - name: default
+    - name: heartbeat
     - name: history
       webhook_configs:
       - max_alerts: 1
@@ -54,6 +55,14 @@ data:
         group_wait: 0s
         receiver: history
         repeat_interval: 168h
+      - group_by:
+        - alertname
+        group_interval: 1m
+        group_wait: 0s
+        matchers:
+        - alertname="Watchdog"
+        receiver: heartbeat
+        repeat_interval: 1m
       - receiver: default
 ---
 # Source: alertmanager/templates/service.yaml
@@ -110,7 +119,7 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/instance: alertmanager
       annotations:
-        checksum/config: 8f18e79d8fdc9b18c260ad56cafafe75fc34dde1b366afb8bb0b700a11a8451a
+        checksum/config: 8251990dcee574dc5a512fd0d7c6d8ed373e1ae46f9d303858c22a1cdf7b7e7f
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false

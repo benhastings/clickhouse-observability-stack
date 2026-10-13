@@ -40,7 +40,16 @@ tests:
           pattern: "receiver: default"
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "receivers:\\n- name: default\\n- name: history\\n"
+          pattern: "receivers:\\n- name: default\\n- name: heartbeat\\n- name: history\\n"
+
+  - it: sends vmalert's Watchdog to the heartbeat receiver every minute, for a dead man's switch
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "- group_by:\\n    - alertname\\n    group_interval: 1m\\n    group_wait: 0s\\n    matchers:\\n    - alertname=\"Watchdog\"\\n    receiver: heartbeat\\n    repeat_interval: 1m"
 
   - it: posts every notification, one alert each, to the collector so it is kept in otel_logs
     documentSelector:
@@ -134,14 +143,14 @@ tests:
           path: kind
           value: PersistentVolumeClaim
 
-  - it: lets only the rule evaluators, Grafana and vmalert, reach it when network policies are on
+  - it: lets only the rule evaluators, Grafana and vmalert, and the collector reach it when network policies are on
     set:
       global.networkPolicy.enabled: true
     template: templates/networkpolicy.yaml
     asserts:
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
-          value: [grafana, vmalert]
+          value: [grafana, vmalert, otel-collector]
       - equal:
           path: spec.ingress[0].ports[0].port
           value: 9093
@@ -153,4 +162,4 @@ tests:
     asserts:
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "receiver: history\\n    repeat_interval: 168h\\n  - receiver: default"
+          pattern: "(?s)receiver: history\\n.*\\n  - receiver: default$"

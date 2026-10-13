@@ -183,6 +183,19 @@ configMaps:
             insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false $collector }}
             metric_groups: [node, pod, container, volume]
           {{- end }}
+          # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
+          # fails to deliver. Only these two series are kept.
+          prometheus/alertmanager:
+            config:
+              scrape_configs:
+                - job_name: alertmanager
+                  scrape_interval: 30s
+                  static_configs:
+                    - targets: ['{{ include "common.serviceAddress" (list $ "alertmanager") | trimPrefix "http://" | trimPrefix "https://" }}']
+                  metric_relabel_configs:
+                    - source_labels: [__name__]
+                      regex: alertmanager_notifications(_failed)?_total
+                      action: keep
           # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
           webhook_event:
             endpoint: 0.0.0.0:8088
@@ -258,6 +271,7 @@ configMaps:
               {{- end }}
               - spanmetrics
               - servicegraph
+              - prometheus/alertmanager
               {{- range dig "metrics" "receivers" list $pipelines }}
               - {{ . }}
               {{- end }}
@@ -452,7 +466,7 @@ daemonset:
 
 # With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may
 # send OTLP (which includes the ingress gateway or controller for exposed OTLP), and Alertmanager posts its
-# notifications to 8088; the collector reaches
+# notifications to 8088; the collector reaches Alertmanager on 9093 for its metrics, and
 # ClickHouse and, for kubeletstats, each node's kubelet on 10250.
 networkPolicy:
   podSelector:
@@ -487,4 +501,11 @@ networkPolicy:
           protocol: TCP
     - ports:
         - port: 10250
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - port: 9093
           protocol: TCP

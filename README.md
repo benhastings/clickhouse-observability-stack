@@ -31,7 +31,7 @@ flowchart LR
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
 | `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
-| `demo-load` | `ghcr.io/brandonapol/correlated-telemetrygen:v0.1.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen): a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. |
+| `demo-load` | `ghcr.io/benhastings/correlated-telemetrygen:v0.2.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen) (the benhastings fork, which adds scheduled incidents): a browser front end, a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. Every hour, starting 15 minutes in, payments fails 90% of charges for 10 minutes. |
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
 
@@ -67,10 +67,10 @@ With the default demo load:
 
 | service | requests/s | error rate | p95 latency |
 |---|---|---|---|
-| `checkout` | 2 | 0% | ~950 ms (it waits on payments) |
-| `payments` | 2 | ~25% | ~900 ms |
+| `checkout` | 2 | ~2% | ~950 ms (it waits on payments) |
+| `payments` | 2 | ~25% (~90% during an incident) | ~900 ms |
 
-A quarter of charges time out at the payment gateway. Payments fails those requests, and checkout accepts the order with payment pending, so only payments shows errors. The dashboard's request, error and latency panels count server spans only. The operations table also lists the cache, database and outbound-call client spans.
+A quarter of charges time out at the payment gateway. Payments fails those requests, and checkout accepts the order with payment pending, so checkout's only errors are its own database failures, about 2% of orders. Fifteen minutes after the demo load starts, and then every hour, an incident raises payments' failures to 90% for ten minutes: something for the anomaly rules to find and then see recover. The dashboard's request, error and latency panels count server spans only. The operations table also lists the cache, database and outbound-call client spans.
 
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
@@ -380,6 +380,18 @@ the query log off), for 20 services and four signals:
 
 For the demo load (two services) `signal_1m` grows by 8 rows a minute, and the series view writes
 2 × 4 × 3 × 60 = 1,440 gauge rows an hour.
+
+### The alerting pipeline watches itself
+
+- **Watchdog:** a vmalert rule that always fires. Alertmanager sends it every minute to the `heartbeat`
+  receiver, which has no integrations until a site points it at a dead man's switch service (a `webhook_configs`
+  entry). If vmalert stops evaluating, or loses ClickHouse or Alertmanager, the heartbeats stop and that service
+  raises the alarm.
+- **Notifier health:** the collector scrapes Alertmanager's `alertmanager_notifications_total` and
+  `alertmanager_notifications_failed_total` (per `integration`) into ClickHouse, and vmalert's
+  `AlertmanagerNotificationsFailing` fires when any integration failed to deliver in the last 10 minutes. It
+  carries the failing `integration` as a label, so a site with two receivers routes it to the one that isn't
+  failing.
 
 ### Alert history: every notification is a log in ClickHouse
 

@@ -129,9 +129,9 @@ ClickHouse schema compatibility and Grafana queries are only exercised by deploy
 `.github/workflows/e2e.yml`, which runs `make test/e2e` on every pull request: a kind cluster on a
 digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at the PR's commit. It then waits
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
-for both demo services, a payments error ratio near 25%, no checkout server errors, service-graph metrics, node
+for both demo services, a payments error ratio near 25%, a checkout server error ratio under 5%, service-graph metrics, node
 CPU and memory and per-pod memory from `kubeletstats`, checkout logs, failing payments traces, a log's `trace_id`
-opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboards, an alert posted to Alertmanager (listed through Grafana's Alertmanager datasource, and kept as a log by the history receiver: firing, then resolved with its duration), vmalert's SQL rule firing for payments (and not checkout) through garmr sql-adapter, the anomaly baseline views refreshing into a series Cerberus serves, and Grafana's error-ratio rule reaching Alertmanager. Argo CD pulls the
+opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboards, an alert posted to Alertmanager (listed through Grafana's Alertmanager datasource, and kept as a log by the history receiver: firing, then resolved with its duration), vmalert's SQL rule firing for payments (and not checkout) through garmr sql-adapter, the Watchdog reaching the heartbeat receiver, Alertmanager's notification counters scraped into ClickHouse, the anomaly baseline views refreshing into a series Cerberus serves, and Grafana's error-ratio rule reaching Alertmanager. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
 `scripts/e2e.bash` also runs against a cluster without Argo CD (`make helm/install`, `make dev/up`): it then waits
@@ -246,8 +246,9 @@ table, and `tests/golden` in the same commit. Bump one component per PR unless t
 - **The operator's CRDs and config files are vendored** into `cluster-nodes/clickhouse-operator/crds/` and
   `files/`. Bumping the operator image means replacing them from the same release.
 - **The demo load** in `cluster-nodes/demo-load` is
-  [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen), released from its own repo
-  by pushing a `v*` tag. Bump its image tag and the node's `appVersion` together. The Grafana log/trace links
+  [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen), run from the benhastings
+  fork's image and released from the fork by pushing a `v*` tag. Its incident window (`--incident-*`) is what
+  `scripts/e2e.bash` waits for, so changing those args changes how long e2e runs. Bump its image tag and the node's `appVersion` together. The Grafana log/trace links
   depend on its `trace_id` log attribute.
 - **Grafana's Drilldown apps** are pinned in `grafana.ini` (`preinstall = <id>@<version>`). Bumping the
   Grafana image means checking each app's `grafanaDependency` on grafana.com, and bumping an app is the same
