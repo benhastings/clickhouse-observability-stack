@@ -73,6 +73,15 @@ data:
     - access: proxy
       editable: false
       jsonData:
+        handleGrafanaManagedAlerts: false
+        implementation: prometheus
+      name: Alertmanager
+      type: alertmanager
+      uid: alertmanager
+      url: 'http://alertmanager:9093'
+    - access: proxy
+      editable: false
+      jsonData:
         nodeGraph:
           enabled: true
         serviceMap:
@@ -519,6 +528,100 @@ data:
 ---
 # Source: grafana/templates/objects.yaml
 apiVersion: v1
+data:
+  alerts.yaml: |
+    # Starter alert rules. They query Cerberus through the cerberus-prometheus datasource, and every rule
+    # notifies stack-alertmanager.
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: "stack-alertmanager"
+        receivers:
+          - uid: observability-stack-contact
+            type: "prometheus-alertmanager"
+            settings:
+              url: http://alertmanager:9093
+    groups:
+      - orgId: 1
+        name: observability-stack
+        folder: Observability stack
+        interval: 1m
+        rules:
+          - uid: stack-span-error-ratio
+            title: Span error ratio above 0.05
+            condition: C
+            for: 1m
+            noDataState: OK
+            execErrState: Error
+            labels:
+              severity: warning
+            annotations:
+              summary: The share of server spans that end in an error is above the threshold for a service.
+            data:
+              - refId: A
+                relativeTimeRange: {from: 600, to: 0}
+                datasourceUid: cerberus-prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: >-
+                    sum by (service_name) (rate(traces_span_metrics_calls{span_kind="SPAN_KIND_SERVER",
+                    status_code="STATUS_CODE_ERROR", service_name=~".+"}[5m]))
+                    / sum by (service_name) (rate(traces_span_metrics_calls{span_kind="SPAN_KIND_SERVER",
+                    service_name=~".+"}[5m]))
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: A
+                  conditions:
+                    - evaluator: {type: gt, params: [0.05]}
+            notification_settings:
+              receiver: "stack-alertmanager"
+          - uid: stack-collector-no-spans
+            title: The collector received no spans for 15 minutes
+            condition: C
+            for: 0s
+            noDataState: Alerting
+            execErrState: Error
+            labels:
+              severity: critical
+            annotations:
+              summary: No span metrics in the last 15 minutes, so the collector is down or nothing is sending.
+            data:
+              - refId: A
+                relativeTimeRange: {from: 900, to: 0}
+                datasourceUid: cerberus-prometheus
+                model:
+                  refId: A
+                  instant: true
+                  expr: sum(increase(traces_span_metrics_calls[15m]))
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  refId: C
+                  type: threshold
+                  expression: A
+                  conditions:
+                    - evaluator: {type: lt, params: [1]}
+            notification_settings:
+              receiver: "stack-alertmanager"
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/version: 13.2.2
+    environment: local
+    helm.sh/chart: grafana-0.1.0
+  name: grafana-alerts
+  namespace: observability
+---
+# Source: grafana/templates/objects.yaml
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   labels:
@@ -591,7 +694,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: a38d84c71e3c5249a40d971bf9986d39048e2f1c8a5ca8770fbd786b7317de11
+        checksum/config: 24212274202d9fdb189c695b9d30336a8767552c1fc06b45bdfa0d6fee3d898d
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

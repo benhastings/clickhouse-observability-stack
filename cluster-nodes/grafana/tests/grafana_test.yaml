@@ -3,7 +3,7 @@ release:
   name: grafana
   namespace: observability
 tests:
-  - it: points every datasource at Cerberus
+  - it: points every query datasource at Cerberus, and the Alertmanager one at alertmanager:9093
     documentSelector:
       path: metadata.name
       value: grafana-config
@@ -15,7 +15,29 @@ tests:
           pattern: "uid: cerberus-prometheus"
       - notMatchRegex:
           path: data["datasources.yaml"]
-          pattern: "url: https?://([^c]|c[^e])"
+          pattern: "url: https?://([^ac]|c[^e]|a[^l])"
+      - matchRegex:
+          path: data["datasources.yaml"]
+          pattern: "type: alertmanager\\n  uid: alertmanager\\n  url: 'http://alertmanager:9093'"
+      - matchRegex:
+          path: data["datasources.yaml"]
+          pattern: "handleGrafanaManagedAlerts: false"
+
+  - it: reaches Cerberus and Alertmanager when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: alertmanager
+            ports:
+              - port: 9093
+                protocol: TCP
 
   - it: provisions the span-metrics dashboard from files
     documentSelector:
@@ -387,12 +409,20 @@ tests:
       - matchRegex:
           path: data["alerts.yaml"]
           pattern: "uid: stack-clickhouse-disk"
+
+  - it: sends every rule to the stack's Alertmanager when no contact point is set
+    set:
+      alerts.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: grafana-alerts
+    asserts:
       - matchRegex:
           path: data["alerts.yaml"]
-          pattern: "notify nobody"
-      - notMatchRegex:
+          pattern: "contactPoints:\\n  - orgId: 1\\n    name: \"stack-alertmanager\"\\n    receivers:\\n      - uid: observability-stack-contact\\n        type: \"prometheus-alertmanager\"\\n        settings:\\n          url: http://alertmanager:9093"
+      - matchRegex:
           path: data["alerts.yaml"]
-          pattern: "notification_settings|contactPoints"
+          pattern: "(?s)notification_settings:\\n\\s+receiver: \"stack-alertmanager\".*notification_settings:\\n\\s+receiver: \"stack-alertmanager\".*notification_settings:\\n\\s+receiver: \"stack-alertmanager\""
 
   - it: routes every rule to the contact point when one is set
     set:

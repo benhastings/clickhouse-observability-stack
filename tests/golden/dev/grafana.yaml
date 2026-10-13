@@ -73,6 +73,15 @@ data:
     - access: proxy
       editable: false
       jsonData:
+        handleGrafanaManagedAlerts: false
+        implementation: prometheus
+      name: Alertmanager
+      type: alertmanager
+      uid: alertmanager
+      url: 'http://alertmanager:9093'
+    - access: proxy
+      editable: false
+      jsonData:
         nodeGraph:
           enabled: true
         serviceMap:
@@ -570,7 +579,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 5c634cfa1c51271fc6392d1d2b19cd9fa07ff3029d2daba1ca492596d46cde06
+        checksum/config: 7d179e336a0b3af62f1eb8656fdf186c974e03d2cedd5b868ed389f68f9bf124
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

@@ -283,6 +283,12 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
+        alerts:
+          clickhouseDisk:
+            enabled: false
+          enabled: true
+          errorRatio:
+            for: 1m
         configMaps:
           config:
             data:

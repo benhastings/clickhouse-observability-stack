@@ -258,6 +258,10 @@ poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
   "[.[] | select(.labels.alertname == \"$e2e_alert\" and .status.state == \"active\")
    | .receivers[].name] | index(\"default\") != null" \
   "$alertmanager/api/v2/alerts"
+# Grafana has no health check for an Alertmanager datasource, so read the alert through it instead.
+poll "Grafana: the Alertmanager datasource lists $e2e_alert" \
+  "[.[] | .labels.alertname] | index(\"$e2e_alert\") != null" \
+  -u "$grafana_login" "$grafana/api/alertmanager/alertmanager/api/v2/alerts"
 
 # vmalert evaluates the starter rules as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is
 # health "err" with ClickHouse's message, so a healthy evaluation proves vmalert -> adapter -> ClickHouse.
@@ -269,6 +273,12 @@ poll "vmalert: ServerErrorRatioHigh evaluated through garmr sql-adapter without 
 # fires, so this poll gets longer than the others.
 DATA_TIMEOUT=$((DATA_TIMEOUT + 420)) poll "Alertmanager: vmalert's ServerErrorRatioHigh fires for payments" \
   '[.[] | select(.labels.alertname == "ServerErrorRatioHigh" and .status.state == "active")
+   | .labels.service_name] | index("payments") != null' \
+  "$alertmanager/api/v2/alerts"
+# local turns on Grafana's starter rules, which send to the same Alertmanager through the stack-alertmanager
+# contact point. Grafana labels what it sends with the rule's folder.
+poll "Alertmanager: Grafana's span error ratio rule fires for payments" \
+  '[.[] | select(.labels.grafana_folder == "Observability stack" and .status.state == "active")
    | .labels.service_name] | index("payments") != null' \
   "$alertmanager/api/v2/alerts"
 step "Alertmanager: ServerErrorRatioHigh does not fire for checkout, which has no server errors"
