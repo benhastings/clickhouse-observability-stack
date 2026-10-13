@@ -345,6 +345,49 @@
           "type": "string"
         }
       }
+    },
+    "route": {
+      "type": "object",
+      "required": [
+        "receiver"
+      ],
+      "properties": {
+        "receiver": {
+          "type": "string"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "receivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "slack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "channel": {
+          "type": "string"
+        }
+      }
     }
   },
   "definitions": {

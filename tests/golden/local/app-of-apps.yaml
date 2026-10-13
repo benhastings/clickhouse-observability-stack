@@ -56,6 +56,11 @@ spec:
     helm:
       releaseName: alertmanager
       valuesObject:
+        deployment:
+          containers:
+            alertmanager:
+              image:
+                tag: main@sha256:f2623a713e31feedc2fb29c1dbceaa907f88a36da8688990bb3b213265fe3066
         global:
           labels:
             environment: local

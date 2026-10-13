@@ -235,6 +235,10 @@ dev/load: deps ## Start the demo load
 dev/load/stop: ## Stop the demo load
 	scripts/dev.bash remove demo-load
 
+.PHONY: dev/slack
+dev/slack: deps ## Send the dev/up cluster's alerts to Slack: SLACK_CHANNEL=<channel>, with SLACK_APP_TOKEN set
+	scripts/dev.bash slack '$(SLACK_CHANNEL)'
+
 .PHONY: dev/dashboards
 dev/dashboards: ## Save every dashboard in Grafana to cluster-nodes/grafana/dashboards/, to commit
 	scripts/dev.bash dashboards

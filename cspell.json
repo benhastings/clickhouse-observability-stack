@@ -89,6 +89,7 @@
     "strenv",
     "telemetrygen",
     "templatesd",
+    "tmpl",
     "tokenbf",
     "tonumber",
     "trunc",
@@ -100,6 +101,7 @@
     "virtualservices",
     "vmalert",
     "vmodule",
+    "xoxb",
     "yannh",
     "zstd"
   ]

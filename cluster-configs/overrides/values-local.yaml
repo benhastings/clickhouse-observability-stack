@@ -19,6 +19,16 @@ applications:
           kubelet:
             # kind's kubelet serving certificate is self-signed.
             insecureSkipVerify: true
+  alertmanager:
+    values:
+      deployment:
+        containers:
+          alertmanager:
+            # Alertmanager's main branch, pinned by digest: Slack threads (slack.post_updates_to_thread,
+            # prometheus/alertmanager#5540) are merged but not released after v0.34.1. Go back to a release
+            # tag once one has them. Slack itself stays off until make dev/slack, or slack.enabled here.
+            image:
+              tag: "main@sha256:f2623a713e31feedc2fb29c1dbceaa907f88a36da8688990bb3b213265fe3066"
   grafana:
     values:
       configMaps:
