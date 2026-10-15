@@ -56,6 +56,15 @@ data:
     - access: proxy
       editable: false
       jsonData:
+        handleGrafanaManagedAlerts: false
+        implementation: prometheus
+      name: Alertmanager
+      type: alertmanager
+      uid: alertmanager
+      url: 'http://alertmanager:9093'
+    - access: proxy
+      editable: false
+      jsonData:
         nodeGraph:
           enabled: true
         serviceMap:
