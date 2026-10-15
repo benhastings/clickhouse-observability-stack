@@ -68,6 +68,17 @@ clickhouse:
         memory: 64Mi
       limits:
         memory: 256Mi
+  # Anomaly baselines, computed by refreshable views in the otel_baseline database (see files/schema.sql.tpl):
+  # the hour-of-week median and MAD of each signal per service over the last weeks, written back as
+  # baseline:<signal>:median, :mad and :samples gauge series. signals is the allowlist of what gets one.
+  baselines:
+    enabled: true
+    weeks: 4
+    signals:
+      - requests_per_minute
+      - error_ratio
+      - latency_p95_ms
+      - error_logs_per_minute
   # An optional nightly clickhouse-backup run against the otel cluster, uploading to S3-compatible storage.
   # It uses ClickHouse's own BACKUP ... TO S3 (embedded mode with no backup disk), so the job needs only the
   # clickhouse:9000 Service, not the data volume. keep is how many remote backups to retain; older ones are

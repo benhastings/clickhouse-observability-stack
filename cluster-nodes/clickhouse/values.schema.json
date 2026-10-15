@@ -393,6 +393,31 @@
             }
           }
         },
+        "baselines": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "weeks": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 52
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "requests_per_minute",
+                  "error_ratio",
+                  "latency_p95_ms",
+                  "error_logs_per_minute"
+                ]
+              }
+            }
+          }
+        },
         "backup": {
           "type": "object",
           "additionalProperties": false,

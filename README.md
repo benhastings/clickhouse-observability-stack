@@ -282,7 +282,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*` | Cerberus, garmr sql-adapter |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*` and `system.view_refreshes` | Cerberus, garmr sql-adapter |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
 The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`
@@ -340,6 +340,46 @@ Every rule, whichever evaluator runs it, carries the labels Alertmanager groups 
 | `service_name` | the OpenTelemetry `service.name` | the service the alert is about; absent on stack-wide alerts |
 
 Grafana's alerts also carry `grafana_folder` (`Observability stack`).
+
+### Anomaly baselines: computed by ClickHouse, read as series
+
+Anomaly rules compare what is happening now with what is normal for this time of the week. Computing that inside
+a rule would rescan weeks of samples on every evaluation, so ClickHouse computes it once, in refreshable
+materialized views in the `otel_baseline` database (`cluster-nodes/clickhouse/files/schema.sql.tpl`, applied by
+the schema Job and running as `otel_admin`):
+
+| view | refresh | writes |
+|---|---|---|
+| `signal_1m_mv` | every minute | `otel_baseline.signal_1m`: each service's signals for the minute before last |
+| `baseline_mv` | every hour | `otel_baseline.baseline`: per signal, service and hour of the week, the median and MAD (median absolute deviation) over the last `weeks` |
+| `baseline_series_mv` | after `baseline_mv` | `otel.otel_metrics_gauge`: this hour's baseline, one sample a minute, as `baseline:<signal>:median`, `:mad` and `:samples` |
+
+The signals, per service, are `requests_per_minute`, `error_ratio` and `latency_p95_ms` from its server spans,
+and `error_logs_per_minute` from its logs at `ERROR` or above. `clickhouse.baselines.signals` on the `clickhouse`
+app is the allowlist, `weeks` the history (4), and `enabled: false` creates none of it. Median and MAD are robust:
+last Tuesday's outage doesn't become this Tuesday's normal.
+
+Because the baseline is written back as series, Cerberus, dashboards and PromQL rules all see it with no new
+datasource, for example `abs(x - baseline:error_ratio:median) / baseline:error_ratio:mad`, and SQL rules can read
+`otel_baseline.baseline` directly (`otel_reader` may `SELECT` from it). The span-metrics dashboard draws request
+rate against its baseline. A view's state is in `system.view_refreshes`; vmalert's `BaselineRefreshFailing` fires
+when one fails, or hasn't succeeded for 10 minutes (signals) or 2 hours (baselines).
+
+The views live outside `otel`, so the e2e schema comparison with Cerberus still covers exactly Cerberus's tables.
+A view's query changes only with `ALTER TABLE ... MODIFY QUERY`: `CREATE ... IF NOT EXISTS` leaves an existing
+one as it was. A minute the signal view misses (ClickHouse down) is simply missing from the baseline.
+
+Cost, measured on a local `clickhouse-server:26.9.5.2` from `system.query_log` (kind's low-memory profile turns
+the query log off), for 20 services and four signals:
+
+| view | rows read | time | peak memory | rows written |
+|---|---|---|---|---|
+| `signal_1m_mv`, a minute of 200,000 server spans | 200,000 | 32 ms | 6 MiB | 60 |
+| `baseline_mv`, four full weeks of `signal_1m` | 3.2 million | 183 ms | 135 MiB | 13,440 |
+| `baseline_series_mv` | 13,500 | 22 ms | 28 MiB | 14,400 |
+
+For the demo load (two services) `signal_1m` grows by 8 rows a minute, and the series view writes
+2 × 4 × 3 × 60 = 1,440 gauge rows an hour.
 
 ### Alert history: every notification is a log in ClickHouse
 
