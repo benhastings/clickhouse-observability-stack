@@ -188,8 +188,8 @@ curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
   -d "$(otlp_span e2e-external "$external_span" "" "GET /external")" "$otlp/v1/traces"
 sender="e2e-otlp-$internal_span"
 kubectl -n observability run "$sender" --restart=Never --quiet >/dev/null \
-  --image=curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777 -- \
-  curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  --image=curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777 --command -- \
+  sh -c 'sleep 5; exec curl "$@"' sh -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
   -d "$(otlp_span e2e-internal "$internal_span" "$external_span" "GET /internal")" \
   http://otel-collector:4318/v1/traces \
   --next -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
@@ -207,13 +207,15 @@ poll "  trace $cross_trace has the external root and its in-cluster child" \
     any(.svc == \"e2e-internal\" and .span.parentSpanId == \"$external_span\")" \
   "$cerberus/api/traces/$cross_trace"
 # The collector's k8sattributes labels what a pod sends with the pod it came from, matched here by the connection's
-# source IP. The sender sets no Kubernetes attributes itself. Under Istio the sidecar hides that IP (a sender sets
-# k8s.pod.uid instead), so this runs without the mesh.
+# source IP. The sender sets no Kubernetes attributes itself, and waits 5 seconds before sending so the processor's
+# pod watch has seen its IP. Under Istio the sidecar hides that IP (a sender sets k8s.pod.uid instead), so this
+# runs without the mesh.
 if [[ "${MESH:-kubernetes}" != istio ]]; then
-  poll "  k8sattributes: the in-cluster span carries the pod and namespace that sent it" \
-    "[.batches[].resource.attributes | select(.[\"service.name\"] == \"e2e-internal\")]
-      | any(.[\"k8s.pod.name\"] == \"$sender\" and .[\"k8s.namespace.name\"] == \"observability\")" \
-    "$cerberus/api/traces/$cross_trace"
+  poll "  k8sattributes: TraceQL finds the in-cluster span by the pod and namespace that sent it" \
+    "[.traces[].traceID] | index(\"$cross_trace\") != null" \
+    "$cerberus/api/search" \
+    --data-urlencode "q={resource.k8s.pod.name=\"$sender\" && resource.k8s.namespace.name=\"observability\"}" \
+    --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
   poll "  k8sattributes: so does its log, as LogQL labels" \
     "[.data.result[].metric | select(.k8s_pod_name == \"$sender\" and .k8s_namespace_name == \"observability\")] | length > 0" \
     "$cerberus/loki/api/v1/query" \
