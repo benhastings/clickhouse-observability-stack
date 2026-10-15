@@ -49,6 +49,7 @@
     "finalizer",
     "finalizers",
     "fips",
+    "fromdateiso",
     "garmr",
     "goarch",
     "gomemlimit",
