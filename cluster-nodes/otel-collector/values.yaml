@@ -142,6 +142,12 @@ configMaps:
           {{- end }}
           health_check:
             endpoint: ${env:MY_POD_IP}:13133
+          # Only the replica holding this Lease runs k8s_cluster, so prod's two gateways don't report the
+          # cluster twice.
+          k8s_leader_elector:
+            auth_type: serviceAccount
+            lease_name: otel-collector-k8s-cluster
+            lease_namespace: {{ .Release.Namespace }}
         processors:
           batch: {}
           # Kubernetes attributes on every span, log and metric, so a service's RED metrics join to its pods'
@@ -207,6 +213,18 @@ configMaps:
             insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false $collector }}
             metric_groups: [node, pod, container, volume]
           {{- end }}
+          # Cluster state from the API server, kube-state-metrics' half: pod phase, container restarts and
+          # readiness, workload desired and available replicas, node conditions and allocatable, and every
+          # container's requests and limits. Always in the gateway, agent or not.
+          k8s_cluster:
+            auth_type: serviceAccount
+            collection_interval: 30s
+            k8s_leader_elector: k8s_leader_elector
+            node_conditions_to_report: [Ready, MemoryPressure, DiskPressure, PIDPressure]
+            allocatable_types_to_report: [cpu, memory, ephemeral-storage, pods]
+            resource_attributes:
+              k8s.container.status.last_terminated_reason:
+                enabled: true
           # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
           # fails to deliver. Only these two series are kept.
           prometheus/alertmanager:
@@ -249,6 +267,7 @@ configMaps:
           - bearertokenauth
           {{- end }}
           - health_check
+          - k8s_leader_elector
           pipelines:
             logs:
               exporters:
@@ -295,6 +314,7 @@ configMaps:
               {{- if not $agent }}
               - kubeletstats
               {{- end }}
+              - k8s_cluster
               - spanmetrics
               - servicegraph
               - prometheus/alertmanager
@@ -332,7 +352,7 @@ configMaps:
 
 # kubeletstats authenticates to the kubelet with this ServiceAccount's token, in the gateway or the agent,
 # and k8sattributes to the API server, where it watches pods, namespaces and (for deployment names)
-# replicasets.
+# replicasets. k8s_cluster lists and watches the workload kinds it reports, and holds its Lease here.
 serviceAccount:
   automountToken: true
 
@@ -342,11 +362,21 @@ rbac:
       resources: [nodes/stats]
       verbs: [get]
     - apiGroups: [""]
-      resources: [pods, namespaces]
+      resources: [nodes, pods, namespaces, services, replicationcontrollers, resourcequotas]
       verbs: [get, list, watch]
     - apiGroups: [apps]
-      resources: [replicasets]
+      resources: [replicasets, deployments, daemonsets, statefulsets]
       verbs: [get, list, watch]
+    - apiGroups: [batch]
+      resources: [jobs, cronjobs]
+      verbs: [get, list, watch]
+    - apiGroups: [autoscaling]
+      resources: [horizontalpodautoscalers]
+      verbs: [get, list, watch]
+  rules:
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      verbs: [get, list, watch, create, update, patch]
 
 service:
   enabled: true
