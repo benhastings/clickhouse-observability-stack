@@ -127,6 +127,13 @@ poll "LogQL: checkout logs arrive" \
   "$cerberus/loki/api/v1/query_range" --data-urlencode 'query={service_name="checkout"}' \
   --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=10'
 
+# The collector's k8sattributes adds the owning workload to kubeletstats' pod metrics, matched by their pod UID, so
+# a service's pods' resources join to its RED metrics on k8s_deployment_name. (The demo load reports made-up
+# Kubernetes attributes for its services, which a sender's own attributes keep, so its spans can't show this.)
+poll "PromQL: kubeletstats pod memory carries the deployment that owns the pod" \
+  '[.data.result[].metric.k8s_deployment_name] | index("demo-load") != null' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=count by (k8s_deployment_name) (k8s_pod_memory_working_set)'
+
 poll "TraceQL: failing payments traces are searchable" \
   '.traces | length > 0' \
   "$cerberus/api/search" --data-urlencode 'q={resource.service.name="payments" && status=error}' \
@@ -168,6 +175,11 @@ otlp_span() { # service span_id parent_span_id name
       scopeSpans: [{spans: [{traceId: $trace, spanId: $span, parentSpanId: $parent, name: $name,
         kind: 2, startTimeUnixNano: $t0, endTimeUnixNano: $t1}]}]}]}'
 }
+otlp_log() { # service body
+  jq -nc --arg svc "$1" --arg body "$2" --arg t "$(date +%s%N)" \
+    '{resourceLogs: [{resource: {attributes: [{key: "service.name", value: {stringValue: $svc}}]},
+      scopeLogs: [{logRecords: [{timeUnixNano: $t, severityText: "INFO", body: {stringValue: $body}}]}]}]}'
+}
 cross_trace="$(openssl rand -hex 16)"
 external_span="$(openssl rand -hex 8)"
 internal_span="$(openssl rand -hex 8)"
@@ -176,10 +188,13 @@ curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
   -d "$(otlp_span e2e-external "$external_span" "" "GET /external")" "$otlp/v1/traces"
 sender="e2e-otlp-$internal_span"
 kubectl -n observability run "$sender" --restart=Never --quiet >/dev/null \
-  --image=curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777 -- \
-  curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  --image=curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777 --command -- \
+  sh -c 'sleep 5; exec curl "$@"' sh -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
   -d "$(otlp_span e2e-internal "$internal_span" "$external_span" "GET /internal")" \
-  http://otel-collector:4318/v1/traces
+  http://otel-collector:4318/v1/traces \
+  --next -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "$(otlp_log e2e-internal "sent from $sender")" \
+  http://otel-collector:4318/v1/logs
 if ! kubectl -n observability wait "pod/$sender" --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s >/dev/null; then
   kubectl -n observability logs "$sender" || true
   echo "  the in-cluster span was not sent"
@@ -191,6 +206,21 @@ poll "  trace $cross_trace has the external root and its in-cluster child" \
     any(.svc == \"e2e-external\" and .span.spanId == \"$external_span\") and
     any(.svc == \"e2e-internal\" and .span.parentSpanId == \"$external_span\")" \
   "$cerberus/api/traces/$cross_trace"
+# The collector's k8sattributes labels what a pod sends with the pod it came from, matched here by the connection's
+# source IP. The sender sets no Kubernetes attributes itself, and waits 5 seconds before sending so the processor's
+# pod watch has seen its IP. Under Istio the sidecar hides that IP (a sender sets k8s.pod.uid instead), so this
+# runs without the mesh.
+if [[ "${MESH:-kubernetes}" != istio ]]; then
+  poll "  k8sattributes: TraceQL finds the in-cluster span by the pod and namespace that sent it" \
+    "[.traces[].traceID | (32 - length) as \$n | (if \$n > 0 then \"0\" * \$n else \"\" end) + .] | index(\"$cross_trace\") != null" \
+    "$cerberus/api/search" \
+    --data-urlencode "q={resource.k8s.pod.name=\"$sender\" && resource.k8s.namespace.name=\"observability\"}" \
+    --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+  poll "  k8sattributes: so does its log, as LogQL labels" \
+    "[.data.result[].metric | select(.k8s_pod_name == \"$sender\" and .k8s_namespace_name == \"observability\")] | length > 0" \
+    "$cerberus/loki/api/v1/query" \
+    --data-urlencode 'query=sum by (k8s_pod_name, k8s_namespace_name) (count_over_time({service_name="e2e-internal"} [15m]))'
+fi
 
 for uid in cerberus-prometheus cerberus-loki cerberus-tempo; do
   poll "Grafana: datasource $uid is healthy" \

@@ -26,7 +26,7 @@ flowchart LR
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. Also creates the OTel tables. |
-| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
@@ -75,6 +75,7 @@ A quarter of charges time out at the payment gateway. Payments fails those reque
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
+- **Kubernetes attributes:** the collector's `k8sattributes` processor labels every span, log and metric with `k8s_namespace_name`, `k8s_pod_name`, `k8s_deployment_name` (or `_statefulset_`, `_daemonset_`) and `k8s_node_name`, so a service's span metrics and its pods' `k8s_pod_memory_working_set` join on `k8s_deployment_name`. Attributes a sender sets itself win: the demo load reports made-up ones for its services (`k8s_namespace_name="shop"`), so its spans don't join to its real pod. It finds a sender by the `k8s.pod.uid` or `k8s.pod.ip` resource attribute it reports, else by its connection's source IP. An Istio sidecar hides that IP, so in the mesh a sender sets `k8s.pod.uid` from the downward API, as the demo load does.
 
 ### Sending your own telemetry
 
@@ -893,7 +894,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 - **Network policies:** `global.networkPolicy.enabled: true` gives every app a policy that allows only its
   own traffic. Grafana is reachable from `global.networkPolicy.exposureNamespaces` (the ingress gateway or
   controller), queries only Cerberus and Alertmanager, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
-  answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse and the kubelets.
+  answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse, the kubelets, and the API server (443 and 6443) for `k8sattributes`.
   vmalert reaches only garmr sql-adapter and Alertmanager; the adapter answers only vmalert and reaches only
   ClickHouse. Alertmanager accepts Grafana and vmalert, and reaches only the collector's history endpoint.
   ClickHouse accepts the collector, Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
@@ -902,7 +903,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 
 - **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
-- **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
+- **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas. The gateway's `k8sattributes` watches every pod in the cluster, so its memory grows with the pod count; the agent watches only its own node's pods.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
 - **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default). Also set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus if retention exceeds 14 days.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
