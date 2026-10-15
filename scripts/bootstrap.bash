@@ -52,9 +52,13 @@ else
     --destination "$chart_dir"
   chart="$chart_dir/argo-cd-$ARGOCD_CHART_VERSION.tgz"
   if [[ -n "${KIND_CLUSTER:-}" ]]; then
-    preload_kind_images "$KIND_CLUSTER" "$(helm template argocd "$chart" --namespace argocd \
-      -f cluster-configs/argocd/values.yaml |
+    # Rendered for this cluster's version: helm template otherwise assumes one the chart refuses. Assigned
+    # first, so a failed render stops here instead of loading nothing.
+    images="$(helm template argocd "$chart" --namespace argocd -f cluster-configs/argocd/values.yaml \
+      --kube-version "$(kubectl version -o json | jq -r .serverVersion.gitVersion)" |
       yq -N '.. | select(tag == "!!map" and has("image")) | .image' | sort -u)"
+    [[ -n "$images" ]] || { echo "bootstrap: the Argo CD chart rendered no images" >&2; exit 1; }
+    preload_kind_images "$KIND_CLUSTER" "$images"
   fi
   echo "==> Installing Argo CD (chart $ARGOCD_CHART_VERSION)"
   helm upgrade --install argocd "$chart" \
