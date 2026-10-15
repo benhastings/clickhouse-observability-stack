@@ -320,8 +320,10 @@ poll "LogQL: the resolved notification records how long $e2e_alert fired" \
 
 # vmalert evaluates every rule as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is health
 # "err" with ClickHouse's message, so every rule evaluated and healthy proves vmalert -> adapter -> ClickHouse.
-poll "vmalert: every rule evaluates through garmr sql-adapter without error" \
-  '[.data.groups[].rules[]] | length >= 9 and all(.health == "ok" and .lastEvaluation != "0001-01-01T00:00:00Z")' \
+# The count comes from the rule files, so adding or removing a rule doesn't need an edit here.
+rule_count="$(cat cluster-nodes/vmalert/files/rules/*.yaml | grep -cE '^[[:space:]]*- alert:')"
+poll "vmalert: all $rule_count rules evaluate through garmr sql-adapter without error" \
+  "[.data.groups[].rules[]] | length == $rule_count and all(.health == \"ok\" and .lastEvaluation != \"0001-01-01T00:00:00Z\")" \
   "$vmalert/api/v1/rules"
 # The alerting pipeline watches itself: Watchdog always fires and goes to the heartbeat receiver, and
 # Alertmanager's notification counters, scraped by the collector, feed AlertmanagerNotificationsFailing.
