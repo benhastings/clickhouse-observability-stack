@@ -92,6 +92,7 @@
     "tmpl",
     "tokenbf",
     "tonumber",
+    "topk",
     "trunc",
     "tsouza",
     "urandom",
