@@ -30,33 +30,104 @@ metadata:
     app.kubernetes.io/version: "1.153.0"
     environment: dev
 data:
-  stack.yaml: |
-    # The stack's starter rules. Each expr is ClickHouse SQL that garmr sql-adapter runs as otel_reader: the
-    # column named value is the sample, every other column is a label, and {time:DateTime64(3, 'UTC')} is the
-    # evaluation time. Group by every label column. The labels severity and service_name are what Alertmanager
-    # groups and routes on.
+  anomaly.yaml: |
+    # The stack's default rules: anomalies, a change from what is normal for each service, not fixed thresholds.
+    # Each expr is ClickHouse SQL that garmr sql-adapter runs as otel_reader. otel_baseline.anomaly (the clickhouse
+    # node's schema) gives every service and signal its observed value over the last 5 minutes, its expected
+    # median and MAD, how many samples that baseline has, and z, the robust z-score. A rule keeps the rows that are
+    # anomalous enough, with enough traffic to mean something, and returns z as the value. The annotations query
+    # the same view for the observed value and the baseline, so a notification prints both.
+    #
+    # files/reference/anomaly.yaml has each rule written in PromQL; it is what these rules mean, and
+    # scripts/e2e.bash checks that the error-ratio one agrees on the injected incident.
     groups:
-      - name: stack
+      - name: anomaly
         interval: 1m
         rules:
-          - alert: ServerErrorRatioHigh
+          # Traffic both ways: a drop is often the first sign of an outage upstream.
+          - alert: RequestRateAnomaly
             expr: |
-              SELECT ServiceName AS service_name,
-                     countIf(StatusCode = 'Error') / count() AS value
-              FROM otel.otel_traces
-              WHERE SpanKind = 'Server'
-                AND Timestamp BETWEEN {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE AND {time:DateTime64(3, 'UTC')}
-              GROUP BY service_name
-              HAVING count() > 10 AND value > 0.05
+              SELECT service_name, z AS value
+              FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+              WHERE signal = 'requests_per_minute' AND samples >= 8 AND median >= 10 AND abs(z) > 3
             for: 5m
             labels:
               severity: warning
             annotations:
-              summary: "{{ $labels.service_name }} errors on {{ $value | humanizePercentage }} of server spans"
+              summary: "{{ $labels.service_name }}: request rate is {{ $value | printf \"%.1f\" }} deviations from normal"
               description: >-
-                More than 5% of {{ $labels.service_name }}'s server spans ended in an error over the last 5 minutes,
-                for 5 minutes.
+                {{ $labels.service_name }} is serving {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'requests_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }} requests a minute;
+                normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'requests_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }}.
   
+          # Only above a 5% floor, so a service that normally has no errors doesn't page on one.
+          - alert: ErrorRatioAnomaly
+            expr: |
+              SELECT service_name, z AS value
+              FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+              WHERE signal = 'error_ratio' AND samples >= 8 AND requests >= 50 AND observed > 0.05 AND z > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.service_name }}: error ratio is {{ $value | printf \"%.1f\" }} deviations above normal"
+              description: >-
+                {{ $labels.service_name }} errors on {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_ratio' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of server spans;
+                normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_ratio' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}.
+  
+          - alert: LatencyAnomaly
+            expr: |
+              SELECT service_name, z AS value
+              FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+              WHERE signal = 'latency_p95_ms' AND samples >= 8 AND requests >= 50 AND z > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.service_name }}: p95 latency is {{ $value | printf \"%.1f\" }} deviations above normal"
+              description: >-
+                {{ $labels.service_name }}'s server spans take {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'latency_p95_ms' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }} ms at the 95th
+                percentile; normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'latency_p95_ms' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }} ms.
+  
+          - alert: ErrorLogAnomaly
+            expr: |
+              SELECT service_name, z AS value
+              FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+              WHERE signal = 'error_logs_per_minute' AND samples >= 8 AND observed >= 5 AND z > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.service_name }}: error logs are {{ $value | printf \"%.1f\" }} deviations above normal"
+              description: >-
+                {{ $labels.service_name }} logs {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_logs_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.1f" }}{{ end }} errors a minute;
+                normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_logs_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.1f" }}{{ end }}.
+  
+          # The dead man's switch for ingestion: a service that sent spans over the last hour and none for 5
+          # minutes. The value is how many requests a minute it normally serves.
+          - alert: TelemetryAbsent
+            expr: |
+              SELECT e.service_name AS service_name, e.median AS value
+              FROM otel_baseline.expected(at = {time:DateTime64(3, 'UTC')}) AS e
+              LEFT ANTI JOIN otel_baseline.current(at = {time:DateTime64(3, 'UTC')}) AS c
+                  ON c.service_name = e.service_name AND c.signal = e.signal
+              WHERE e.signal = 'requests_per_minute' AND e.samples >= 8 AND e.median >= 1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.service_name }}: no spans for 5 minutes"
+              description: >-
+                {{ $labels.service_name }} normally serves {{ $value | printf "%.0f" }} requests a minute but has sent
+                no server spans for 5 minutes: it is down, or its telemetry isn't reaching the collector.
+  stack.yaml: |
+    # The rules that watch the stack itself. The rules about services are anomaly.yaml. Each expr is ClickHouse
+    # SQL that garmr sql-adapter runs as otel_reader: the column named value is the sample, every other column is
+    # a label, and {time:DateTime64(3, 'UTC')} is the evaluation time. Group by every label column. The labels
+    # severity and service_name are what Alertmanager groups and routes on.
+    groups:
+      - name: stack
+        interval: 1m
+        rules:
           # Always firing, so the alerting pipeline itself is watched: Alertmanager routes it to the heartbeat
           # receiver, which a site points at a dead man's switch service.
           # If vmalert stops evaluating, or can't reach ClickHouse or Alertmanager, the heartbeat stops.
@@ -159,7 +230,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: dce9f3929d152d9a887228dd51788d5d211063ed2e7052815d100d8bb1e4ea45
+        checksum/config: 3eb1f7ca88da689e7bbe262af8e65b30966f201a53cea92ec4d35798db372753
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false

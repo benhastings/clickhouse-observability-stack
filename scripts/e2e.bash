@@ -318,11 +318,12 @@ poll "LogQL: the resolved notification records how long $e2e_alert fired" \
   "$cerberus/loki/api/v1/query" \
   --data-urlencode 'query=quantile_over_time(0.5, {service_name="alertmanager"} | status="resolved" | unwrap duration_seconds [15m]) by (alertname)'
 
-# vmalert evaluates the starter rules as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is
-# health "err" with ClickHouse's message, so a healthy evaluation proves vmalert -> adapter -> ClickHouse.
-poll "vmalert: ServerErrorRatioHigh evaluated through garmr sql-adapter without error" \
-  '[.data.groups[].rules[] | select(.name == "ServerErrorRatioHigh" and .health == "ok" and
-    .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
+# vmalert evaluates every rule as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is health
+# "err" with ClickHouse's message, so every rule evaluated and healthy proves vmalert -> adapter -> ClickHouse.
+# The count comes from the rule files, so adding or removing a rule doesn't need an edit here.
+rule_count="$(cat cluster-nodes/vmalert/files/rules/*.yaml | grep -cE '^[[:space:]]*- alert:')"
+poll "vmalert: all $rule_count rules evaluate through garmr sql-adapter without error" \
+  "[.data.groups[].rules[]] | length == $rule_count and all(.health == \"ok\" and .lastEvaluation != \"0001-01-01T00:00:00Z\")" \
   "$vmalert/api/v1/rules"
 # The alerting pipeline watches itself: Watchdog always fires and goes to the heartbeat receiver, and
 # Alertmanager's notification counters, scraped by the collector, feed AlertmanagerNotificationsFailing.
@@ -341,25 +342,65 @@ poll "vmalert: BaselineRefreshFailing reads system.view_refreshes as otel_reader
   '[.data.groups[].rules[] | select(.name == "BaselineRefreshFailing" and .health == "ok" and
     .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
   "$vmalert/api/v1/rules"
-# The demo load fails about 25% of payments calls and none of checkout's. The rule waits 5m (for:) before it
-# fires, so this poll gets longer than the others.
-DATA_TIMEOUT=$((DATA_TIMEOUT + 420)) poll "Alertmanager: vmalert's ServerErrorRatioHigh fires for payments" \
-  '[.[] | select(.labels.alertname == "ServerErrorRatioHigh" and .status.state == "active")
-   | .labels.service_name] | index("payments") != null' \
-  "$alertmanager/api/v2/alerts"
 # local turns on Grafana's starter rules, which send to the same Alertmanager through the stack-alertmanager
 # contact point. Grafana labels what it sends with the rule's folder.
 poll "Alertmanager: Grafana's span error ratio rule fires for payments" \
   '[.[] | select(.labels.grafana_folder == "Observability stack" and .status.state == "active")
    | .labels.service_name] | index("payments") != null' \
   "$alertmanager/api/v2/alerts"
-step "Alertmanager: ServerErrorRatioHigh does not fire for checkout, which has no server errors"
+# The demo load's first incident: from 15 minutes after it starts, payments fails 90% of charges instead of 25%,
+# for 10 minutes. Until then nothing anomalous may fire. During it ErrorRatioAnomaly must fire for payments,
+# print the observed ratio and its baseline, and agree with the PromQL reference rule; after it, resolve.
+anomalies='["RequestRateAnomaly", "ErrorRatioAnomaly", "LatencyAnomaly", "ErrorLogAnomaly", "TelemetryAbsent"]'
+step "demo load: waiting for the injected incident, 15 minutes after the demo load started"
+deadline=$((SECONDS + 1500))
+until kubectl -n observability logs deploy/demo-load 2>/dev/null | grep -q "errors incident started"; do
+  if ((SECONDS > deadline)); then
+    kubectl -n observability logs deploy/demo-load | tail -5
+    echo "  the incident did not start within 25 minutes"
+    exit 1
+  fi
+  sleep 15
+done
+incident_at="$(kubectl -n observability logs --timestamps deploy/demo-load |
+  awk '/errors incident started/ && !at { at = $1 } END { print at }')"
+incident_start="$(jq -rn --arg t "$incident_at" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601')"
+echo "  ok, at $incident_at"
+step "Alertmanager: the steady load raised no anomaly alert before the incident"
 if curl -fsS "$alertmanager/api/v2/alerts" |
-  jq -e '[.[] | select(.labels.alertname == "ServerErrorRatioHigh" and .labels.service_name == "checkout")] | length > 0' >/dev/null; then
-  echo "  ServerErrorRatioHigh fired for checkout"
+  jq -e --argjson a "$anomalies" '[.[] | .labels.alertname as $n | select($a | index($n))] | length > 0' >/dev/null; then
+  curl -fsS "$alertmanager/api/v2/alerts" | jq -c --argjson a "$anomalies" '.[] | .labels as $l | select($a | index($l.alertname)) | $l'
+  echo "  an anomaly alert fired on the steady load"
   exit 1
 fi
 echo "  ok"
+DATA_TIMEOUT=900 poll "Alertmanager: vmalert's ErrorRatioAnomaly fires for payments during the incident" \
+  '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .status.state == "active") | .labels.service_name]
+   | index("payments") != null' \
+  "$alertmanager/api/v2/alerts"
+poll "Alertmanager: ErrorRatioAnomaly prints the observed error ratio and its baseline" \
+  '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .labels.service_name == "payments")
+   | .annotations.description | test("payments errors on [0-9.]+% of server spans; normally [0-9.]+%")] | any' \
+  "$alertmanager/api/v2/alerts"
+# The reference compares the last 5 minutes with the mean and standard deviation of the hour before them, so it
+# is evaluated 5 minutes into the incident: the 5 minutes are all incident and the hour before is all steady
+# load. Later, incident minutes enter that hour and drag the mean and deviation up until it stops firing,
+# which is the weakness the median and MAD in the ClickHouse rule avoid.
+reference="$(yq '.groups[] | select(.name == "anomaly-reference-recent") | .rules[] | select(.alert == "ErrorRatioAnomaly") | .expr' \
+  cluster-nodes/vmalert/files/reference/anomaly.yaml)"
+poll "PromQL: the reference ErrorRatioAnomaly agrees 5 minutes into the incident, through Cerberus" \
+  '[.data.result[].metric.service_name] | index("payments") != null' \
+  "$cerberus/api/v1/query" --data-urlencode "query=$reference" --data-urlencode "time=$((incident_start + 300))"
+DATA_TIMEOUT=1200 poll "Alertmanager: ErrorRatioAnomaly resolves for payments after the incident" \
+  '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .labels.service_name == "payments"
+   and .status.state == "active")] | length == 0' \
+  "$alertmanager/api/v2/alerts"
+poll "LogQL: the alert history kept ErrorRatioAnomaly's resolution" \
+  '[.data.result[].values[]] | length > 0' \
+  "$cerberus/loki/api/v1/query_range" \
+  --data-urlencode 'query={service_name="alertmanager"} | alertname="ErrorRatioAnomaly" | status="resolved"' \
+  --data-urlencode "start=$(($(date +%s) - 3600))000000000" --data-urlencode "end=$(($(date +%s) + 60))000000000" \
+  --data-urlencode 'limit=10'
 
 # MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
 # the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.

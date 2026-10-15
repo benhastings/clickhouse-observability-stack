@@ -128,6 +128,24 @@ tests:
           path: data["schema.sql"]
           pattern: "REFRESH EVERY 1 HOUR DEPENDS ON otel_baseline.baseline_mv APPEND TO otel.otel_metrics_gauge"
 
+  - it: gives the anomaly rules parameterized views that run as otel_admin
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE VIEW IF NOT EXISTS otel_baseline.current\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE VIEW IF NOT EXISTS otel_baseline.expected\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE VIEW IF NOT EXISTS otel_baseline.anomaly\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "if\\(s.Samples >= 120, 'hour_of_week', 'last_hour'\\) AS source"
+
   - it: creates no baseline objects when baselines are off
     set:
       clickhouse.baselines.enabled: false

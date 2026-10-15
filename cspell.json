@@ -19,6 +19,7 @@
   "words": [
     "alsologtostderr",
     "altinity",
+    "argjson",
     "automount",
     "benhastings",
     "bleve",
@@ -47,6 +48,7 @@
     "finalizer",
     "finalizers",
     "fips",
+    "fromdateiso",
     "garmr",
     "goarch",
     "gomemlimit",
@@ -83,6 +85,7 @@
     "spanmetrics",
     "sslip",
     "stakater",
+    "stddev",
     "stderrthreshold",
     "strenv",
     "telemetrygen",

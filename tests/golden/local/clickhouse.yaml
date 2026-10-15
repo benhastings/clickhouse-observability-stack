@@ -480,6 +480,77 @@ data:
       AND (MetricName, ServiceName, TimeUnix) NOT IN (
           SELECT MetricName, ServiceName, TimeUnix FROM otel.otel_metrics_gauge
           WHERE MetricName LIKE 'baseline:%' AND TimeUnix >= hour);
+    
+    -- What vmalert's anomaly rules read, as parameterized views taking the evaluation time (at):
+    --   current   each service's signals over the 5 minutes to at, from the raw tables, with its request count
+    --   expected  each service's normal for at: the hour-of-week baseline once it has two weeks of samples
+    --             (source hour_of_week), otherwise the median and MAD of the hour before the last 5 minutes
+    --             (source last_hour), so a new install or a new service gets a baseline within minutes
+    --   anomaly   the two joined, with z, the robust z-score: (observed - median) / (1.4826 × MAD), the
+    --             denominator floored so a perfectly steady signal doesn't make every wobble infinite
+    -- They run as otel_admin, so otel_reader needs only SELECT on otel_baseline.
+    
+    CREATE VIEW IF NOT EXISTS otel_baseline.current
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH {at:DateTime64(3, 'UTC')} AS t
+    SELECT service_name, Signal AS signal, Value AS value, requests
+    FROM
+    (
+        SELECT ServiceName AS service_name, count() AS requests,
+               ['requests_per_minute', 'error_ratio', 'latency_p95_ms'] AS signals,
+               [count() / 5, countIf(StatusCode = 'Error') / count(), quantile(0.95)(Duration) / 1e6] AS values
+        FROM otel.otel_traces
+        WHERE SpanKind = 'Server' AND Timestamp > t - INTERVAL 5 MINUTE AND Timestamp <= t
+        GROUP BY service_name
+        UNION ALL
+        SELECT ServiceName, count(), ['error_logs_per_minute'], [countIf(SeverityNumber >= 17) / 5]
+        FROM otel.otel_logs
+        WHERE Timestamp > t - INTERVAL 5 MINUTE AND Timestamp <= t
+        GROUP BY ServiceName
+    )
+    ARRAY JOIN signals AS Signal, values AS Value;
+    
+    CREATE VIEW IF NOT EXISTS otel_baseline.expected
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH {at:DateTime64(3, 'UTC')} AS t,
+         toUInt8((toDayOfWeek(t) - 1) * 24 + toHour(t)) AS how
+    SELECT r.service_name AS service_name, r.signal AS signal,
+           if(s.Samples >= 120, s.Median, r.median) AS median,
+           if(s.Samples >= 120, s.MAD, r.mad) AS mad,
+           if(s.Samples >= 120, toUInt32(s.Samples), toUInt32(r.samples)) AS samples,
+           if(s.Samples >= 120, 'hour_of_week', 'last_hour') AS source
+    FROM
+    (
+        SELECT ServiceName AS service_name, Signal AS signal, median,
+               arrayReduce('quantileExact(0.5)', arrayMap(v -> abs(v - median), vs)) AS mad,
+               length(vs) AS samples
+        FROM
+        (
+            SELECT ServiceName, Signal, groupArray(Value) AS vs, quantileExact(0.5)(Value) AS median
+            FROM otel_baseline.signal_1m FINAL
+            WHERE Minute >= t - INTERVAL 65 MINUTE AND Minute < t - INTERVAL 5 MINUTE
+            GROUP BY ServiceName, Signal
+        )
+    ) AS r
+    LEFT JOIN
+    (
+        SELECT ServiceName, Signal, Median, MAD, Samples FROM otel_baseline.baseline WHERE HourOfWeek = how
+    ) AS s ON s.ServiceName = r.service_name AND s.Signal = r.signal;
+    
+    CREATE VIEW IF NOT EXISTS otel_baseline.anomaly
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT c.service_name AS service_name, c.signal AS signal, c.value AS observed, c.requests AS requests,
+           e.median AS median, e.mad AS mad, e.samples AS samples, e.source AS source,
+           (c.value - e.median) / multiIf(
+               c.signal = 'error_ratio', greatest(1.4826 * e.mad, 0.02),
+               c.signal = 'error_logs_per_minute', greatest(1.4826 * e.mad, 0.2 * e.median, 1),
+               greatest(1.4826 * e.mad, 0.1 * e.median, 1)) AS z
+    FROM otel_baseline.current(at = {at:DateTime64(3, 'UTC')}) AS c
+    INNER JOIN otel_baseline.expected(at = {at:DateTime64(3, 'UTC')}) AS e
+        ON e.service_name = c.service_name AND e.signal = c.signal;
 ---
 # Source: clickhouse/templates/objects.yaml
 apiVersion: batch/v1
@@ -495,7 +566,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: local
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-0775943d
+  name: clickhouse-schema-7704da80
   namespace: observability
 spec:
   activeDeadlineSeconds: 900

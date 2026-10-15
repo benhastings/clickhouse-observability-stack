@@ -1,0 +1,88 @@
+# The stack's default rules: anomalies, a change from what is normal for each service, not fixed thresholds.
+# Each expr is ClickHouse SQL that garmr sql-adapter runs as otel_reader. otel_baseline.anomaly (the clickhouse
+# node's schema) gives every service and signal its observed value over the last 5 minutes, its expected
+# median and MAD, how many samples that baseline has, and z, the robust z-score. A rule keeps the rows that are
+# anomalous enough, with enough traffic to mean something, and returns z as the value. The annotations query
+# the same view for the observed value and the baseline, so a notification prints both.
+#
+# files/reference/anomaly.yaml has each rule written in PromQL; it is what these rules mean, and
+# scripts/e2e.bash checks that the error-ratio one agrees on the injected incident.
+groups:
+  - name: anomaly
+    interval: 1m
+    rules:
+      # Traffic both ways: a drop is often the first sign of an outage upstream.
+      - alert: RequestRateAnomaly
+        expr: |
+          SELECT service_name, z AS value
+          FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+          WHERE signal = 'requests_per_minute' AND samples >= 8 AND median >= 10 AND abs(z) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service_name }}: request rate is {{ $value | printf \"%.1f\" }} deviations from normal"
+          description: >-
+            {{ $labels.service_name }} is serving {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'requests_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }} requests a minute;
+            normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'requests_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }}.
+
+      # Only above a 5% floor, so a service that normally has no errors doesn't page on one.
+      - alert: ErrorRatioAnomaly
+        expr: |
+          SELECT service_name, z AS value
+          FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+          WHERE signal = 'error_ratio' AND samples >= 8 AND requests >= 50 AND observed > 0.05 AND z > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service_name }}: error ratio is {{ $value | printf \"%.1f\" }} deviations above normal"
+          description: >-
+            {{ $labels.service_name }} errors on {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_ratio' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of server spans;
+            normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_ratio' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}.
+
+      - alert: LatencyAnomaly
+        expr: |
+          SELECT service_name, z AS value
+          FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+          WHERE signal = 'latency_p95_ms' AND samples >= 8 AND requests >= 50 AND z > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service_name }}: p95 latency is {{ $value | printf \"%.1f\" }} deviations above normal"
+          description: >-
+            {{ $labels.service_name }}'s server spans take {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'latency_p95_ms' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }} ms at the 95th
+            percentile; normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'latency_p95_ms' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.0f" }}{{ end }} ms.
+
+      - alert: ErrorLogAnomaly
+        expr: |
+          SELECT service_name, z AS value
+          FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')})
+          WHERE signal = 'error_logs_per_minute' AND samples >= 8 AND observed >= 5 AND z > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service_name }}: error logs are {{ $value | printf \"%.1f\" }} deviations above normal"
+          description: >-
+            {{ $labels.service_name }} logs {{ with printf "SELECT observed AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_logs_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.1f" }}{{ end }} errors a minute;
+            normally {{ with printf "SELECT median AS value FROM otel_baseline.anomaly(at = {time:DateTime64(3, 'UTC')}) WHERE signal = 'error_logs_per_minute' AND service_name = '%s'" $labels.service_name | query }}{{ . | first | value | printf "%.1f" }}{{ end }}.
+
+      # The dead man's switch for ingestion: a service that sent spans over the last hour and none for 5
+      # minutes. The value is how many requests a minute it normally serves.
+      - alert: TelemetryAbsent
+        expr: |
+          SELECT e.service_name AS service_name, e.median AS value
+          FROM otel_baseline.expected(at = {time:DateTime64(3, 'UTC')}) AS e
+          LEFT ANTI JOIN otel_baseline.current(at = {time:DateTime64(3, 'UTC')}) AS c
+              ON c.service_name = e.service_name AND c.signal = e.signal
+          WHERE e.signal = 'requests_per_minute' AND e.samples >= 8 AND e.median >= 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service_name }}: no spans for 5 minutes"
+          description: >-
+            {{ $labels.service_name }} normally serves {{ $value | printf "%.0f" }} requests a minute but has sent
+            no server spans for 5 minutes: it is down, or its telemetry isn't reaching the collector.
