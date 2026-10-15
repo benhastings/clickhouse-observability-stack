@@ -16,6 +16,11 @@ data:
   alertmanager.yml: |-
     receivers:
     - name: default
+    - name: history
+      webhook_configs:
+      - max_alerts: 1
+        send_resolved: true
+        url: 'http://otel-collector:8088/alertmanager'
     route:
       group_by:
       - alertname
@@ -24,3 +29,12 @@ data:
       group_wait: 30s
       receiver: default
       repeat_interval: 4h
+      routes:
+      - continue: true
+        group_by:
+        - '...'
+        group_interval: 1m
+        group_wait: 0s
+        receiver: history
+        repeat_interval: 168h
+      - receiver: default

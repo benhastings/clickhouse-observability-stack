@@ -18,6 +18,11 @@ spec:
     app.kubernetes.io/name: otel-collector
     app.kubernetes.io/instance: otel-collector
   ports:
+    - name: alertmanager
+      port: 8088
+      targetPort: alertmanager
+      protocol: TCP
+      appProtocol: http
     - name: otlp
       port: 4317
       targetPort: otlp
