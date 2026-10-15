@@ -80,6 +80,7 @@ add a target. `make help` lists everything.
 | `make dev/apply APP=<app>`  | redeploys one app from the working tree into the `dev/up` cluster              |
 | `make dev/load`, `dev/load/stop` | starts or stops the demo load in the `dev/up` cluster                    |
 | `make dev/dashboards`       | saves every dashboard in the `dev/up` Grafana to `cluster-nodes/grafana/dashboards/` |
+| `make dev/slack SLACK_CHANNEL=<channel>` | with `SLACK_APP_TOKEN` set: the `alertmanager-slack` Secret, then Alertmanager with Slack threads on |
 | `make dev/port-forward`, `dev/down` | the `cluster/...` equivalents for the `dev/up` cluster                |
 
 GNU make is required. On macOS use `gmake`, which is what `git/hooks/pre-commit` does.

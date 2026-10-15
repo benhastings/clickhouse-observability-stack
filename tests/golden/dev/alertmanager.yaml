@@ -32,13 +32,13 @@ metadata:
 data:
   alertmanager.yml: |-
     receivers:
-    - name: default
-    - name: heartbeat
     - name: history
       webhook_configs:
       - max_alerts: 1
         send_resolved: true
-        url: 'http://otel-collector:8088/alertmanager'
+        url: http://otel-collector:8088/alertmanager
+    - name: heartbeat
+    - name: default
     route:
       group_by:
       - alertname
@@ -64,6 +64,42 @@ data:
         receiver: heartbeat
         repeat_interval: 1m
       - receiver: default
+    templates:
+    - /etc/alertmanager/templates/*.tmpl
+---
+# Source: alertmanager/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: dev
+data:
+  stack.tmpl: |
+    {{/*
+    The Slack message for an alert group. Alertmanager uses these names for any slack_configs entry that
+    doesn't set title or text, so the stack's slack receiver needs no templates in alertmanager.yml. With
+    post_updates_to_thread, the first message is the group's, and each later notification (more alerts,
+    resolved) is a reply in its thread, while update_message keeps the first message's status current.
+    */}}
+    {{ define "slack.default.title" -}}
+    [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}{{ with .CommonLabels.service_name }} · {{ . }}{{ end }}
+    {{- end }}
+  
+    {{ define "slack.default.text" -}}
+    {{ range .Alerts -}}
+    {{ if eq .Status "resolved" }}:white_check_mark:{{ else if eq .Labels.severity "critical" }}:red_circle:{{ else }}:large_orange_circle:{{ end }} *{{ .Annotations.summary }}*
+    {{ with .Annotations.description }}{{ . }}
+    {{ end -}}
+    {{ end -}}
+    {{- end }}
 ---
 # Source: alertmanager/templates/service.yaml
 apiVersion: v1
@@ -119,7 +155,7 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/instance: alertmanager
       annotations:
-        checksum/config: 197305a04f247863a55df433e2244e84f28d168708641e8fc90d0eba2a6ffddb
+        checksum/config: bbbf6d05ca55b2e9d8fbd01cf7f95981c27ccf0a5a1bc61ad121f11ed76e6085
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false
@@ -175,12 +211,23 @@ spec:
               readOnly: true
             - mountPath: /alertmanager
               name: data
+            - mountPath: /etc/alertmanager/templates
+              name: templates
+              readOnly: true
+            - mountPath: /etc/alertmanager/slack
+              name: slack
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: 'alertmanager-config'
         - name: data
           emptyDir: {}
+        - name: slack
+          emptyDir: {}
+        - name: templates
+          configMap:
+            name: 'alertmanager-templates'
 ---
 # Source: alertmanager/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1

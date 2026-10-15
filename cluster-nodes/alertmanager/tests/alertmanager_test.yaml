@@ -40,7 +40,7 @@ tests:
           pattern: "receiver: default"
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "receivers:\\n- name: default\\n- name: heartbeat\\n- name: history\\n"
+          pattern: "receivers:\\n- name: history\\n(.*\\n)*- name: heartbeat\\n- name: default\\nroute:"
 
   - it: sends vmalert's Watchdog to the heartbeat receiver every minute, for a dead man's switch
     documentSelector:
@@ -58,7 +58,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "- name: history\\n  webhook_configs:\\n  - max_alerts: 1\\n    send_resolved: true\\n    url: 'http://otel-collector:8088/alertmanager'"
+          pattern: "- name: history\\n  webhook_configs:\\n  - max_alerts: 1\\n    send_resolved: true\\n    url: http://otel-collector:8088/alertmanager"
       - matchRegex:
           path: data["alertmanager.yml"]
           pattern: "routes:\\n  - continue: true\\n    group_by:\\n    - '...'\\n    group_interval: 1m\\n    group_wait: 0s\\n    receiver: history"
@@ -155,11 +155,113 @@ tests:
           path: spec.ingress[0].ports[0].port
           value: 9093
 
-  - it: still sends every alert to default after history, whose route matches everything
+  - it: keeps the stack's routes first when an environment adds its own
+    set:
+      route.routes:
+        - receiver: pager
+          matchers: ['severity="critical"']
+      receivers:
+        - name: default
+        - name: pager
     documentSelector:
       path: metadata.name
       value: alertmanager-config
     asserts:
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "(?s)receiver: history\\n.*\\n  - receiver: default$"
+          pattern: "(?s)receiver: history.*receiver: heartbeat.*receiver: pager"
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "- name: heartbeat\\n- name: default\\n- name: pager"
+
+  - it: loads the message templates, as written, from the alertmanager-templates ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["stack.tmpl"]
+          pattern: 'define "slack.default.title"'
+        documentSelector:
+          path: metadata.name
+          value: alertmanager-templates
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "templates:\\n- /etc/alertmanager/templates/\\*.tmpl"
+        documentSelector:
+          path: metadata.name
+          value: alertmanager-config
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: templates
+            mountPath: /etc/alertmanager/templates
+            readOnly: true
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: sends nothing to Slack, mounts no token and opens no egress, by default
+    asserts:
+      - notMatchRegex:
+          path: data["alertmanager.yml"]
+          pattern: slack_configs
+        documentSelector:
+          path: metadata.name
+          value: alertmanager-config
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: slack
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: opens one Slack thread per alert group when slack is enabled, with the token from alertmanager-slack
+    set:
+      slack.enabled: true
+      slack.channel: "#alerts"
+      global.networkPolicy.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "- name: slack\\n  slack_configs:\\n  - app_token_file: /etc/alertmanager/slack/app-token\\n    app_url: https://slack.com/api/chat.postMessage\\n    channel: '#alerts'\\n    post_updates_to_thread: true\\n    send_resolved: true\\n    update_message: true"
+        documentSelector:
+          path: metadata.name
+          value: alertmanager-config
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "- matchers:\\n    - alertname=\"AlertmanagerNotificationsFailing\"\\n    - integration=\"slack\"\\n    receiver: default\\n  - continue: true\\n    group_by:\\n    - alertname\\n    - service_name\\n    receiver: slack"
+        documentSelector:
+          path: metadata.name
+          value: alertmanager-config
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: slack
+            secret:
+              secretName: alertmanager-slack
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 443
+                protocol: TCP
+        template: templates/networkpolicy.yaml
+
+  - it: refuses Slack without a channel
+    set:
+      slack.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: slack.channel is required when slack.enabled
+
+  - it: still sends every alert to route.receiver after the stack's routes, which match everything
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "(?s)receiver: heartbeat\\n.*\\n  - receiver: default\\ntemplates:"

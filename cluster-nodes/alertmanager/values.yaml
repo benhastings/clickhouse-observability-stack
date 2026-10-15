@@ -7,52 +7,43 @@ persistence:
   size: 256Mi
   storageClassName: ""
 
-# alertmanager.yml. Every alert goes to the default receiver, which has no integrations: it is grouped,
-# shown in the UI and API, and sent nowhere. vmalert's always-firing Watchdog goes to the heartbeat receiver
-# instead, every minute; a site gives heartbeat a webhook_configs entry for its dead man's switch, which
-# raises the alarm when the heartbeats stop. Every alert also goes to the history receiver first, which
-# posts each notification to the collector, so it is kept in otel_logs as a log of service alertmanager.
-# History groups by every label ('...'), so each notification is one alert, and its continue: true lets the
-# alert carry on to the routes after it; the last route catches whatever is left for default.
-#
-# An environment adds receivers by replacing route and receivers under applications.alertmanager.values.
-# Lists replace whole, so keep the history route first in route.routes and the history receiver in
-# receivers. A receiver outside the cluster also needs an egress rule under networkPolicy.egress when
-# global.networkPolicy.enabled.
+# Where alerts go, after the stack's own routes, which files/alertmanager.yml.tpl always puts first: history
+# (every notification kept in otel_logs), heartbeat (vmalert's Watchdog, for a dead man's switch) and, with
+# slack.enabled, Slack. Everything else goes to the default receiver, which has no integrations: it is grouped,
+# shown in the UI and API, and sent nowhere. An environment adds receivers under receivers and routes under
+# route.routes (lists replace whole); a receiver outside the cluster also needs an egress rule under
+# networkPolicy.egress when global.networkPolicy.enabled.
+route:
+  receiver: default
+  group_by: [alertname, service_name]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes: []
+receivers:
+  - name: default
+
+# One Slack thread per alert group: the first notification posts a message, later ones (more alerts firing,
+# resolved) reply in its thread, and the message itself is kept current. Needs a Slack app's bot token
+# (chat:write, invited to the channel) in the Secret alertmanager-slack, key app-token, which is never
+# created here, and an Alertmanager with post_updates_to_thread: released after v0.34.1, so until then an
+# environment that turns this on also sets the image (values-local.yaml does). Every alert but the Watchdog
+# goes to Slack; the stack's AlertmanagerNotificationsFailing for Slack itself goes to route.receiver.
+slack:
+  enabled: false
+  channel: ""
+
+secrets:
+  slack:
+    create: false
+
 configMaps:
   config:
     data:
-      alertmanager.yml:
-        route:
-          receiver: default
-          group_by: [alertname, service_name]
-          group_wait: 30s
-          group_interval: 5m
-          repeat_interval: 4h
-          routes:
-            - receiver: history
-              group_by: ['...']
-              group_wait: 0s
-              group_interval: 1m
-              repeat_interval: 168h
-              continue: true
-            - receiver: heartbeat
-              matchers: ['alertname="Watchdog"']
-              group_by: [alertname]
-              group_wait: 0s
-              group_interval: 1m
-              repeat_interval: 1m
-            # An alert that matched a route above is not sent to this route's own receiver, so the last route
-            # sends everything that got this far to default.
-            - receiver: default
-        receivers:
-          - name: default
-          - name: heartbeat
-          - name: history
-            webhook_configs:
-              - url: '{{ include "common.serviceAddress" (list $ "alertHistory") }}'
-                send_resolved: true
-                max_alerts: 1
+      alertmanager.yml: '{{ tpl (.Files.Get "files/alertmanager.yml.tpl") . }}'
+  # Message templates, loaded as they are (not templated): {{ ... }} in them is Alertmanager's.
+  templates:
+    files: files/templates/*.tmpl
 
 service:
   enabled: true
@@ -124,10 +115,27 @@ deployment:
           readOnly: true
         - name: data
           mountPath: /alertmanager
+        - name: templates
+          mountPath: /etc/alertmanager/templates
+          readOnly: true
+        - name: slack
+          mountPath: /etc/alertmanager/slack
+          readOnly: true
   volumes:
     config:
       configMap:
         name: '{{ include "common.fullname" . }}-config'
+    templates:
+      configMap:
+        name: '{{ include "common.fullname" . }}-templates'
+    # The Slack token when slack.enabled, otherwise empty.
+    slack: |-
+      {{- if .Values.slack.enabled }}
+      secret:
+        secretName: {{ include "common.fullname" . }}-slack
+      {{- else }}
+      emptyDir: {}
+      {{- end }}
     # An emptyDir unless persistence.enabled, then the claim that objects.data renders.
     data: |-
       {{- if .Values.persistence.enabled }}
@@ -137,9 +145,9 @@ deployment:
       emptyDir: {}
       {{- end }}
 
-# With global.networkPolicy.enabled: only the rule evaluators, Grafana and vmalert, and the collector, which
-# scrapes its metrics, reach Alertmanager, and
-# Alertmanager reaches only the collector, for the history receiver, until another receiver needs more.
+# With global.networkPolicy.enabled: only the rule evaluators (Grafana and vmalert) and the collector, which
+# scrapes its metrics, reach Alertmanager. Alertmanager reaches the collector for the history receiver and,
+# with slack.enabled, Slack's API on 443; another receiver outside the cluster adds its own rule.
 networkPolicy:
   ingress:
     - from:
@@ -151,7 +159,7 @@ networkPolicy:
       ports:
         - port: 9093
           protocol: TCP
-  egress:
+  egress: |-
     - to:
         - podSelector:
             matchLabels:
@@ -159,3 +167,8 @@ networkPolicy:
       ports:
         - port: 8088
           protocol: TCP
+    {{- if .Values.slack.enabled }}
+    - ports:
+        - port: 443
+          protocol: TCP
+    {{- end }}

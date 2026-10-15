@@ -5,6 +5,7 @@
 #   dev.bash apply <app>    install or upgrade one app from cluster-nodes/<app>
 #   dev.bash remove <app>   uninstall one app
 #   dev.bash dashboards     save every dashboard in Grafana to cluster-nodes/grafana/dashboards/
+#   dev.bash slack <channel>  send alerts to Slack: the token in SLACK_APP_TOKEN, then Alertmanager with slack on
 #
 # Each app gets the release, namespace and values Argo CD would give it in the
 # local environment (see apps.bash). Sync waves become install order: helm
@@ -34,13 +35,15 @@ use_cluster() {
   fi
 }
 
+# apply <app> [helm args...]: extra args, such as --set, go after the environment's values.
 apply() {
   local app=$1
+  shift
   load_app "$work/app-of-apps.yaml" "$app-$ENV" "$work/$app.yaml"
   [[ -n "$app_path" && "$app_path" != null ]] || { echo "unknown app: $app (see cluster-configs/app-of-apps/values.yaml)"; exit 1; }
   echo "==> $app"
   helm upgrade --install "$app_release" "$app_path" --namespace "$app_namespace" --create-namespace \
-    -f "$work/$app.yaml" --wait --timeout 10m
+    -f "$work/$app.yaml" "$@" --wait --timeout 10m
   wait_for_clickhouse "$app_release" "$app_namespace"
 }
 
@@ -111,8 +114,20 @@ MSG
     use_cluster
     export_dashboards
     ;;
+  slack)
+    # The token is a Slack app's bot token (xoxb-...) with chat:write, invited to the channel. It goes in the
+    # Secret alertmanager-slack and nowhere else; the channel is a value.
+    channel="${2:?usage: SLACK_APP_TOKEN=xoxb-... dev.bash slack <channel>}"
+    : "${SLACK_APP_TOKEN:?set SLACK_APP_TOKEN to the bot token of the Slack app}"
+    use_cluster
+    kubectl -n observability create secret generic alertmanager-slack --from-literal=app-token="$SLACK_APP_TOKEN" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    apply alertmanager --set slack.enabled=true --set-string slack.channel="$channel"
+    kubectl -n observability rollout restart deployment/alertmanager >/dev/null
+    echo "Alerts now go to $channel, one thread per alert group. Undo with make dev/apply APP=alertmanager."
+    ;;
   *)
-    sed -n '2,7p' "$0"
+    sed -n '2,8p' "$0"
     exit 1
     ;;
 esac
