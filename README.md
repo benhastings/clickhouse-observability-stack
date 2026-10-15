@@ -179,7 +179,7 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
 
 ### Before any install
 
-- **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`,
+- **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`,
   `grafana-admin` and `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
   [External Secrets operator](#secrets-kubernetes-or-vault) create them.
 - **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
@@ -283,11 +283,29 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
 | `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*` and `system.view_refreshes` | Cerberus, garmr sql-adapter |
+| `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*` and `otel_features.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
 The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`
 needs no `SELECT`. `make test/e2e` checks each user is refused the others' work, and compares the deployed
 tables with what the pinned Cerberus image prints for `cerberus migrate schema`.
+
+`otel_analyst` is the user for anything that isn't the stack itself. It runs under its own settings profile and
+hourly quota, both set by `clickhouse.analyst`. Each limit is also a constraint, so a session may lower it but
+never raise it, and its `priority` of 10 puts its queries behind the collector's, Cerberus's and vmalert's.
+
+| | `local` | `prod` |
+|---|---|---|
+| `max_memory_usage` per query | 256 MiB | 2 GiB |
+| `max_execution_time` | 60 s | 300 s |
+| `max_rows_to_read` per query | 200 million | 10 billion |
+| `max_concurrent_queries_for_user` | 2 | 2 |
+| quota per hour | 600 queries, 2 billion rows read, 30 min of execution | 600 queries, 100 billion rows, 2 h |
+
+It writes only to `otel_ml`, for scores and predictions, which it can't create; `otel_admin` creates those tables.
+`otel_features` and `otel_ml` don't exist until something creates them (#189). From a laptop, run
+`kubectl -n observability port-forward svc/clickhouse 8123 9000`, then connect any ClickHouse client as
+`otel_analyst` with the password from the `clickhouse-analyst` Secret.
 
 Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default) on the
 `clickhouse` app. A change rewrites each table's TTL without rewriting its parts: data written before the
@@ -517,7 +535,7 @@ once, under `secretEnv` (Secret name and key), and `vault.enabled` picks how the
 
 Vault mode needs the injector running in the cluster and the secrets already stored in Vault. The
 ClickHouse server, its schema Job, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
-`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
+`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
 both modes, so with Vault you sync those from Vault; `global.externalSecrets` below does that. The same goes for
 the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
 
@@ -541,7 +559,7 @@ global:
     remotePath: observability     # each Secret is read from <remotePath>/<Secret name>
 ```
 
-`clickhouse-admin`, `clickhouse-writer` and `clickhouse-reader` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
+`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader` and `clickhouse-analyst` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
 and `grafana-admin` (`admin-user`, `admin-password`) are then each an `ExternalSecret` with the same name, so the
 pods read the same Secrets as before. The chart doesn't install the operator or a store, and
 `make cluster/preflight` fails when the operator's CRD is missing. A node declares another Secret for this by
@@ -692,7 +710,7 @@ else in `observability`.
 | app | name | namespace | Service ports | Secrets it reads (keys) | wave |
 |---|---|---|---|---|---|
 | operator | `clickhouse-operator` | `clickhouse-operator` | none; the pod exposes `9999` (metrics) | `clickhouse-operator-credentials` (`username`, `password`) | 0 |
-| ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader` when the Secret is created) | 1 |
+| ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader`, `otel_analyst` when the Secret is created) | 1 |
 | Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http, `8088` Alertmanager history | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
 | Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
@@ -732,7 +750,7 @@ once, for example to the DNS form a split namespace needs (`clickhouse.observabi
 The node tests fail when one of these moves:
 
 - `cluster-nodes/clickhouse/tests/clickhouse_test.yaml`: the installation name `otel`, its namespace, the
-  `clickhouse` Service template, the three users, their grants and Secrets, and the schema Job running as
+  `clickhouse` Service template, the four users, their grants and Secrets, the analyst's profile and quota, and the schema Job running as
   `otel_admin`.
 - `cluster-nodes/cerberus/tests/cerberus_test.yaml`: Service `cerberus` on `8080`, the `clickhouse-reader`
   Secret, `otel_reader`, schema creation off, and `CERBERUS_CH_ADDR`.
@@ -900,7 +918,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 
-- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
+- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.

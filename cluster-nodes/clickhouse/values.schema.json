@@ -358,6 +358,50 @@
         "lowMemory": {
           "type": "boolean"
         },
+        "analyst": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxMemoryUsage": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxExecutionTime": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxRowsToRead": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxConcurrentQueries": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "quota": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "queries": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "readRows": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "executionTime": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
         "schema": {
           "type": "object",
           "additionalProperties": false,

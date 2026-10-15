@@ -43,6 +43,15 @@ applications:
             memory: 8Gi
           limits:
             memory: 8Gi
+        # A quarter of the server for one notebook query, five minutes per query, two at a time.
+        analyst:
+          maxMemoryUsage: 2147483648
+          maxExecutionTime: 300
+          maxRowsToRead: 10000000000
+          maxConcurrentQueries: 2
+          quota:
+            readRows: 100000000000
+            executionTime: 7200
 
   cerberus:
     values:
