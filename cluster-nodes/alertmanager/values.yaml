@@ -8,7 +8,9 @@ persistence:
   storageClassName: ""
 
 # alertmanager.yml. Every alert goes to the default receiver, which has no integrations: it is grouped,
-# shown in the UI and API, and sent nowhere. Every alert also goes to the history receiver first, which
+# shown in the UI and API, and sent nowhere. vmalert's always-firing Watchdog goes to the heartbeat receiver
+# instead, every minute; a site gives heartbeat a webhook_configs entry for its dead man's switch, which
+# raises the alarm when the heartbeats stop. Every alert also goes to the history receiver first, which
 # posts each notification to the collector, so it is kept in otel_logs as a log of service alertmanager.
 # History groups by every label ('...'), so each notification is one alert, and its continue: true lets the
 # alert carry on to the routes after it; the last route catches whatever is left for default.
@@ -34,11 +36,18 @@ configMaps:
               group_interval: 1m
               repeat_interval: 168h
               continue: true
+            - receiver: heartbeat
+              matchers: ['alertname="Watchdog"']
+              group_by: [alertname]
+              group_wait: 0s
+              group_interval: 1m
+              repeat_interval: 1m
             # An alert that matched a route above is not sent to this route's own receiver, so the last route
             # sends everything that got this far to default.
             - receiver: default
         receivers:
           - name: default
+          - name: heartbeat
           - name: history
             webhook_configs:
               - url: '{{ include "common.serviceAddress" (list $ "alertHistory") }}'
@@ -128,7 +137,8 @@ deployment:
       emptyDir: {}
       {{- end }}
 
-# With global.networkPolicy.enabled: only the rule evaluators, Grafana and vmalert, reach Alertmanager, and
+# With global.networkPolicy.enabled: only the rule evaluators, Grafana and vmalert, and the collector, which
+# scrapes its metrics, reach Alertmanager, and
 # Alertmanager reaches only the collector, for the history receiver, until another receiver needs more.
 networkPolicy:
   ingress:
@@ -137,7 +147,7 @@ networkPolicy:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [grafana, vmalert]
+                values: [grafana, vmalert, otel-collector]
       ports:
         - port: 9093
           protocol: TCP

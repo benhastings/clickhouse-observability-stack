@@ -57,6 +57,34 @@ data:
                 More than 5% of {{ $labels.service_name }}'s server spans ended in an error over the last 5 minutes,
                 for 5 minutes.
   
+          # Always firing, so the alerting pipeline itself is watched: Alertmanager routes it to the heartbeat
+          # receiver, which a site points at a dead man's switch service.
+          # If vmalert stops evaluating, or can't reach ClickHouse or Alertmanager, the heartbeat stops.
+          - alert: Watchdog
+            expr: SELECT 1 AS value
+            labels:
+              severity: none
+            annotations:
+              summary: "The alerting pipeline is working: vmalert evaluates rules and Alertmanager receives them"
+  
+          # Alertmanager's own counters, scraped by the collector into otel_metrics_sum. A receiver that can't
+          # deliver (a revoked Slack token, an unreachable mail relay) fails silently otherwise. Alertmanager
+          # routes this alert by its integration label, so it can go to a receiver other than the failing one.
+          - alert: AlertmanagerNotificationsFailing
+            expr: |
+              SELECT Attributes['integration'] AS integration, max(Value) - min(Value) AS value
+              FROM otel.otel_metrics_sum
+              WHERE MetricName = 'alertmanager_notifications_failed_total'
+                AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+              GROUP BY integration
+              HAVING value > 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Alertmanager failed to send {{ $value }} {{ $labels.integration }} notifications in 10 minutes"
+  
           # The anomaly baselines are refreshable views in otel_baseline (the clickhouse node's schema). A refresh
           # that fails, or a view that hasn't succeeded for a while (10 minutes for the per-minute signals, 2 hours
           # for the hourly baselines), leaves the anomaly rules comparing against a stale or empty baseline.
@@ -131,7 +159,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 6a3bdf29ef4b408d2f65928db0bb83617402da7fa5ccab18bc76137cf73537e3
+        checksum/config: dce9f3929d152d9a887228dd51788d5d211063ed2e7052815d100d8bb1e4ea45
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false

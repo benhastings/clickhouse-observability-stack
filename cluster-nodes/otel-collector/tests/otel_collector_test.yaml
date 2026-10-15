@@ -520,3 +520,18 @@ tests:
             ports:
               - port: 8088
                 protocol: TCP
+
+  - it: scrapes only Alertmanager's notification counters, from global.services.alertmanager
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "targets: \\['alertmanager:9093'\\]"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "regex: alertmanager_notifications\\(_failed\\)\\?_total"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "- servicegraph\\n\\s+- prometheus/alertmanager"

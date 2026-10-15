@@ -4,15 +4,25 @@ deployment:
   containers:
     # Each request is a checkout that calls payments; every log is written inside a span of
     # that request, so logs and traces link both ways. See the generator's README for the
-    # span tree and the wide-event attributes.
+    # span tree and the wide-event attributes. The image is the benhastings fork, which adds
+    # scheduled incidents (brandonapol/correlated-telemetrygen#17 offers them upstream).
+    #
+    # Fifteen minutes after the generator starts, and every hour after that, the payment gateway
+    # fails 90% of charges for ten minutes instead of 25%: an anomaly for the alert rules to find
+    # and then see recover. The anomaly rules need a few minutes of normal first, as their baseline.
+    # scripts/e2e.bash waits for the first one.
     correlated-telemetrygen:
       image:
-        repository: ghcr.io/brandonapol/correlated-telemetrygen
-        tag: v0.1.0
+        repository: ghcr.io/benhastings/correlated-telemetrygen
+        tag: v0.2.0
       args:
         - --rate=2
         - --error-ratio=0.25
         - --environment=local
+        - --incident-kind=errors
+        - --incident-after=15m
+        - --incident-duration=10m
+        - --incident-every=1h
       env:
         K8S_POD_NAME:
           valueFrom:

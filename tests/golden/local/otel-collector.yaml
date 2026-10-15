@@ -123,6 +123,19 @@ data:
         endpoint: https://${env:K8S_NODE_IP}:10250
         insecure_skip_verify: true
         metric_groups: [node, pod, container, volume]
+      # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
+      # fails to deliver. Only these two series are kept.
+      prometheus/alertmanager:
+        config:
+          scrape_configs:
+            - job_name: alertmanager
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['alertmanager:9093']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: alertmanager_notifications(_failed)?_total
+                  action: keep
       # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
       webhook_event:
         endpoint: 0.0.0.0:8088
@@ -167,6 +180,7 @@ data:
           - kubeletstats
           - spanmetrics
           - servicegraph
+          - prometheus/alertmanager
         traces:
           exporters:
           - clickhouse
@@ -292,7 +306,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: b4fc621f45bc56d2bb04bda4f976a7d51046a5a191de088ebc3ae8b421a3e31b
+        checksum/config: c8a65d7440ae3d4618793f8fc4604cbae0d990585ac7c7fdbd8aef13ae510230
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

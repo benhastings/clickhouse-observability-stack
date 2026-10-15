@@ -101,9 +101,10 @@ poll "PromQL: payments error ratio is about 25%" \
   '.data.result[0].value[1] | tonumber | . > 0.1 and . < 0.4' \
   "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls{service_name="payments",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[2m])) / sum(rate(traces_span_metrics_calls{service_name="payments",span_kind="SPAN_KIND_SERVER"}[2m]))'
 
-poll "PromQL: checkout serves every request without error" \
+# Checkout accepts orders whose payment failed, so only its own database failures (about 2%) are errors.
+poll "PromQL: checkout's server error ratio stays under 5%" \
   '.data.result | length == 0' \
-  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls{service_name="checkout",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[2m])) > 0'
+  "$cerberus/api/v1/query" --data-urlencode 'query=(sum(rate(traces_span_metrics_calls{service_name="checkout",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[5m])) or vector(0)) / sum(rate(traces_span_metrics_calls{service_name="checkout",span_kind="SPAN_KIND_SERVER"}[5m])) > 0.05'
 
 poll "PromQL: service graph metrics exist" \
   '.data.result | length > 0' \
@@ -322,6 +323,19 @@ poll "LogQL: the resolved notification records how long $e2e_alert fired" \
 poll "vmalert: ServerErrorRatioHigh evaluated through garmr sql-adapter without error" \
   '[.data.groups[].rules[] | select(.name == "ServerErrorRatioHigh" and .health == "ok" and
     .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
+  "$vmalert/api/v1/rules"
+# The alerting pipeline watches itself: Watchdog always fires and goes to the heartbeat receiver, and
+# Alertmanager's notification counters, scraped by the collector, feed AlertmanagerNotificationsFailing.
+poll "Alertmanager: vmalert's Watchdog is active and routed to the heartbeat receiver" \
+  '[.[] | select(.labels.alertname == "Watchdog" and .status.state == "active") | .receivers[].name]
+   | index("heartbeat") != null' \
+  "$alertmanager/api/v2/alerts"
+poll "PromQL: the collector scrapes Alertmanager's notification counters" \
+  '[.data.result[].metric.integration] | index("webhook") != null' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=alertmanager_notifications_total'
+poll "vmalert: AlertmanagerNotificationsFailing evaluates without error and is not firing" \
+  '[.data.groups[].rules[] | select(.name == "AlertmanagerNotificationsFailing" and .health == "ok" and
+    .lastEvaluation != "0001-01-01T00:00:00Z" and (.alerts | length) == 0)] | length == 1' \
   "$vmalert/api/v1/rules"
 poll "vmalert: BaselineRefreshFailing reads system.view_refreshes as otel_reader without error" \
   '[.data.groups[].rules[] | select(.name == "BaselineRefreshFailing" and .health == "ok" and
