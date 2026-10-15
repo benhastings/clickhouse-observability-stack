@@ -3,10 +3,11 @@
 {{- if and $cp (not $cp.name) }}
 {{- fail "alerts.contactPoint needs a name, a type and its settings" }}
 {{- end }}
-{{- $notify := "" }}
-{{- if $cp.name }}
-{{- $notify = printf "\n            notification_settings:\n              receiver: %s" ($cp.name | toJson) }}
+{{- /* No contact point of its own: send to the stack's Alertmanager, which groups, silences and routes. */ -}}
+{{- if not $cp.name }}
+{{- $cp = dict "name" "stack-alertmanager" "type" "prometheus-alertmanager" "settings" (dict "url" (include "common.serviceAddress" (list $ "alertmanager"))) }}
 {{- end }}
+{{- $notify := printf "\n            notification_settings:\n              receiver: %s" ($cp.name | toJson) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,21 +16,17 @@ metadata:
     {{- include "common.labels" . | nindent 4 }}
 data:
   alerts.yaml: |
-    # Starter alert rules. They query Cerberus through the cerberus-prometheus datasource.
-    {{- if not $cp.name }}
-    # No contact point is set (alerts.contactPoint), so these rules fire in Grafana but notify nobody.
-    {{- end }}
+    # Starter alert rules. They query Cerberus through the cerberus-prometheus datasource, and every rule
+    # notifies {{ $cp.name }}.
     apiVersion: 1
-    {{- with $cp.name }}
     contactPoints:
       - orgId: 1
-        name: {{ . | toJson }}
+        name: {{ $cp.name | toJson }}
         receivers:
           - uid: observability-stack-contact
             type: {{ required "alerts.contactPoint.type is required" $cp.type | toJson }}
             settings:
               {{- toYaml ($cp.settings | default dict) | nindent 14 }}
-    {{- end }}
     groups:
       - orgId: 1
         name: observability-stack

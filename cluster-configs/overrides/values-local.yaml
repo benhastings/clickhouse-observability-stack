@@ -38,6 +38,15 @@ applications:
                   allowUiUpdates: true
                   options:
                     path: /var/lib/grafana/dashboards
+      # The starter rules, sent to the stack's Alertmanager. The error ratio waits 1m rather than 10m so
+      # scripts/e2e.bash sees it fire. kind's local-path volumes report no volume metrics, so the disk rule
+      # would only ever be No Data.
+      alerts:
+        enabled: true
+        errorRatio:
+          for: 1m
+        clickhouseDisk:
+          enabled: false
       # Keeps the Drilldown plugins across restarts, so they download once.
       pluginsClaim: true
       objects:

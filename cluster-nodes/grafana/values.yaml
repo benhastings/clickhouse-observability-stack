@@ -67,9 +67,11 @@ pluginsClaim: false
 #   - clickhouseDisk: a ClickHouse data volume filling up, from kubeletstats volume metrics. kubelet
 #     reports those for CSI-backed volumes; kind's local-path (hostPath) volumes have none, so on kind the
 #     rule stays in No Data
-# Without a contactPoint the rules fire in Grafana but notify nobody. A contact point is a Grafana
-# integration, for example {name: on-call, type: webhook, settings: {url: https://...}}; keep secrets
-# such as a token out of git (Grafana reads $__env{...} and $__file{...} in settings).
+# Every rule notifies the stack's Alertmanager (global.services.alertmanager) through a contact point named
+# stack-alertmanager, so Grafana's alerts are grouped, silenced and routed with vmalert's, on the labels
+# severity and service_name. contactPoint replaces it with another Grafana integration, for example
+# {name: on-call, type: webhook, settings: {url: https://...}}; keep secrets such as a token out of git
+# (Grafana reads $__env{...} and $__file{...} in settings).
 alerts:
   enabled: false
   errorRatio:
@@ -168,6 +170,17 @@ configMaps:
                   datasourceUid: cerberus-tempo
                   url: "$${__value.raw}"
                   urlDisplayLabel: View trace
+          # Read-only: Grafana's alerting UI lists the alerts and silences in the stack's Alertmanager,
+          # vmalert's included. Grafana's own rules reach it through the stack-alertmanager contact point.
+          - name: Alertmanager
+            uid: alertmanager
+            type: alertmanager
+            access: proxy
+            url: '{{ include "common.serviceAddress" (list $ "alertmanager") }}'
+            editable: false
+            jsonData:
+              implementation: prometheus
+              handleGrafanaManagedAlerts: false
           - name: Tempo (Cerberus)
             uid: cerberus-tempo
             type: tempo
@@ -366,8 +379,8 @@ deployment:
         optional: true
 
 # With global.networkPolicy.enabled: users reach Grafana through the exposure namespaces (the ingress
-# gateway or controller; kubectl port-forward isn't subject to NetworkPolicy), and Grafana reaches Cerberus
-# and, on 443, the OAuth provider and grafana.com for its pinned plugins, both outside the cluster.
+# gateway or controller; kubectl port-forward isn't subject to NetworkPolicy), and Grafana reaches Cerberus,
+# Alertmanager and, on 443, the OAuth provider and grafana.com for its pinned plugins, both outside the cluster.
 networkPolicy:
   ingress: |-
     {{- with dig "global" "networkPolicy" "exposureNamespaces" list .Values.AsMap }}
@@ -388,6 +401,13 @@ networkPolicy:
               app.kubernetes.io/name: cerberus
       ports:
         - port: 8080
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - port: 9093
           protocol: TCP
     - ports:
         - port: 443
