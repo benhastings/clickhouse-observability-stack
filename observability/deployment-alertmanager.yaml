@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/instance: alertmanager
       annotations:
-        checksum/config: 197305a04f247863a55df433e2244e84f28d168708641e8fc90d0eba2a6ffddb
+        checksum/config: bbbf6d05ca55b2e9d8fbd01cf7f95981c27ccf0a5a1bc61ad121f11ed76e6085
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false
@@ -82,9 +82,20 @@ spec:
               readOnly: true
             - mountPath: /alertmanager
               name: data
+            - mountPath: /etc/alertmanager/templates
+              name: templates
+              readOnly: true
+            - mountPath: /etc/alertmanager/slack
+              name: slack
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: 'alertmanager-config'
         - name: data
           emptyDir: {}
+        - name: slack
+          emptyDir: {}
+        - name: templates
+          configMap:
+            name: 'alertmanager-templates'

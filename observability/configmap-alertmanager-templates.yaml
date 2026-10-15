@@ -1,0 +1,33 @@
+# Source: alertmanager/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: dev
+data:
+  stack.tmpl: |
+    {{/*
+    The Slack message for an alert group. Alertmanager uses these names for any slack_configs entry that
+    doesn't set title or text, so the stack's slack receiver needs no templates in alertmanager.yml. With
+    post_updates_to_thread, the first message is the group's, and each later notification (more alerts,
+    resolved) is a reply in its thread, while update_message keeps the first message's status current.
+    */}}
+    {{ define "slack.default.title" -}}
+    [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}{{ with .CommonLabels.service_name }} · {{ . }}{{ end }}
+    {{- end }}
+
+    {{ define "slack.default.text" -}}
+    {{ range .Alerts -}}
+    {{ if eq .Status "resolved" }}:white_check_mark:{{ else if eq .Labels.severity "critical" }}:red_circle:{{ else }}:large_orange_circle:{{ end }} *{{ .Annotations.summary }}*
+    {{ with .Annotations.description }}{{ . }}
+    {{ end -}}
+    {{ end -}}
+    {{- end }}
