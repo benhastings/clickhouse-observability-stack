@@ -53,3 +53,26 @@ groups:
           description: >-
             Check system.view_refreshes for otel_baseline.{{ $labels.view }}: its exception, or why
             last_success_time is old. Anomaly rules compare against the last baseline it wrote.
+
+      # The spanmetrics connector counts every dimension combination past collector.spanMetrics.cardinalityLimit
+      # in one series marked otel.metric.overflow="true". Its requests are still counted, but under no span
+      # name, so the operations table and per-route panels lose them. Usually a span name or route with an ID
+      # in it.
+      - alert: SpanMetricsCardinalityLimitHit
+        expr: |
+          SELECT ServiceName AS service_name, max(Value) - min(Value) AS value
+          FROM otel.otel_metrics_sum
+          WHERE MetricName = 'traces_span_metrics_calls'
+            AND Attributes['otel.metric.overflow'] = 'true'
+            AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+            AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+          GROUP BY service_name
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service_name }} has more span-metrics series than the collector tracks"
+          description: >-
+            {{ $value }} of {{ $labels.service_name }}'s spans in 10 minutes went to the overflow series. Look for
+            span names or http.route values with IDs in them: topk(20, count by (span_name)
+            (traces_span_metrics_calls{service_name="{{ $labels.service_name }}"})).
