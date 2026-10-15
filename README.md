@@ -289,9 +289,11 @@ The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so
 needs no `SELECT`. `make test/e2e` checks each user is refused the others' work, and compares the deployed
 tables with what the pinned Cerberus image prints for `cerberus migrate schema`.
 
-Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default) on the
-`clickhouse` app. A change rewrites each table's TTL without rewriting its parts: data written before the
-change expires on the old TTL.
+Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default, for the
+laptop's 2 Gi volume) on the `clickhouse` app. `prod` keeps traces 21 days, logs 14 and metrics 30, and
+sets Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` to the metrics retention: without it, Grafana's metric
+and label pickers only look back 14 days. A change rewrites each table's TTL without rewriting its parts:
+data written before the change expires on the old TTL.
 
 To change a table, edit its `CREATE` in the schema file and add an `ALTER ... IF [NOT] EXISTS` below it, so
 installs whose table already exists get the change too.
@@ -903,7 +905,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
-- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default). Also set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus if retention exceeds 14 days.
+- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default; `values-prod.yaml` keeps traces 21 days, logs 14 and metrics 30). Set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus to the metrics retention when it exceeds 14 days, as `prod` does.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.
 
