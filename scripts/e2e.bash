@@ -362,7 +362,10 @@ until kubectl -n observability logs deploy/demo-load 2>/dev/null | grep -q "erro
   fi
   sleep 15
 done
-echo "  ok"
+incident_at="$(kubectl -n observability logs --timestamps deploy/demo-load |
+  awk '/errors incident started/ && !at { at = $1 } END { print at }')"
+incident_start="$(jq -rn --arg t "$incident_at" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601')"
+echo "  ok, at $incident_at"
 step "Alertmanager: the steady load raised no anomaly alert before the incident"
 if curl -fsS "$alertmanager/api/v2/alerts" |
   jq -e --argjson a "$anomalies" '[.[] | .labels.alertname as $n | select($a | index($n))] | length > 0' >/dev/null; then
@@ -379,11 +382,15 @@ poll "Alertmanager: ErrorRatioAnomaly prints the observed error ratio and its ba
   '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .labels.service_name == "payments")
    | .annotations.description | test("payments errors on [0-9.]+% of server spans; normally [0-9.]+%")] | any' \
   "$alertmanager/api/v2/alerts"
+# The reference compares the last 5 minutes with the mean and standard deviation of the hour before them, so it
+# is evaluated 5 minutes into the incident: the 5 minutes are all incident and the hour before is all steady
+# load. Later, incident minutes enter that hour and drag the mean and deviation up until it stops firing,
+# which is the weakness the median and MAD in the ClickHouse rule avoid.
 reference="$(yq '.groups[] | select(.name == "anomaly-reference-recent") | .rules[] | select(.alert == "ErrorRatioAnomaly") | .expr' \
   cluster-nodes/vmalert/files/reference/anomaly.yaml)"
-poll "PromQL: the reference ErrorRatioAnomaly agrees, through Cerberus" \
+poll "PromQL: the reference ErrorRatioAnomaly agrees 5 minutes into the incident, through Cerberus" \
   '[.data.result[].metric.service_name] | index("payments") != null' \
-  "$cerberus/api/v1/query" --data-urlencode "query=$reference"
+  "$cerberus/api/v1/query" --data-urlencode "query=$reference" --data-urlencode "time=$((incident_start + 300))"
 DATA_TIMEOUT=1200 poll "Alertmanager: ErrorRatioAnomaly resolves for payments after the incident" \
   '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .labels.service_name == "payments"
    and .status.state == "active")] | length == 0' \
