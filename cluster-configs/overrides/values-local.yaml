@@ -28,7 +28,7 @@ applications:
             # prometheus/alertmanager#5540) are merged but not released after v0.34.1. Go back to a release
             # tag once one has them. Slack itself stays off until make dev/slack, or slack.enabled here.
             image:
-              tag: "main@sha256:f2623a713e31feedc2fb29c1dbceaa907f88a36da8688990bb3b213265fe3066"
+              tag: "main@sha256:6e381f097eedbf0d6ec8cf9373d85bea0ee3b03c4a001dfc080c734f0eab87e8"
   grafana:
     values:
       configMaps:
