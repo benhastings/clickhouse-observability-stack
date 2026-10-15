@@ -463,7 +463,8 @@ observed value and the baseline, which the annotations query from the same view 
 mean-and-standard-deviation rule against the last hour or the same hour last week. vmalert doesn't load it; it
 says what the SQL means, and `make test/e2e` checks the error-ratio one agrees with ErrorRatioAnomaly on the
 injected incident. The e2e waits for the demo load's first incident (15 minutes in), checks no anomaly fired
-before it, then that ErrorRatioAnomaly fires for payments, prints both numbers, agrees with the PromQL, and
+before it, then that ErrorRatioAnomaly fires for payments, prints both numbers, agrees with the PromQL (evaluated
+5 minutes into the incident, before incident minutes enter the reference's hour of mean and deviation), and
 resolves once the incident is over. That makes it the longest part of `make test/e2e`, about 30 minutes.
 
 ### Alert history: every notification is a log in ClickHouse
