@@ -16,6 +16,7 @@ data:
   alertmanager.yml: |-
     receivers:
     - name: default
+    - name: heartbeat
     - name: history
       webhook_configs:
       - max_alerts: 1
@@ -37,4 +38,12 @@ data:
         group_wait: 0s
         receiver: history
         repeat_interval: 168h
+      - group_by:
+        - alertname
+        group_interval: 1m
+        group_wait: 0s
+        matchers:
+        - alertname="Watchdog"
+        receiver: heartbeat
+        repeat_interval: 1m
       - receiver: default

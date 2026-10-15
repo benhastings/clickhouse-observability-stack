@@ -32,6 +32,8 @@ spec:
       otel_admin/quota: default
       otel_reader/grants/query:
         - GRANT SELECT ON otel.*
+        - GRANT SELECT ON otel_baseline.*
+        - GRANT SELECT ON system.view_refreshes
       otel_reader/networks/ip:
         - 0.0.0.0/0
         - ::/0
