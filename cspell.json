@@ -14,7 +14,8 @@
     "tests/golden/**"
   ],
   "ignoreRegExpList": [
-    "/sha256:[0-9a-f]+/g"
+    "/sha256:[0-9a-f]+/g",
+    "/\\bk8s[a-z]+\\b/g"
   ],
   "words": [
     "alsologtostderr",
@@ -84,6 +85,7 @@
     "spanmetrics",
     "sslip",
     "stakater",
+    "statefulset",
     "stddev",
     "stderrthreshold",
     "strenv",

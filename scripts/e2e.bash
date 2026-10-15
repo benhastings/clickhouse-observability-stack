@@ -127,6 +127,20 @@ poll "LogQL: checkout logs arrive" \
   "$cerberus/loki/api/v1/query_range" --data-urlencode 'query={service_name="checkout"}' \
   --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=10'
 
+# The collector's k8sattributes adds the owning workload to everything, so a service's RED metrics, its logs and
+# its pods' resources join on k8s_deployment_name. The demo load runs checkout and payments in one pod.
+poll "PromQL: payments' span metrics carry the deployment that runs it" \
+  '[.data.result[].metric.k8s_deployment_name] | index("demo-load") != null' \
+  "$cerberus/api/v1/query" \
+  --data-urlencode 'query=count by (k8s_deployment_name, k8s_namespace_name) (traces_span_metrics_calls{service_name="payments"})'
+poll "PromQL: kubeletstats pod memory carries the same deployment" \
+  '[.data.result[].metric.k8s_deployment_name] | index("demo-load") != null' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=count by (k8s_deployment_name) (k8s_pod_memory_working_set)'
+poll "LogQL: checkout's logs carry the same deployment" \
+  '[.data.result[].metric.k8s_deployment_name] | index("demo-load") != null' \
+  "$cerberus/loki/api/v1/query" \
+  --data-urlencode 'query=sum by (k8s_deployment_name) (count_over_time({service_name="checkout"} [5m]))'
+
 poll "TraceQL: failing payments traces are searchable" \
   '.traces | length > 0' \
   "$cerberus/api/search" --data-urlencode 'q={resource.service.name="payments" && status=error}' \

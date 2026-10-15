@@ -28,8 +28,13 @@ deployment:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        # k8s.pod.uid lets the collector's k8sattributes find this pod even when a sidecar hides its IP.
+        K8S_POD_UID:
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://{{ include "common.serviceAddress" (list $ "otlpGrpc") }}'
-        OTEL_RESOURCE_ATTRIBUTES: k8s.pod.name=$(K8S_POD_NAME)
+        OTEL_RESOURCE_ATTRIBUTES: k8s.pod.name=$(K8S_POD_NAME),k8s.pod.uid=$(K8S_POD_UID)
       resources:
         requests:
           cpu: 10m

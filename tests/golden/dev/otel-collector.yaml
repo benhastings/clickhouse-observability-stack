@@ -86,6 +86,30 @@ data:
         endpoint: ${env:MY_POD_IP}:13133
     processors:
       batch: {}
+      # Kubernetes attributes on every span, log and metric, so a service's RED metrics join to its pods'
+      # resources. A sender is matched by the k8s.pod.uid or k8s.pod.ip it reports, else by the
+      # connection's source IP, which a sidecar hides (it presents 127.0.0.6), so under Istio a sender
+      # sets k8s.pod.uid. Runs before batch, which drops the connection.
+      k8sattributes:
+        auth_type: serviceAccount
+        extract:
+          metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.node.name
+        pod_association:
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+        - sources:
+          - from: connection
       memory_limiter:
         check_interval: 5s
         limit_percentage: 80
@@ -157,6 +181,7 @@ data:
           - clickhouse
           processors:
           - memory_limiter
+          - k8sattributes
           - batch
           receivers:
           - otlp
@@ -174,6 +199,7 @@ data:
           - clickhouse
           processors:
           - memory_limiter
+          - k8sattributes
           - batch
           receivers:
           - otlp
@@ -188,6 +214,7 @@ data:
           - servicegraph
           processors:
           - memory_limiter
+          - k8sattributes
           - batch
           receivers:
           - otlp
@@ -220,6 +247,23 @@ rules:
     - nodes/stats
     verbs:
     - get
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    - namespaces
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - apps
+    resources:
+    - replicasets
+    verbs:
+    - get
+    - list
+    - watch
 ---
 # Source: otel-collector/templates/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -306,7 +350,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: e58a3f7d8f06ec21daa91a7644ecb1e5fd38912552d41f958afdeca1dd521f51
+        checksum/config: d202ffca3a0e3c9996589a6394e3a28a4cfaa6fa07536a163c916a49ff5bc52e
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

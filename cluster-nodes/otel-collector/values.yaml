@@ -144,6 +144,30 @@ configMaps:
             endpoint: ${env:MY_POD_IP}:13133
         processors:
           batch: {}
+          # Kubernetes attributes on every span, log and metric, so a service's RED metrics join to its pods'
+          # resources. A sender is matched by the k8s.pod.uid or k8s.pod.ip it reports, else by the
+          # connection's source IP, which a sidecar hides (it presents 127.0.0.6), so under Istio a sender
+          # sets k8s.pod.uid. Runs before batch, which drops the connection.
+          k8sattributes:
+            auth_type: serviceAccount
+            extract:
+              metadata:
+              - k8s.namespace.name
+              - k8s.pod.name
+              - k8s.pod.uid
+              - k8s.deployment.name
+              - k8s.statefulset.name
+              - k8s.daemonset.name
+              - k8s.node.name
+            pod_association:
+            - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+            - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+            - sources:
+              - from: connection
           memory_limiter:
             check_interval: 5s
             limit_percentage: 80
@@ -234,6 +258,7 @@ configMaps:
               {{- end }}
               processors:
               - memory_limiter
+              - k8sattributes
               - batch
               {{- range dig "logs" "processors" list $pipelines }}
               - {{ . }}
@@ -260,6 +285,7 @@ configMaps:
               {{- end }}
               processors:
               - memory_limiter
+              - k8sattributes
               - batch
               {{- range dig "metrics" "processors" list $pipelines }}
               - {{ . }}
@@ -285,6 +311,7 @@ configMaps:
               {{- end }}
               processors:
               - memory_limiter
+              - k8sattributes
               - batch
               {{- range dig "traces" "processors" list $pipelines }}
               - {{ . }}
@@ -303,7 +330,9 @@ configMaps:
                       host: ${env:MY_POD_IP}
                       port: 8888
 
-# kubeletstats authenticates to the kubelet with this ServiceAccount's token, in the gateway or the agent.
+# kubeletstats authenticates to the kubelet with this ServiceAccount's token, in the gateway or the agent,
+# and k8sattributes to the API server, where it watches pods, namespaces and (for deployment names)
+# replicasets.
 serviceAccount:
   automountToken: true
 
@@ -312,6 +341,12 @@ rbac:
     - apiGroups: [""]
       resources: [nodes/stats]
       verbs: [get]
+    - apiGroups: [""]
+      resources: [pods, namespaces]
+      verbs: [get, list, watch]
+    - apiGroups: [apps]
+      resources: [replicasets]
+      verbs: [get, list, watch]
 
 service:
   enabled: true
@@ -400,6 +435,10 @@ daemonset:
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
+        K8S_NODE_NAME:
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         GOMEMLIMIT: 102MiB
         OTELCOL_AGENT_CONFIG: |-
           exporters:
@@ -420,6 +459,21 @@ daemonset:
               endpoint: ${env:MY_POD_IP}:13133
           processors:
             batch: {}
+            # Adds the owning deployment, statefulset or daemonset to pod and container metrics, watching
+            # only this node's pods.
+            k8sattributes:
+              auth_type: serviceAccount
+              filter:
+                node_from_env_var: K8S_NODE_NAME
+              extract:
+                metadata:
+                - k8s.deployment.name
+                - k8s.statefulset.name
+                - k8s.daemonset.name
+              pod_association:
+              - sources:
+                - from: resource_attribute
+                  name: k8s.pod.uid
             memory_limiter:
               check_interval: 5s
               limit_percentage: 80
@@ -440,6 +494,7 @@ daemonset:
                 - clickhouse
                 processors:
                 - memory_limiter
+                - k8sattributes
                 - batch
                 receivers:
                 - kubeletstats
@@ -466,8 +521,8 @@ daemonset:
 
 # With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may
 # send OTLP (which includes the ingress gateway or controller for exposed OTLP), and Alertmanager posts its
-# notifications to 8088; the collector reaches Alertmanager on 9093 for its metrics, and
-# ClickHouse and, for kubeletstats, each node's kubelet on 10250.
+# notifications to 8088; the collector reaches Alertmanager on 9093 for its metrics,
+# ClickHouse, each node's kubelet on 10250 for kubeletstats, and the API server for k8sattributes.
 networkPolicy:
   podSelector:
     matchExpressions:
@@ -501,6 +556,11 @@ networkPolicy:
           protocol: TCP
     - ports:
         - port: 10250
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
           protocol: TCP
     - to:
         - podSelector:
