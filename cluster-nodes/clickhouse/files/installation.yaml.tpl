@@ -15,7 +15,7 @@ spec:
     # insert as otel_writer needs no SELECT. otel_reader also reads the anomaly baselines and their
     # refresh status, for vmalert's rules.
     users:
-      {{- $readerGrants := list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes" }}
+      {{- $readerGrants := list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks" }}
       {{- range $user, $grants := dict "admin" list "writer" (list "INSERT ON otel.*") "reader" $readerGrants }}
       otel_{{ $user }}/password:
         valueFrom:

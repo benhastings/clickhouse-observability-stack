@@ -175,6 +175,35 @@ data:
               description: >-
                 Check system.view_refreshes for otel_baseline.{{ $labels.view }}: its exception, or why
                 last_success_time is old. Anomaly rules compare against the last baseline it wrote.
+  
+          # ClickHouse's own view of its disks, so this works on any volume type (kubelet reports no volume
+          # stats for hostPath volumes such as kind's) and in every environment, prod included. A full disk
+          # stops inserts: the collector queues, then drops. Object-storage disks report no total and are skipped.
+          - alert: ClickHouseDiskFilling
+            expr: |
+              SELECT name AS disk, round(1 - free_space / total_space, 3) AS value
+              FROM system.disks
+              WHERE total_space > 0 AND 1 - free_space / total_space > 0.8
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse disk {{ $labels.disk }} is {{ $value | humanizePercentage }} full"
+              description: >-
+                Lower clickhouse.schema.ttlDays or grow clickhouse.storage before it passes 90%.
+          - alert: ClickHouseDiskFull
+            expr: |
+              SELECT name AS disk, round(1 - free_space / total_space, 3) AS value
+              FROM system.disks
+              WHERE total_space > 0 AND 1 - free_space / total_space > 0.9
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClickHouse disk {{ $labels.disk }} is {{ $value | humanizePercentage }} full"
+              description: >-
+                Inserts fail when the disk fills, and the collector drops telemetry once its queue is full.
+                Grow clickhouse.storage, or lower clickhouse.schema.ttlDays and let the TTL merges free space.
 ---
 # Source: vmalert/templates/service.yaml
 apiVersion: v1
@@ -230,7 +259,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 34477e5e37d3427eb62255c005ca9180d88ef94f58a129f4a7a4d1f2d1a0f155
+        checksum/config: cf17241095cdd4f5367830b0ed0b52ec894651869ec6c0ccd8e7dd4445e6eefd
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false
