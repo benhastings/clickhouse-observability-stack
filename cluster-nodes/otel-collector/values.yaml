@@ -148,6 +148,32 @@ configMaps:
             check_interval: 5s
             limit_percentage: 80
             spike_limit_percentage: 25
+          # Alertmanager's webhook payload, one alert per notification (the history route groups by every
+          # label), as a log of service alertmanager with the alert's fields as attributes for LogQL.
+          transform/alertmanager:
+            error_mode: ignore
+            log_statements:
+              - set(resource.attributes["service.name"], "alertmanager")
+              - set(log.time, log.observed_time)
+              - merge_maps(log.cache, ParseJSON(log.body), "upsert")
+              - set(log.cache["alert"], log.cache["alerts"][0])
+              - set(log.attributes["status"], log.cache["status"])
+              - set(log.attributes["receiver"], log.cache["receiver"])
+              - set(log.attributes["alertname"], log.cache["alert"]["labels"]["alertname"])
+              - set(log.attributes["severity"], log.cache["alert"]["labels"]["severity"])
+              - set(log.attributes["alert_service_name"], log.cache["alert"]["labels"]["service_name"])
+              - set(log.attributes["fingerprint"], log.cache["alert"]["fingerprint"])
+              - set(log.attributes["starts_at"], log.cache["alert"]["startsAt"])
+              - set(log.severity_text, "WARN") where log.cache["status"] == "firing"
+              - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.cache["status"] == "firing"
+              - set(log.severity_text, "INFO") where log.cache["status"] == "resolved"
+              - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["status"] == "resolved"
+              - set(log.attributes["ends_at"], log.cache["alert"]["endsAt"]) where log.cache["status"] == "resolved"
+              - >-
+                set(log.attributes["duration_seconds"],
+                UnixSeconds(Time(log.cache["alert"]["endsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")) -
+                UnixSeconds(Time(log.cache["alert"]["startsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")))
+                where log.cache["status"] == "resolved"
         receivers:
           {{- if not $agent }}
           kubeletstats:
@@ -157,6 +183,10 @@ configMaps:
             insecure_skip_verify: {{ dig "agent" "kubelet" "insecureSkipVerify" false $collector }}
             metric_groups: [node, pod, container, volume]
           {{- end }}
+          # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
+          webhook_event:
+            endpoint: 0.0.0.0:8088
+            path: /alertmanager
           # OTLP listens on every interface in the pod, not just the pod IP, because
           # kubectl port-forward (make cluster/port-forward) connects to localhost inside the pod.
           otlp:
@@ -200,6 +230,15 @@ configMaps:
               {{- range dig "logs" "receivers" list $pipelines }}
               - {{ . }}
               {{- end }}
+            logs/alertmanager:
+              exporters:
+              - clickhouse
+              processors:
+              - memory_limiter
+              - transform/alertmanager
+              - batch
+              receivers:
+              - webhook_event
             metrics:
               exporters:
               - clickhouse
@@ -268,6 +307,9 @@ service:
       appProtocol: grpc
     otlp-http:
       port: 4318
+    alertmanager:
+      port: 8088
+      appProtocol: http
 
 # With global.mesh: kubernetes and global.exposure.enabled, an Ingress routes global.exposure.hosts.otlp
 # to OTLP over HTTP. gRPC isn't exposed outside the cluster.
@@ -289,6 +331,8 @@ deployment:
           containerPort: 4317
         otlp-http:
           containerPort: 4318
+        alertmanager:
+          containerPort: 8088
       env:
         MY_POD_IP:
           valueFrom:
@@ -407,7 +451,8 @@ daemonset:
           memory: 128Mi
 
 # With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may
-# send OTLP (which includes the ingress gateway or controller for exposed OTLP); the collector reaches
+# send OTLP (which includes the ingress gateway or controller for exposed OTLP), and Alertmanager posts its
+# notifications to 8088; the collector reaches
 # ClickHouse and, for kubeletstats, each node's kubelet on 10250.
 networkPolicy:
   podSelector:
@@ -424,6 +469,13 @@ networkPolicy:
         - port: 4317
           protocol: TCP
         - port: 4318
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - port: 8088
           protocol: TCP
   egress:
     - to:

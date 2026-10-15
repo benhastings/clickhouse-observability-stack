@@ -92,6 +92,32 @@ data:
         check_interval: 5s
         limit_percentage: 80
         spike_limit_percentage: 25
+      # Alertmanager's webhook payload, one alert per notification (the history route groups by every
+      # label), as a log of service alertmanager with the alert's fields as attributes for LogQL.
+      transform/alertmanager:
+        error_mode: ignore
+        log_statements:
+          - set(resource.attributes["service.name"], "alertmanager")
+          - set(log.time, log.observed_time)
+          - merge_maps(log.cache, ParseJSON(log.body), "upsert")
+          - set(log.cache["alert"], log.cache["alerts"][0])
+          - set(log.attributes["status"], log.cache["status"])
+          - set(log.attributes["receiver"], log.cache["receiver"])
+          - set(log.attributes["alertname"], log.cache["alert"]["labels"]["alertname"])
+          - set(log.attributes["severity"], log.cache["alert"]["labels"]["severity"])
+          - set(log.attributes["alert_service_name"], log.cache["alert"]["labels"]["service_name"])
+          - set(log.attributes["fingerprint"], log.cache["alert"]["fingerprint"])
+          - set(log.attributes["starts_at"], log.cache["alert"]["startsAt"])
+          - set(log.severity_text, "WARN") where log.cache["status"] == "firing"
+          - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.cache["status"] == "firing"
+          - set(log.severity_text, "INFO") where log.cache["status"] == "resolved"
+          - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["status"] == "resolved"
+          - set(log.attributes["ends_at"], log.cache["alert"]["endsAt"]) where log.cache["status"] == "resolved"
+          - >-
+            set(log.attributes["duration_seconds"],
+            UnixSeconds(Time(log.cache["alert"]["endsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")) -
+            UnixSeconds(Time(log.cache["alert"]["startsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")))
+            where log.cache["status"] == "resolved"
     receivers:
       kubeletstats:
         auth_type: serviceAccount
@@ -99,6 +125,10 @@ data:
         endpoint: https://${env:K8S_NODE_IP}:10250
         insecure_skip_verify: false
         metric_groups: [node, pod, container, volume]
+      # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
+      webhook_event:
+        endpoint: 0.0.0.0:8088
+        path: /alertmanager
       # OTLP listens on every interface in the pod, not just the pod IP, because
       # kubectl port-forward (make cluster/port-forward) connects to localhost inside the pod.
       otlp:
@@ -124,6 +154,15 @@ data:
           - batch
           receivers:
           - otlp
+        logs/alertmanager:
+          exporters:
+          - clickhouse
+          processors:
+          - memory_limiter
+          - transform/alertmanager
+          - batch
+          receivers:
+          - webhook_event
         metrics:
           exporters:
           - clickhouse
@@ -217,6 +256,11 @@ spec:
     app.kubernetes.io/name: otel-collector
     app.kubernetes.io/instance: otel-collector
   ports:
+    - name: alertmanager
+      port: 8088
+      targetPort: alertmanager
+      protocol: TCP
+      appProtocol: http
     - name: otlp
       port: 4317
       targetPort: otlp
@@ -255,7 +299,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 48e583fb77d73d1943894177f8ae0e41c4dd08f75cd8b649fb437749219ebe62
+        checksum/config: 51c9d9fb60dc92be0689b8b5e34925009c363daf274bb00a1c8fe7a6f2f4f584
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -271,6 +315,9 @@ spec:
           args:
             - --config=/conf/relay.yaml
           ports:
+            - name: alertmanager
+              containerPort: 8088
+              protocol: TCP
             - name: otlp
               containerPort: 4317
               protocol: TCP

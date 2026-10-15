@@ -375,5 +375,39 @@
   },
   "timezone": "browser",
   "title": "Span metrics (RED)",
-  "uid": "span-metrics-red"
+  "uid": "span-metrics-red",
+  "annotations": {
+    "list": [
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "cerberus-loki"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "name": "Alerts firing",
+        "expr": "{service_name=\"alertmanager\"} | status=\"firing\"",
+        "titleFormat": "{{alertname}} firing",
+        "textFormat": "{{alert_service_name}}",
+        "tagKeys": "alertname,alert_service_name,severity",
+        "instant": false
+      },
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "cerberus-loki"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "green",
+        "name": "Alerts resolved",
+        "expr": "{service_name=\"alertmanager\"} | status=\"resolved\"",
+        "titleFormat": "{{alertname}} resolved",
+        "textFormat": "{{alert_service_name}}",
+        "tagKeys": "alertname,alert_service_name,severity",
+        "instant": false
+      }
+    ]
+  }
 }

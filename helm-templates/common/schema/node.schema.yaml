@@ -168,6 +168,7 @@ definitions:
           otlpGrpc: {type: string, description: where the demo load sends OTLP over gRPC, x-default: '`otel-collector:4317`'}
           alertmanager: {type: string, description: where rule evaluators send alerts, x-default: '`http://alertmanager:9093`'}
           sqlAdapter: {type: string, description: where vmalert sends its ClickHouse SQL rules, x-default: '`http://garmr-sql-adapter:8080`'}
+          alertHistory: {type: string, description: where Alertmanager posts every notification so it is kept in otel_logs, x-default: '`http://otel-collector:8088/alertmanager`'}
       externalSecrets:
         type: object
         additionalProperties: false

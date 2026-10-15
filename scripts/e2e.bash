@@ -200,6 +200,9 @@ done
 poll "Grafana: the span-metrics dashboard is provisioned" \
   '.dashboard.uid == "span-metrics-red"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/span-metrics-red"
+poll "Grafana: the alert hygiene dashboard is provisioned" \
+  '.dashboard.uid == "alert-hygiene"' \
+  -u "$grafana_login" "$grafana/api/dashboards/uid/alert-hygiene"
 
 # Each ClickHouse user can do its own job and nothing else: the collector's user inserts but cannot read,
 # Cerberus's reads but cannot write or change a table. The data checks above prove the allowed half.
@@ -262,6 +265,31 @@ poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
 poll "Grafana: the Alertmanager datasource lists $e2e_alert" \
   "[.[] | .labels.alertname] | index(\"$e2e_alert\") != null" \
   -u "$grafana_login" "$grafana/api/alertmanager/alertmanager/api/v2/alerts"
+
+# Alertmanager's history receiver posts every notification to the collector, which keeps it in otel_logs as a
+# log of service alertmanager with the alert's labels as attributes.
+history_start=$(($(date +%s) - 300))
+poll "LogQL: the history receiver kept $e2e_alert's notification as a log" \
+  "[.data.result[] | select(.stream.status == \"firing\") | .values[]] | length > 0" \
+  "$cerberus/loki/api/v1/query_range" \
+  --data-urlencode "query={service_name=\"alertmanager\"} | alertname=\"$e2e_alert\"" \
+  --data-urlencode "start=${history_start}000000000" --data-urlencode "end=$(($(date +%s) + 900))000000000" \
+  --data-urlencode 'limit=10'
+poll "LogQL: notifications count per alertname, as the alert hygiene dashboard reads them" \
+  "[.data.result[].metric.alertname] | index(\"$e2e_alert\") != null" \
+  "$cerberus/loki/api/v1/query" \
+  --data-urlencode 'query=sum by (alertname) (count_over_time({service_name="alertmanager"} | status="firing" [15m]))'
+# Resolve it the way an evaluator would, by posting it again with endsAt. The history log of the resolved
+# notification carries how long the alert fired, which the dashboard's time-to-resolve panel reads.
+curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "[{\"labels\": {\"alertname\": \"$e2e_alert\", \"severity\": \"none\"},
+       \"annotations\": {\"summary\": \"posted by scripts/e2e.bash\"},
+       \"endsAt\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"}]" \
+  "$alertmanager/api/v2/alerts"
+poll "LogQL: the resolved notification records how long $e2e_alert fired" \
+  "[.data.result[] | select(.metric.alertname == \"$e2e_alert\") | .value[1] | tonumber] | length == 1 and .[0] >= 0" \
+  "$cerberus/loki/api/v1/query" \
+  --data-urlencode 'query=quantile_over_time(0.5, {service_name="alertmanager"} | status="resolved" | unwrap duration_seconds [15m]) by (alertname)'
 
 # vmalert evaluates the starter rules as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is
 # health "err" with ClickHouse's message, so a healthy evaluation proves vmalert -> adapter -> ClickHouse.

@@ -145,6 +145,291 @@ metadata:
     app.kubernetes.io/version: "13.2.2"
     environment: dev
 data:
+  alert-hygiene.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": false,
+      "panels": [
+        {
+          "id": 1,
+          "type": "text",
+          "title": "",
+          "gridPos": {
+            "h": 3,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "**Alert hygiene**: every notification Alertmanager sends is also a log of service `alertmanager` in ClickHouse (the `history` receiver, through the collector). These panels count them with LogQL through Cerberus, to find noisy, flapping and slow-to-resolve rules before tuning thresholds."
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Firing notifications per rule",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 3
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "cerberus-loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 80,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "calcs": [
+                "sum"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "cerberus-loki"
+              },
+              "expr": "sum by (alertname) (count_over_time({service_name=\"alertmanager\"} | status=\"firing\" [$__interval]))",
+              "refId": "A",
+              "queryType": "range",
+              "legendFormat": "{{alertname}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Notifications per rule",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 0,
+            "y": 11
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "cerberus-loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Value",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "mode": "seriesToRows"
+              }
+            }
+          ],
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "cerberus-loki"
+              },
+              "expr": "sum by (alertname) (count_over_time({service_name=\"alertmanager\"} | status=\"firing\" [$__range]))",
+              "refId": "A",
+              "queryType": "instant",
+              "legendFormat": "{{alertname}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Median time to resolve",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 8,
+            "y": 11
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "cerberus-loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Last *",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "mode": "seriesToRows"
+              }
+            }
+          ],
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "cerberus-loki"
+              },
+              "expr": "quantile_over_time(0.5, {service_name=\"alertmanager\"} | status=\"resolved\" | unwrap duration_seconds [$__range]) by (alertname)",
+              "refId": "A",
+              "queryType": "instant",
+              "legendFormat": "{{alertname}}"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "table",
+          "title": "Flapping: rules resolved more than 3 times",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 16,
+            "y": 11
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "cerberus-loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Value",
+                "desc": true
+              }
+            ]
+          },
+          "transformations": [
+            {
+              "id": "reduce",
+              "options": {
+                "reducers": [
+                  "lastNotNull"
+                ],
+                "mode": "seriesToRows"
+              }
+            }
+          ],
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "cerberus-loki"
+              },
+              "expr": "sum by (alertname) (count_over_time({service_name=\"alertmanager\"} | status=\"resolved\" [$__range])) > 3",
+              "refId": "A",
+              "queryType": "instant",
+              "legendFormat": "{{alertname}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "logs",
+          "title": "Notifications",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "cerberus-loki"
+          },
+          "options": {
+            "showTime": true,
+            "wrapLogMessage": false,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "cerberus-loki"
+              },
+              "expr": "{service_name=\"alertmanager\"}",
+              "refId": "A",
+              "queryType": "range",
+              "legendFormat": ""
+            }
+          ]
+        }
+      ],
+      "refresh": "1m",
+      "schemaVersion": 41,
+      "tags": [
+        "alerting",
+        "cerberus",
+        "clickhouse"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-7d",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Alert hygiene",
+      "uid": "alert-hygiene"
+    }
   span-metrics.json: |
     {
       "panels": [
@@ -523,7 +808,41 @@ data:
       },
       "timezone": "browser",
       "title": "Span metrics (RED)",
-      "uid": "span-metrics-red"
+      "uid": "span-metrics-red",
+      "annotations": {
+        "list": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "cerberus-loki"
+            },
+            "enable": true,
+            "hide": false,
+            "iconColor": "red",
+            "name": "Alerts firing",
+            "expr": "{service_name=\"alertmanager\"} | status=\"firing\"",
+            "titleFormat": "{{alertname}} firing",
+            "textFormat": "{{alert_service_name}}",
+            "tagKeys": "alertname,alert_service_name,severity",
+            "instant": false
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "cerberus-loki"
+            },
+            "enable": true,
+            "hide": false,
+            "iconColor": "green",
+            "name": "Alerts resolved",
+            "expr": "{service_name=\"alertmanager\"} | status=\"resolved\"",
+            "titleFormat": "{{alertname}} resolved",
+            "textFormat": "{{alert_service_name}}",
+            "tagKeys": "alertname,alert_service_name,severity",
+            "instant": false
+          }
+        ]
+      }
     }
 ---
 # Source: grafana/templates/service.yaml
@@ -579,7 +898,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 7d179e336a0b3af62f1eb8656fdf186c974e03d2cedd5b868ed389f68f9bf124
+        checksum/config: 1da74954337500daf928f511c2fc8d5df002ed466aae5be2c61b05c55875f692
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

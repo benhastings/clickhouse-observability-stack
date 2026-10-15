@@ -40,7 +40,35 @@ tests:
           pattern: "receiver: default"
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "receivers:\\n- name: default\\nroute:"
+          pattern: "receivers:\\n- name: default\\n- name: history\\n"
+
+  - it: posts every notification, one alert each, to the collector so it is kept in otel_logs
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "- name: history\\n  webhook_configs:\\n  - max_alerts: 1\\n    send_resolved: true\\n    url: 'http://otel-collector:8088/alertmanager'"
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "routes:\\n  - continue: true\\n    group_by:\\n    - '...'\\n    group_interval: 1m\\n    group_wait: 0s\\n    receiver: history"
+
+  - it: reaches only the collector's history endpoint when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: otel-collector
+            ports:
+              - port: 8088
+                protocol: TCP
 
   - it: runs one replica with no gossip cluster, replaced rather than rolled
     documentSelector:
@@ -117,3 +145,12 @@ tests:
       - equal:
           path: spec.ingress[0].ports[0].port
           value: 9093
+
+  - it: still sends every alert to default after history, whose route matches everything
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "receiver: history\\n    repeat_interval: 168h\\n  - receiver: default"

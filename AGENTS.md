@@ -131,7 +131,7 @@ digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at 
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
 for both demo services, a payments error ratio near 25%, no checkout server errors, service-graph metrics, node
 CPU and memory and per-pod memory from `kubeletstats`, checkout logs, failing payments traces, a log's `trace_id`
-opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboard, an alert posted to Alertmanager (and listed through Grafana's Alertmanager datasource), vmalert's SQL rule firing for payments (and not checkout) through garmr sql-adapter, and Grafana's error-ratio rule reaching Alertmanager. Argo CD pulls the
+opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboards, an alert posted to Alertmanager (listed through Grafana's Alertmanager datasource, and kept as a log by the history receiver: firing, then resolved with its duration), vmalert's SQL rule firing for payments (and not checkout) through garmr sql-adapter, and Grafana's error-ratio rule reaching Alertmanager. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
 `scripts/e2e.bash` also runs against a cluster without Argo CD (`make helm/install`, `make dev/up`): it then waits
