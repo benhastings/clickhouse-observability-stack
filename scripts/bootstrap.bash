@@ -6,6 +6,8 @@
 #      health checks), unless an argocd-server is already running, in which case it is left alone
 #   3. the environment's AppProject, unless it sets projectCreate: false, then app-of-apps-<env>.yaml
 # A <revision> deploys that commit or branch instead of the environment's targetRevision; never commit that.
+# KIND_CLUSTER=<name> pulls Argo CD's images on the host first, with retries, and loads them into that kind
+# cluster, so a registry hiccup fails in a minute with the image named instead of in the 10m install wait.
 # EXTRA_VALUES=<file> merges that file over the environment's values in the bootstrap Application (the
 # MESH=istio kind profile uses it); never for a real cluster, whose values belong in its environment file.
 set -euo pipefail
@@ -19,14 +21,43 @@ ARGOCD_CHART_VERSION=10.9.2
 
 [[ -f "$bootstrap" ]] || { echo "bootstrap: no $bootstrap; make env/new NAME=$env writes one" >&2; exit 2; }
 
+# preload_kind_images <cluster> <images, one per line>: docker pull each with up to five attempts, then
+# kind load it, so the kubelet never pulls it.
+preload_kind_images() {
+  local cluster=$1 image attempt
+  while read -r image; do
+    [[ -n "$image" ]] || continue
+    for attempt in 1 2 3 4 5; do
+      docker pull -q "$image" >/dev/null && break
+      if [[ $attempt == 5 ]]; then
+        echo "bootstrap: could not pull $image after 5 attempts" >&2
+        return 1
+      fi
+      echo "==> Pulling $image failed (attempt $attempt); retrying in $((attempt * 10))s" >&2
+      sleep $((attempt * 10))
+    done
+    echo "==> Loading $image into kind"
+    kind load docker-image "$image" --name "$cluster" >/dev/null
+  done <<<"$2"
+}
+
 ENV="$env" scripts/preflight.bash
 
 if kubectl -n argocd get deployment argocd-server >/dev/null 2>&1; then
   echo "==> Argo CD is already running; leaving it as it is"
 else
+  chart_dir="$(mktemp -d)"
+  trap 'rm -rf "$chart_dir"' EXIT
+  helm pull argo-cd --repo https://argoproj.github.io/argo-helm --version "$ARGOCD_CHART_VERSION" \
+    --destination "$chart_dir"
+  chart="$chart_dir/argo-cd-$ARGOCD_CHART_VERSION.tgz"
+  if [[ -n "${KIND_CLUSTER:-}" ]]; then
+    preload_kind_images "$KIND_CLUSTER" "$(helm template argocd "$chart" --namespace argocd \
+      -f cluster-configs/argocd/values.yaml |
+      yq -N '.. | select(tag == "!!map" and has("image")) | .image' | sort -u)"
+  fi
   echo "==> Installing Argo CD (chart $ARGOCD_CHART_VERSION)"
-  helm upgrade --install argocd argo-cd \
-    --repo https://argoproj.github.io/argo-helm --version "$ARGOCD_CHART_VERSION" \
+  helm upgrade --install argocd "$chart" \
     --namespace argocd --create-namespace \
     -f cluster-configs/argocd/values.yaml --wait --timeout 10m
 fi
