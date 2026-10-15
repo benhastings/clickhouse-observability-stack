@@ -212,7 +212,7 @@ poll "  trace $cross_trace has the external root and its in-cluster child" \
 # runs without the mesh.
 if [[ "${MESH:-kubernetes}" != istio ]]; then
   poll "  k8sattributes: TraceQL finds the in-cluster span by the pod and namespace that sent it" \
-    "[.traces[].traceID] | index(\"$cross_trace\") != null" \
+    "[.traces[].traceID | (32 - length) as \$n | (if \$n > 0 then \"0\" * \$n else \"\" end) + .] | index(\"$cross_trace\") != null" \
     "$cerberus/api/search" \
     --data-urlencode "q={resource.k8s.pod.name=\"$sender\" && resource.k8s.namespace.name=\"observability\"}" \
     --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
