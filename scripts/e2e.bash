@@ -213,7 +213,7 @@ panel_expr() { # panel title
 poll "Dashboard: the latency heatmap has buckets" \
   '[.data.result[].metric.le] | length > 3' \
   "$cerberus/api/v1/query" --data-urlencode "query=$(panel_expr 'Server latency heatmap')"
-poll "Dashboard: payments latency buckets carry trace_id exemplars for the heatmap" \
+poll "Span metrics: payments latency buckets carry trace_id exemplars (panels leave them off until tsouza/cerberus#3787)" \
   '[.data[].exemplars[].labels.trace_id // empty] | length > 0' \
   "$cerberus/api/v1/query_exemplars" \
   --data-urlencode 'query=traces_span_metrics_duration_bucket{service_name="payments", span_kind="SPAN_KIND_SERVER"}' \

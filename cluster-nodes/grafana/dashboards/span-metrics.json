@@ -9,7 +9,7 @@
       },
       "id": 1,
       "options": {
-        "content": "**Span metrics (RED)**: rate, errors and duration derived from traces by the OTel Collector's `spanmetrics` connector, stored in ClickHouse, and queried here with PromQL through Cerberus. Dots on the latency charts are exemplars: click one to open that trace in Tempo (Cerberus). Click a series for links to its failing or slow traces, its error logs, and Traces and Logs Drilldown.",
+        "content": "**Span metrics (RED)**: rate, errors and duration derived from traces by the OTel Collector's `spanmetrics` connector, stored in ClickHouse, and queried here with PromQL through Cerberus. Click a series for links to its failing or slow traces, its error logs, and Traces and Logs Drilldown. Exemplar dots are off until Cerberus answers exemplar queries for aggregated expressions (tsouza/cerberus#3787).",
         "mode": "markdown"
       },
       "title": "",
@@ -66,7 +66,7 @@
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "exemplar": true,
+          "exemplar": false,
           "expr": "sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
           "legendFormat": "{{service_name}}",
           "refId": "A"
@@ -136,7 +136,7 @@
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "exemplar": true,
+          "exemplar": false,
           "expr": "(sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) or sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])) * 0) / sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
           "legendFormat": "{{service_name}}",
           "refId": "A"
@@ -200,7 +200,7 @@
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "exemplar": true,
+          "exemplar": false,
           "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{service_name}} p50",
           "refId": "A"
@@ -210,7 +210,7 @@
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "exemplar": true,
+          "exemplar": false,
           "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{service_name}} p95",
           "refId": "B"
@@ -220,7 +220,7 @@
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "exemplar": true,
+          "exemplar": false,
           "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
           "legendFormat": "{{service_name}} p99",
           "refId": "C"
@@ -236,7 +236,7 @@
       },
       "id": 7,
       "title": "Server latency heatmap",
-      "description": "Server-span durations per bucket for the selected services. Dots are exemplars: click one to open that trace.",
+      "description": "Server-span durations per bucket for the selected services.",
       "type": "heatmap",
       "gridPos": {
         "h": 9,
@@ -300,7 +300,7 @@
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "exemplar": true,
+          "exemplar": false,
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "refId": "A",
