@@ -402,9 +402,10 @@ It needs:
   Incoming webhooks can't thread.
 - **The token** in the Secret `alertmanager-slack`, key `app-token`. Nothing in git creates it.
 - **The channel** in `slack.channel`.
-- **An Alertmanager with `post_updates_to_thread`**, merged upstream after v0.34.1 and not yet released. `local`
-  runs Alertmanager's `main` image pinned by digest for this; `prod` stays on v0.34.1 and can't enable Slack
-  until a release has it.
+- **An Alertmanager with `post_updates_to_thread`**, merged upstream after v0.34.1 and not yet released.
+  `make dev/slack` runs Alertmanager's moving `main` image for this. No environment pins it by digest,
+  because quay.io deletes a `main` manifest once the tag moves on. Every environment stays on v0.34.1 and
+  can't enable Slack until a release has it.
 
 To try it on kind without committing anything, use the `dev/up` cluster:
 
@@ -416,7 +417,8 @@ SLACK_APP_TOKEN=xoxb-... make dev/slack SLACK_CHANNEL='#alerts-test'
 The demo load's hourly payments incident (15 minutes after it starts) then opens an `ErrorRatioAnomaly` thread,
 which gets a reply when it resolves. `make dev/apply APP=alertmanager` turns Slack off again. On an Argo CD
 cluster, create the Secret yourself and set `slack: {enabled: true, channel: ...}` under
-`applications.alertmanager.values` in the environment file.
+`applications.alertmanager.values` in the environment file, with the image tag `main` under
+`deployment.containers.alertmanager.image` until a release has threads.
 
 Alertmanager's `AlertmanagerNotificationsFailing` for Slack (a revoked token, a channel the app isn't in) is routed
 to `route.receiver`, not back to Slack.
