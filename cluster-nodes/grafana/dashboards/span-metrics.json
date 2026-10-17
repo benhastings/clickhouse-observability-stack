@@ -30,7 +30,7 @@
           "links": [
             {
               "title": "Traces Drilldown: ${__field.labels.service_name}",
-              "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&actionView=breakdown"
+              "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
             },
             {
               "title": "Logs Drilldown: ${__field.labels.service_name}",
@@ -100,7 +100,7 @@
             },
             {
               "title": "Traces Drilldown: ${__field.labels.service_name}",
-              "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&actionView=breakdown"
+              "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
             },
             {
               "title": "Logs Drilldown: ${__field.labels.service_name}",
@@ -164,7 +164,7 @@
             },
             {
               "title": "Traces Drilldown: ${__field.labels.service_name}",
-              "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&actionView=breakdown"
+              "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
             },
             {
               "title": "Logs Drilldown: ${__field.labels.service_name}",
