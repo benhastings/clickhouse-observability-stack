@@ -205,6 +205,33 @@ poll "Grafana: the alert hygiene dashboard is provisioned" \
   '.dashboard.uid == "alert-hygiene"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/alert-hygiene"
 
+# The service dashboard's own queries, read from its JSON with every service selected (All is .*).
+panel_expr() { # panel title
+  jq -r --arg title "$1" '.panels[] | select(.title == $title) | .targets[0].expr |
+    gsub("\\$__rate_interval"; "2m") | gsub("\\$service"; ".*")' cluster-nodes/grafana/dashboards/span-metrics.json
+}
+poll "Dashboard: the latency heatmap has buckets" \
+  '[.data.result[].metric.le] | length > 3' \
+  "$cerberus/api/v1/query" --data-urlencode "query=$(panel_expr 'Server latency heatmap')"
+poll "Span metrics: payments latency buckets carry trace_id exemplars (panels leave them off until tsouza/cerberus#3787)" \
+  '[.data[].exemplars[].labels.trace_id // empty] | length > 0' \
+  "$cerberus/api/v1/query_exemplars" \
+  --data-urlencode 'query=traces_span_metrics_duration_bucket{service_name="payments", span_kind="SPAN_KIND_SERVER"}' \
+  --data-urlencode "start=$((now - 600))" --data-urlencode "end=$end"
+poll "Dashboard: the error logs panel finds payments' errors" \
+  '[.data.result[] | select(.stream.service_name == "payments") | .values[]] | length > 0' \
+  "$cerberus/loki/api/v1/query_range" --data-urlencode "query=$(panel_expr 'Error logs')" \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=50'
+# The service graph panel is Grafana's Tempo service map, which runs these PromQL queries in the browser.
+poll "Dashboard: the service graph has the checkout -> payments edge" \
+  '[.data.result[].metric | select(.client == "checkout" and .server == "payments")] | length == 1' \
+  "$cerberus/api/v1/query" \
+  --data-urlencode 'query=sum by (client, server) (rate(traces_service_graph_request_total{server=~"payments"}[5m]))'
+poll "Dashboard: the service graph colours the failing edge" \
+  '.data.result[0].value[1] | tonumber | . > 0' \
+  "$cerberus/api/v1/query" \
+  --data-urlencode 'query=sum(rate(traces_service_graph_request_failed_total{client="checkout", server="payments"}[5m]))'
+
 # Each ClickHouse user can do its own job and nothing else: the collector's user inserts but cannot read,
 # Cerberus's reads but cannot write or change a table. The data checks above prove the allowed half.
 clickhouse_pod="$(kubectl -n observability get pods -l clickhouse.altinity.com/chi=otel -o name | head -1)"
