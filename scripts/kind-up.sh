@@ -19,9 +19,9 @@ create_local_secrets
 # MESH=istio installs Istio first and deploys local with the mesh, and exposure through its gateway, on.
 if [[ "${MESH:-kubernetes}" == istio ]]; then
   scripts/kind-istio.bash
-  EXTRA_VALUES=tests/mesh/local-istio.values.yaml scripts/bootstrap.bash local "$REVISION"
+  KIND_CLUSTER="$CLUSTER" EXTRA_VALUES=tests/mesh/local-istio.values.yaml scripts/bootstrap.bash local "$REVISION"
 else
-  scripts/bootstrap.bash local "$REVISION"
+  KIND_CLUSTER="$CLUSTER" scripts/bootstrap.bash local "$REVISION"
 fi
 
 cat <<'MSG'
