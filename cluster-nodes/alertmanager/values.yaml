@@ -27,7 +27,7 @@ receivers:
 # resolved) reply in its thread, and the message itself is kept current. Needs a Slack app's bot token
 # (chat:write, invited to the channel) in the Secret alertmanager-slack, key app-token, which is never
 # created here, and an Alertmanager with post_updates_to_thread: released after v0.34.1, so until then an
-# environment that turns this on also sets the image (values-local.yaml does). Every alert but the Watchdog
+# environment that turns this on also sets the image (make dev/slack does). Every alert but the Watchdog
 # goes to Slack; the stack's AlertmanagerNotificationsFailing for Slack itself goes to route.receiver.
 slack:
   enabled: false
