@@ -169,7 +169,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: alertmanager
-          image: "quay.io/prometheus/alertmanager:main@sha256:6e381f097eedbf0d6ec8cf9373d85bea0ee3b03c4a001dfc080c734f0eab87e8"
+          image: "quay.io/prometheus/alertmanager:v0.34.1"
           imagePullPolicy: IfNotPresent
           args:
             - --config.file=/etc/alertmanager/alertmanager.yml
