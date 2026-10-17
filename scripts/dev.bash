@@ -122,7 +122,11 @@ MSG
     use_cluster
     kubectl -n observability create secret generic alertmanager-slack --from-literal=app-token="$SLACK_APP_TOKEN" \
       --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    apply alertmanager --set slack.enabled=true --set-string slack.channel="$channel"
+    # Slack threads (post_updates_to_thread) are on Alertmanager's main branch but in no release after
+    # v0.34.1, so this runs the moving main tag. A digest of it can't be committed: quay.io deletes the old
+    # manifest when main moves. Go back to the node's tag once a release has threads.
+    apply alertmanager --set slack.enabled=true --set-string slack.channel="$channel" \
+      --set-string deployment.containers.alertmanager.image.tag=main
     kubectl -n observability rollout restart deployment/alertmanager >/dev/null
     echo "Alerts now go to $channel, one thread per alert group. Undo with make dev/apply APP=alertmanager."
     ;;
