@@ -105,6 +105,10 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
+        configMaps:
+          env:
+            data:
+              CERBERUS_PROM_METADATA_LOOKBACK: 30d
         deployment:
           containers:
             cerberus:
@@ -182,6 +186,11 @@ spec:
             requests:
               cpu: "2"
               memory: 8Gi
+          schema:
+            ttlDays:
+              logs: 14
+              metrics: 30
+              traces: 21
           storage: 200Gi
         global:
           exposure:

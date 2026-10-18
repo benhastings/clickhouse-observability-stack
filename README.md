@@ -17,6 +17,9 @@ flowchart LR
     VMA[vmalert<br/>rules in git] -- SQL rules --> GSA[garmr<br/>sql-adapter]
     GSA -- SQL, read-only --> CH
     VMA -- firing alerts --> AM[Alertmanager]
+    GF -- Grafana rules --> AM
+    AM -- every notification, as a log --> COL
+    CH -- refreshable views:<br/>hour-of-week baselines --> CH
 ```
 
 ## Components
@@ -25,7 +28,7 @@ flowchart LR
 |---|---|---|
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
-| `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. Also creates the OTel tables. |
+| `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. It only reads: the `clickhouse` app's schema Job creates the tables. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
@@ -37,6 +40,23 @@ Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pull
 
 Argo CD itself is installed by `scripts/bootstrap.bash`, which `make cluster/up` and `make cluster/bootstrap` run (chart `argo/argo-cd` 10.9.2, Argo CD v3.5.3).
 
+## What it covers
+
+What the stack is for, what delivers each part, and where to see it. Where a part isn't done, its epic says what's left.
+
+| Goal | Delivered by | See it | Left |
+|---|---|---|---|
+| One store for metrics, events, logs and traces | OTLP into the collector, everything into ClickHouse's `otel` database; Alertmanager's notifications become logs too | [Querying ClickHouse directly](#troubleshooting) | |
+| About three weeks of traces, queried on demand | TraceQL through Cerberus; `clickhouse.schema.ttlDays` (7 days on kind) | Explore → Tempo (Cerberus) | [#162](https://github.com/benhastings/clickhouse-observability-stack/issues/162) |
+| System metrics from nodes and Kubernetes | the collector's `kubeletstats` receiver: CPU, memory, filesystem, network for node, pod, container and volume | Explore → Prometheus (Cerberus), `k8s_node_*` | [#163](https://github.com/benhastings/clickhouse-observability-stack/issues/163): host metrics, cluster state, Kubernetes attributes on every signal |
+| RED metrics derived from spans, with bounded cardinality | the `spanmetrics` and `servicegraph` connectors, with a fixed set of dimensions | [Span metrics](#span-metrics-the-collectors-spanmetrics-connector-not-a-clickhouse-materialized-view) | [#176](https://github.com/benhastings/clickhouse-observability-stack/issues/176): a cardinality cap |
+| Wide-event logs | log attributes kept as a map column; the demo's one event per request carries `duration_ms`, `user.id`, `outcome` and more | `{service_name="checkout"} \| main="true"` | |
+| Moving between metrics, logs and traces in Grafana | exemplars, the logs' `trace_id` link, trace to logs and to metrics, the service graph | [What you should see](#what-you-should-see) | [#177](https://github.com/benhastings/clickhouse-observability-stack/issues/177): the same links from the dashboards |
+| Default alerts on latency and availability | vmalert's anomaly rules over ClickHouse baselines, Grafana's starter rules, and the alerting pipeline watching itself | [Anomaly rules](#anomaly-rules-alert-on-a-change-from-normal) | [#165](https://github.com/benhastings/clickhouse-observability-stack/issues/165): SLOs with burn-rate alerts |
+| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
+| Grafana's Drilldown apps | Metrics, Logs and Traces Drilldown, preinstalled at pinned versions | Grafana → Drilldown | [#166](https://github.com/benhastings/clickhouse-observability-stack/issues/166): proven against Cerberus |
+| A path for ML and AI over traces and logs | the baselines show the pattern: ClickHouse computes, writes series back, everything reads them | [Anomaly baselines](#anomaly-baselines-computed-by-clickhouse-read-as-series) | [#167](https://github.com/benhastings/clickhouse-observability-stack/issues/167): an analyst user, feature tables, docs |
+
 ## Quick start (local kind cluster)
 
 **Requirements:**
@@ -46,7 +66,7 @@ Argo CD itself is installed by `scripts/bootstrap.bash`, which `make cluster/up`
 
 ```bash
 make cluster/up                            # cluster + Secrets + Argo CD + the local app-of-apps (~10 min on first run)
-kubectl -n argocd get applications -w      # wait for all 7 apps: Synced / Healthy
+kubectl -n argocd get applications -w      # wait for all 9 apps: Synced / Healthy
 make cluster/port-forward                  # prints URLs and logins
 ```
 
@@ -282,7 +302,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*` and `system.view_refreshes` | Cerberus, garmr sql-adapter |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
 | `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*` and `otel_features.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
@@ -307,9 +327,11 @@ It writes only to `otel_ml`, for scores and predictions, which it can't create; 
 `kubectl -n observability port-forward svc/clickhouse 8123 9000`, then connect any ClickHouse client as
 `otel_analyst` with the password from the `clickhouse-analyst` Secret.
 
-Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default) on the
-`clickhouse` app. A change rewrites each table's TTL without rewriting its parts: data written before the
-change expires on the old TTL.
+Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default, for the
+laptop's 2 Gi volume) on the `clickhouse` app. `prod` keeps traces 21 days, logs 14 and metrics 30, and
+sets Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` to the metrics retention: without it, Grafana's metric
+and label pickers only look back 14 days. A change rewrites each table's TTL without rewriting its parts:
+data written before the change expires on the old TTL.
 
 To change a table, edit its `CREATE` in the schema file and add an `ALTER ... IF [NOT] EXISTS` below it, so
 installs whose table already exists get the change too.
@@ -452,6 +474,10 @@ to `route.receiver`, not back to Slack.
   `AlertmanagerNotificationsFailing` fires when any integration failed to deliver in the last 10 minutes. It
   carries the failing `integration` as a label, so a site with two receivers routes it to the one that isn't
   failing.
+- **ClickHouse disk:** `ClickHouseDiskFilling` (above 80% for 15 minutes, warning) and `ClickHouseDiskFull`
+  (above 90% for 5 minutes, critical) read `system.disks`, so they work on any volume, including kind's hostPath
+  one, and run in `prod`, where Grafana's starter rules are off. A full disk stops inserts, and the collector
+  drops telemetry once its queue fills.
 
 ### Anomaly rules: alert on a change from normal
 
@@ -678,8 +704,8 @@ Containers, ports, env vars and volumes are maps keyed by name, so this changes 
 of the container alone. `helm-templates/common/README.md` documents every key.
 
 `local` is what `scripts/kind-up.sh` deploys. `prod` is a worked example: no demo load, no low-memory tuning,
-larger resources, and Secrets you create yourself (`clickhouse-credentials`, `grafana-admin` and
-`clickhouse-operator-credentials`). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+larger resources, and Secrets you create yourself (`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`,
+`grafana-admin` and `clickhouse-operator-credentials`). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. Every application starts from its node defaults; add only what differs.
 
@@ -777,7 +803,7 @@ node's own `values.yaml` (the nodes are environment-neutral; no `values-<env>.ya
 |---|---|---|
 | Cerberus, the collector image and the schema | `cluster-nodes/cerberus/values.yaml` (`tag`, today `1.22.0`), `cluster-nodes/otel-collector/values.yaml` (`tag`, today `0.161.0`), each `Chart.yaml` `appVersion`, and `cluster-nodes/clickhouse/files/schema.sql.tpl` | The schema file is what Cerberus queries and the collector inserts into. A bump to either can break inserts or queries without any manifest changing. For a Cerberus bump, diff `docker run --rm -e CERBERUS_CH_DATABASE=otel -e CERBERUS_CH_OPTIMIZATIONS=auto -e CERBERUS_AUTO_CREATE_SCHEMA=true ghcr.io/tsouza/cerberus:<tag> migrate schema` against the schema file and carry the differences over, with an `ALTER` for existing tables; `make test/e2e` fails until they match. |
 | The operator image, its CRDs and its config files | `cluster-nodes/clickhouse-operator/values.yaml` (`tag`, today `0.27.4`), `cluster-nodes/clickhouse-operator/crds/` and `cluster-nodes/clickhouse-operator/files/` (`chi-config.d`, `chi-users.d`, `chk-keeper_config.d`) | The CRDs and config files are copied verbatim from one operator release. Replace them from the release you bump to, and read its notes first: the CRD surface changes between minor versions (0.27.4 removed `user/k8s_secret_password`). Argo CD applies the new CRDs on sync; a Helm install does not, so apply them by hand there (see [Helm](#helm) under Install). |
-| The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.1.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
+| The demo load image and `appVersion` | `cluster-nodes/demo-load/values.yaml` (`tag`, today `v0.2.0`) and `cluster-nodes/demo-load/Chart.yaml` | The Grafana log and trace links depend on the `trace_id` log attribute the load generator emits. |
 
 For every bump, also update the Components table above, then run `make generate` to re-render `tests/golden`
 and commit the result with the change.
@@ -841,6 +867,7 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
   - Check `kubectl -n observability get chi otel -o jsonpath='{.status.status} {.status.errors}'`.
 - **Installation `Aborted` with `RemovedSecretRefSyntax`:** operator 0.27.4 removed `user/k8s_secret_password`. Use `user/password: {valueFrom: {secretKeyRef: ...}}` instead, as this repo does.
 - **Grafana restarts when you open a Drilldown app (`OOMKilled`):** the apps send their queries through Grafana's server, and Metrics Drilldown sends one per metric at once. Grafana peaked near 700 Mi in testing; its limit is 1 Gi. If you add many more metrics or dashboards, check `kubectl -n observability get pod -l app.kubernetes.io/name=grafana -o jsonpath='{.items[0].status.containerStatuses[0].lastState}'` and raise it.
+- **A Drilldown app shows an error or no data:** `make test/e2e` makes the calls each app makes on first load through Grafana's datasource proxy (Loki `index/volume`, `patterns`, `detected_fields`, `detected_labels`; Tempo `/api/metrics/query_range` and `/api/v2/search/tags`; Prometheus label names), so the failing step names the endpoint Cerberus doesn't answer.
 - **Grafana is slow to become Ready, or Drilldown pages are empty:** Grafana installs the three Drilldown apps from grafana.com, in the background, when it starts; other default plugins are switched off in `grafana.ini` (`disable_plugins`). If grafana.com is unreachable, Grafana still starts, without Drilldown; check `kubectl -n observability logs deploy/grafana | grep -i plugin`. In `local` only (`values-local.yaml`), the plugins are kept on a `grafana-plugins` volume so they download once, Grafana's database lives in memory so its startup migrations don't crawl on a laptop disk, and a startup probe allows a slow start up to 10 minutes. Other environments keep plugins and the database in emptyDirs, so each restart downloads the plugins again.
 - **Cerberus stays `0/1 Ready`, or the `clickhouse` app stays Progressing:** Cerberus reports not-ready until the tables exist, and the schema Job creates them. Check `kubectl -n observability logs job -l app.kubernetes.io/name=clickhouse-schema` and `kubectl -n observability logs deploy/cerberus`.
 - **The collector logs `ACCESS_DENIED` or `Not enough privileges`:** it inserts as `otel_writer`, which has only `INSERT` on `otel.*`. A table outside `otel`, or an exporter setting that reads before writing, needs a grant in `cluster-nodes/clickhouse/files/installation.yaml.tpl`.
@@ -924,15 +951,22 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
-- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default). Also set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus if retention exceeds 14 days.
+- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default; `values-prod.yaml` keeps traces 21 days, logs 14 and metrics 30). Set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus to the metrics retention when it exceeds 14 days, as `prod` does.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.
 
 ## Roadmap
 
-What's left, by epic. The issues are the source of truth; this table was last updated on 2026-10-09.
+What's left, by epic. The issues are the source of truth; this table was last updated on 2026-10-14.
 
 | Epic | What's left |
 | ---- | ----------- |
 | [#16](https://github.com/benhastings/clickhouse-observability-stack/issues/16) Site config | every child is done; sync a fresh clone with a new environment file to a cluster that isn't kind |
-| [#21](https://github.com/benhastings/clickhouse-observability-stack/issues/21) Keycloak | every child is done; a real Keycloak sign-in, with realm roles landing as Grafana roles |
+| [#148](https://github.com/benhastings/clickhouse-observability-stack/issues/148) Anomaly-first alerting | email with a mail sink on kind ([#141](https://github.com/benhastings/clickhouse-observability-stack/issues/141)); the rest is in review |
+| [#149](https://github.com/benhastings/clickhouse-observability-stack/issues/149) A ClickHouse-native successor to Alertmanager | an investigation |
+| [#162](https://github.com/benhastings/clickhouse-observability-stack/issues/162) Three weeks of traces | `prod` retention, disk sizing, a disk alert in every environment, TraceQL latency over three weeks |
+| [#163](https://github.com/benhastings/clickhouse-observability-stack/issues/163) System and Kubernetes metrics | Kubernetes attributes, cluster state, host metrics, events as logs, a span-metrics cardinality cap |
+| [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164) Service dashboards | latency heatmap, service graph, pod resources, a Kubernetes dashboard, a stack health dashboard |
+| [#165](https://github.com/benhastings/clickhouse-observability-stack/issues/165) SLO alerting | per-service SLOs, burn-rate alerts, an SLO dashboard, pipeline alerts |
+| [#166](https://github.com/benhastings/clickhouse-observability-stack/issues/166) Drilldown apps | versions Cerberus supports, e2e checks of their API calls, links from the dashboards |
+| [#167](https://github.com/benhastings/clickhouse-observability-stack/issues/167) ML and AI | an analyst user, feature tables, a data dictionary, a decision on MCP |

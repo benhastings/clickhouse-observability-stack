@@ -736,6 +736,7 @@ spec:
       - GRANT SELECT ON otel.*
       - GRANT SELECT ON otel_baseline.*
       - GRANT SELECT ON system.view_refreshes
+      - GRANT SELECT ON system.disks
       otel_reader/networks/ip:
       - 0.0.0.0/0
       - ::/0

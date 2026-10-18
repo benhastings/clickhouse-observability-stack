@@ -19,7 +19,7 @@ spec:
       {{- $users := dict
         "admin" (dict "grants" list "profile" "default")
         "writer" (dict "grants" (list "INSERT ON otel.*") "profile" "default")
-        "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes") "profile" "default")
+        "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks") "profile" "default")
         "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
       {{- range $user, $u := $users }}
       otel_{{ $user }}/password:
