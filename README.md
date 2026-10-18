@@ -92,6 +92,8 @@ With the default demo load:
 
 A quarter of charges time out at the payment gateway. Payments fails those requests, and checkout accepts the order with payment pending, so checkout's only errors are its own database failures, about 2% of orders. Fifteen minutes after the demo load starts, and then every hour, an incident raises payments' failures to 90% for ten minutes: something for the anomaly rules to find and then see recover. The dashboard's request, error and latency panels count server spans only. The operations table also lists the cache, database and outbound-call client spans.
 
+Below those, the dashboard has a latency heatmap of payments' and checkout's server spans. Next to it is a service graph with the `checkout → payments` edge, red where calls fail. Under them is an error logs panel with payments' gateway timeouts. Click a series on the request, error or latency chart for its failing traces, its traces slower than the point you clicked, its error logs, or the service in Traces and Logs Drilldown. The charts show no exemplar dots: Cerberus v1.22.0 answers exemplar queries only for a bare selector, and every panel aggregates ([tsouza/cerberus#3787](https://github.com/tsouza/cerberus/issues/3787)). The exemplars are stored, so a Cerberus fix needs only `exemplar: true` back on the panels.
+
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
@@ -273,6 +275,14 @@ Both were considered. The connector was chosen because:
 - **A view is a poor fit here.** A ClickHouse view fires once per insert batch, so it would produce fragmented delta rows rather than proper time series. It would also have to reproduce the exporter's histogram layout exactly, and that layout has changed between exporter versions.
 
 **The trade-off:** the connector keeps counters in memory. With more than one collector replica, each replica produces its own series (distinguished by a `collector_instance_id` label), and a restart starts the counters over. PromQL `rate()` handles both. If you scale out, route spans to collectors by trace ID with the `loadbalancing` exporter.
+
+**Cardinality.** Every distinct combination of a series' labels is its own series, and a histogram multiplies
+that by its 13 buckets, so the dimensions are fixed: `service_name`, `span_name`, `span_kind`, `status_code`, and
+`http.request.method`, `http.response.status_code` and `http.route`. Never `url.full`, `http.target` or
+anything with an ID in it. A span name or route that carries an ID still slips through, so the connector tracks at
+most `collector.spanMetrics.cardinalityLimit` combinations (5,000) and counts the rest in one series with
+`otel_metric_overflow="true"`; vmalert's `SpanMetricsCardinalityLimitHit` names the service. Fix it in the
+instrumentation, or with a `transform` processor that applies `set_semconv_span_name()` before the connector.
 
 The `servicegraph` connector was also added, because Grafana's Tempo "Service Graph" view expects its metrics.
 

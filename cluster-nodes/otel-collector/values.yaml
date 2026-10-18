@@ -52,7 +52,15 @@
 #
 # kubeletstats verifies the kubelet's serving certificate unless agent.kubelet.insecureSkipVerify is
 # true. Only values-local.yaml sets it, because kind's kubelet certificate is self-signed.
+#
+# spanMetrics.cardinalityLimit caps how many distinct dimension combinations (span name, kind, status and
+# the dimensions below) the spanmetrics connector tracks. Past it, new combinations are counted together in
+# one series with otel.metric.overflow="true", and vmalert's SpanMetricsCardinalityLimitHit fires. It is a
+# circuit breaker for span names or routes with IDs in them; the fix is the instrumentation, or a
+# transform that applies set_semconv_span_name. 0 means no limit.
 collector:
+  spanMetrics:
+    cardinalityLimit: 5000
   auth:
     enabled: false
     allowUnauthenticatedExposure: false
@@ -100,6 +108,7 @@ configMaps:
               max_items: 10000
               ttl: 5s
           spanmetrics:
+            aggregation_cardinality_limit: {{ dig "spanMetrics" "cardinalityLimit" 5000 $collector | int }}
             dimensions:
             - name: http.request.method
             - name: http.response.status_code
