@@ -86,6 +86,26 @@ tests:
           path: data["relay.yaml"]
           pattern: "exporters:\\n\\s+- clickhouse\\n\\s+- spanmetrics\\n\\s+- servicegraph"
 
+  - it: caps span-metrics cardinality, and keeps the dimensions to method, status code and route
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "spanmetrics:\\n\\s+aggregation_cardinality_limit: 5000\\n\\s+dimensions:\\n\\s+- name: http.request.method\\n\\s+- name: http.response.status_code\\n\\s+- name: http.route\\n\\s+exemplars:"
+
+  - it: lets an environment change the span-metrics cardinality limit
+    set:
+      collector.spanMetrics.cardinalityLimit: 20000
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "aggregation_cardinality_limit: 20000\\n"
+
   - it: mounts the rendered config where --config points
     documentSelector:
       path: kind
