@@ -231,6 +231,51 @@ poll "Dashboard: the service graph colours the failing edge" \
   '.data.result[0].value[1] | tonumber | . > 0' \
   "$cerberus/api/v1/query" \
   --data-urlencode 'query=sum(rate(traces_service_graph_request_failed_total{client="checkout", server="payments"}[5m]))'
+# The Drilldown apps call more of each API than Explore does. These are the calls each one makes on first load,
+# through Grafana's datasource proxy as the apps send them.
+proxy="$grafana/api/datasources/proxy/uid"
+poll "Logs Drilldown: log volume per service" \
+  '[.data.result[].metric.service_name] | index("checkout") != null' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/index/volume" \
+  --data-urlencode 'query={service_name=~".+"}' --data-urlencode 'targetLabels=service_name' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Logs Drilldown: checkout's log patterns" \
+  '.data | length > 0' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/patterns" \
+  --data-urlencode 'query={service_name="checkout"}' --data-urlencode 'step=60s' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Logs Drilldown: checkout's detected fields include the wide-event duration" \
+  '[.fields[].label] | index("duration_ms") != null' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/detected_fields" \
+  --data-urlencode 'query={service_name="checkout"}' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Logs Drilldown: checkout's detected labels" \
+  '.detectedLabels | length > 0' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/detected_labels" \
+  --data-urlencode 'query={service_name="checkout"}' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Traces Drilldown: span rate per service, as TraceQL metrics" \
+  '[.series[].labels[] | select(.key == "resource.service.name") | .value.stringValue] | contains(["checkout", "payments"])' \
+  -u "$grafana_login" "$proxy/cerberus-tempo/api/metrics/query_range" \
+  --data-urlencode 'q={} | rate() by (resource.service.name)' --data-urlencode 'step=60s' \
+  --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Traces Drilldown: error rate, as TraceQL metrics" \
+  '[.series[].samples[]] | length > 0' \
+  -u "$grafana_login" "$proxy/cerberus-tempo/api/metrics/query_range" \
+  --data-urlencode 'q={status=error} | rate()' --data-urlencode 'step=60s' \
+  --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Traces Drilldown: resource attribute names" \
+  '[.scopes[].tags[]] | index("service.name") != null' \
+  -u "$grafana_login" "$proxy/cerberus-tempo/api/v2/search/tags" \
+  --data-urlencode 'scope=resource' --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Metrics Drilldown: metric names" \
+  '.data | index("traces_span_metrics_calls") != null' \
+  -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/label/__name__/values" \
+  --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Metrics Drilldown: the label names of one metric, for its group-by" \
+  '.data | index("service_name") != null' \
+  -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/labels" \
+  --data-urlencode 'match[]=traces_span_metrics_calls' --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
 
 # Each ClickHouse user can do its own job and nothing else: the collector's user inserts but cannot read,
 # Cerberus's reads but cannot write or change a table. The data checks above prove the allowed half.

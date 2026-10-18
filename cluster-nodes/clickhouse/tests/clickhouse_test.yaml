@@ -28,7 +28,7 @@ tests:
           value: [GRANT INSERT ON otel.*]
       - equal:
           path: spec.configuration.users["otel_reader/grants/query"]
-          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON system.view_refreshes]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON system.view_refreshes, GRANT SELECT ON system.disks]
       - notExists:
           path: spec.configuration.users["otel_admin/grants/query"]
       - equal:
