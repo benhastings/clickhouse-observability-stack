@@ -22,13 +22,22 @@ ARGOCD_CHART_VERSION=10.9.2
 [[ -f "$bootstrap" ]] || { echo "bootstrap: no $bootstrap; make env/new NAME=$env writes one" >&2; exit 2; }
 
 # preload_kind_images <cluster> <images, one per line>: docker pull each with up to five attempts, then
-# kind load it, so the kubelet never pulls it.
+# kind load it, so the kubelet never pulls it. ecr-public rate-limits anonymous pulls by data volume
+# ("Data limit exceeded"), which no retry outlasts, so a Docker official image it refuses
+# is pulled from Google's Docker Hub mirror instead: the same manifest, tagged with the chart's name.
 preload_kind_images() {
-  local cluster=$1 image attempt
+  local cluster=$1 image mirror attempt
   while read -r image; do
     [[ -n "$image" ]] || continue
+    mirror=
+    [[ $image == ecr-public.aws.com/docker/library/* ]] && mirror="mirror.gcr.io/library/${image#ecr-public.aws.com/docker/library/}"
     for attempt in 1 2 3 4 5; do
       docker pull -q "$image" >/dev/null && break
+      if [[ -n "$mirror" ]] && docker pull -q "$mirror" >/dev/null; then
+        echo "==> Pulled $mirror instead of $image"
+        docker tag "$mirror" "$image"
+        break
+      fi
       if [[ $attempt == 5 ]]; then
         echo "bootstrap: could not pull $image after 5 attempts" >&2
         return 1
