@@ -310,7 +310,7 @@ data:
           },
           "id": 1,
           "options": {
-            "content": "**Span metrics (RED)**: rate, errors and duration derived from traces by the OTel Collector's `spanmetrics` connector, stored in ClickHouse, and queried here with PromQL through Cerberus. Dots on the charts are exemplars: click one to open that trace in Tempo (Cerberus).",
+            "content": "**Span metrics (RED)**: rate, errors and duration derived from traces by the OTel Collector's `spanmetrics` connector, stored in ClickHouse, and queried here with PromQL through Cerberus. Click a series for links to its failing or slow traces, its error logs, and Traces and Logs Drilldown. Exemplar dots are off until Cerberus answers exemplar queries for aggregated expressions (tsouza/cerberus#3787).",
             "mode": "markdown"
           },
           "title": "",
@@ -327,7 +327,17 @@ data:
                 "fillOpacity": 8,
                 "lineWidth": 2
               },
-              "unit": "reqps"
+              "unit": "reqps",
+              "links": [
+                {
+                  "title": "Traces Drilldown: ${__field.labels.service_name}",
+                  "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
+                },
+                {
+                  "title": "Logs Drilldown: ${__field.labels.service_name}",
+                  "url": "/a/grafana-lokiexplore-app/explore/service/${__field.labels.service_name:percentencode}/logs?from=${__from}&to=${__to}&var-ds=cerberus-loki"
+                }
+              ]
             },
             "overrides": []
           },
@@ -357,7 +367,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "exemplar": true,
+              "exemplar": false,
               "expr": "sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
               "legendFormat": "{{service_name}}",
               "refId": "A"
@@ -379,7 +389,25 @@ data:
               },
               "max": 1,
               "min": 0,
-              "unit": "percentunit"
+              "unit": "percentunit",
+              "links": [
+                {
+                  "title": "Failing traces of ${__field.labels.service_name}",
+                  "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22cerberus-tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22cerberus-tempo%22%7D%2C%22query%22%3A%22%7Bresource.service.name%3D%5C%22${__field.labels.service_name:percentencode}%5C%22%20%26%26%20kind%3Dserver%20%26%26%20status%3Derror%7D%22%2C%22queryType%22%3A%22traceql%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D"
+                },
+                {
+                  "title": "Error logs of ${__field.labels.service_name}",
+                  "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22cerberus-loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22cerberus-loki%22%7D%2C%22expr%22%3A%22%7Bservice_name%3D%5C%22${__field.labels.service_name:percentencode}%5C%22%7D%20%7C%20detected_level%3D~%5C%22error%7Ccritical%7Cfatal%5C%22%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D"
+                },
+                {
+                  "title": "Traces Drilldown: ${__field.labels.service_name}",
+                  "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
+                },
+                {
+                  "title": "Logs Drilldown: ${__field.labels.service_name}",
+                  "url": "/a/grafana-lokiexplore-app/explore/service/${__field.labels.service_name:percentencode}/logs?from=${__from}&to=${__to}&var-ds=cerberus-loki"
+                }
+              ]
             },
             "overrides": []
           },
@@ -409,7 +437,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "exemplar": true,
+              "exemplar": false,
               "expr": "(sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) or sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])) * 0) / sum by (service_name) (rate(traces_span_metrics_calls{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))",
               "legendFormat": "{{service_name}}",
               "refId": "A"
@@ -429,7 +457,21 @@ data:
                 "fillOpacity": 8,
                 "lineWidth": 2
               },
-              "unit": "ms"
+              "unit": "ms",
+              "links": [
+                {
+                  "title": "Traces of ${__field.labels.service_name} slower than ${__value.text}",
+                  "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22cerberus-tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22cerberus-tempo%22%7D%2C%22query%22%3A%22%7Bresource.service.name%3D%5C%22${__field.labels.service_name:percentencode}%5C%22%20%26%26%20kind%3Dserver%20%26%26%20duration%20%3E%20${__value.raw}ms%7D%22%2C%22queryType%22%3A%22traceql%22%2C%22limit%22%3A20%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D"
+                },
+                {
+                  "title": "Traces Drilldown: ${__field.labels.service_name}",
+                  "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
+                },
+                {
+                  "title": "Logs Drilldown: ${__field.labels.service_name}",
+                  "url": "/a/grafana-lokiexplore-app/explore/service/${__field.labels.service_name:percentencode}/logs?from=${__from}&to=${__to}&var-ds=cerberus-loki"
+                }
+              ]
             },
             "overrides": []
           },
@@ -459,7 +501,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "exemplar": true,
+              "exemplar": false,
               "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
               "legendFormat": "{{service_name}} p50",
               "refId": "A"
@@ -469,7 +511,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "exemplar": true,
+              "exemplar": false,
               "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
               "legendFormat": "{{service_name}} p95",
               "refId": "B"
@@ -479,7 +521,7 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "exemplar": true,
+              "exemplar": false,
               "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval])))",
               "legendFormat": "{{service_name}} p99",
               "refId": "C"
@@ -487,6 +529,156 @@ data:
           ],
           "title": "Latency p50 / p95 / p99",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "id": 7,
+          "title": "Server latency heatmap",
+          "description": "Server-span durations per bucket for the selected services.",
+          "type": "heatmap",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 11
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "scaleDistribution": {
+                  "type": "linear"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "calculate": false,
+            "cellGap": 1,
+            "color": {
+              "mode": "scheme",
+              "scheme": "Oranges",
+              "exponent": 0.5,
+              "fill": "dark-orange",
+              "reverse": false,
+              "scale": "exponential",
+              "steps": 64
+            },
+            "exemplars": {
+              "color": "rgba(255,0,255,0.7)"
+            },
+            "filterValues": {
+              "le": 1e-09
+            },
+            "legend": {
+              "show": true
+            },
+            "rowsFrame": {
+              "layout": "auto"
+            },
+            "tooltip": {
+              "mode": "single",
+              "yHistogram": true,
+              "showColorScale": false
+            },
+            "yAxis": {
+              "axisPlacement": "left",
+              "reverse": false,
+              "unit": "ms"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "exemplar": false,
+              "format": "heatmap",
+              "legendFormat": "{{le}}",
+              "refId": "A",
+              "expr": "sum by (le) (rate(traces_span_metrics_duration_bucket{service_name=~\"$service\", span_kind=\"SPAN_KIND_SERVER\"}[$__rate_interval]))"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "cerberus-tempo"
+          },
+          "id": 8,
+          "title": "Service graph",
+          "description": "Calls between services from the servicegraph connector, limited to edges where a selected service is the client or the server. Click a node for its RED metrics and traces.",
+          "type": "nodeGraph",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 11
+          },
+          "options": {
+            "edges": {},
+            "nodes": {}
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "tempo",
+                "uid": "cerberus-tempo"
+              },
+              "queryType": "serviceMap",
+              "refId": "A",
+              "serviceMapQuery": [
+                "{client=~\"$service\"}",
+                "{server=~\"$service\"}"
+              ]
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "cerberus-loki"
+          },
+          "id": 9,
+          "title": "Error logs",
+          "description": "Error, critical and fatal logs of the selected services. Expand a line for its trace_id and the link to its trace.",
+          "type": "logs",
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "cerberus-loki"
+              },
+              "refId": "A",
+              "queryType": "range",
+              "expr": "{service_name=~\"$service\"} | detected_level=~\"error|critical|fatal\""
+            }
+          ]
         },
         {
           "datasource": {
@@ -568,7 +760,7 @@ data:
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 11
+            "y": 29
           },
           "id": 5,
           "options": {
@@ -645,7 +837,7 @@ data:
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 20
+            "y": 38
           },
           "datasource": {
             "type": "prometheus",
