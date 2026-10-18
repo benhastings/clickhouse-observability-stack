@@ -53,6 +53,7 @@
     "goarch",
     "gomemlimit",
     "gopath",
+    "gsub",
     "ingressgateway",
     "interserver",
     "istiod",
