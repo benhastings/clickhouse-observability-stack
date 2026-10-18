@@ -274,6 +274,14 @@ Both were considered. The connector was chosen because:
 
 **The trade-off:** the connector keeps counters in memory. With more than one collector replica, each replica produces its own series (distinguished by a `collector_instance_id` label), and a restart starts the counters over. PromQL `rate()` handles both. If you scale out, route spans to collectors by trace ID with the `loadbalancing` exporter.
 
+**Cardinality.** Every distinct combination of a series' labels is its own series, and a histogram multiplies
+that by its 13 buckets, so the dimensions are fixed: `service_name`, `span_name`, `span_kind`, `status_code`, and
+`http.request.method`, `http.response.status_code` and `http.route`. Never `url.full`, `http.target` or
+anything with an ID in it. A span name or route that carries an ID still slips through, so the connector tracks at
+most `collector.spanMetrics.cardinalityLimit` combinations (5,000) and counts the rest in one series with
+`otel_metric_overflow="true"`; vmalert's `SpanMetricsCardinalityLimitHit` names the service. Fix it in the
+instrumentation, or with a `transform` processor that applies `set_semconv_span_name()` before the connector.
+
 The `servicegraph` connector was also added, because Grafana's Tempo "Service Graph" view expects its metrics.
 
 Resulting metric names, as queried through Cerberus:
