@@ -66,7 +66,8 @@ pluginsClaim: false
 #   - the collector receiving no spans for 15 minutes
 #   - clickhouseDisk: a ClickHouse data volume filling up, from kubeletstats volume metrics. kubelet
 #     reports those for CSI-backed volumes; kind's local-path (hostPath) volumes have none, so on kind the
-#     rule stays in No Data
+#     rule stays in No Data. vmalert's ClickHouseDiskFilling and ClickHouseDiskFull read ClickHouse's own
+#     system.disks instead, in every environment
 # Every rule notifies the stack's Alertmanager (global.services.alertmanager) through a contact point named
 # stack-alertmanager, so Grafana's alerts are grouped, silenced and routed with vmalert's, on the labels
 # severity and service_name. contactPoint replaces it with another Grafana integration, for example

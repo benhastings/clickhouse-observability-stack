@@ -302,7 +302,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*` and `system.view_refreshes` | Cerberus, garmr sql-adapter |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
 The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`
@@ -454,6 +454,10 @@ to `route.receiver`, not back to Slack.
   `AlertmanagerNotificationsFailing` fires when any integration failed to deliver in the last 10 minutes. It
   carries the failing `integration` as a label, so a site with two receivers routes it to the one that isn't
   failing.
+- **ClickHouse disk:** `ClickHouseDiskFilling` (above 80% for 15 minutes, warning) and `ClickHouseDiskFull`
+  (above 90% for 5 minutes, critical) read `system.disks`, so they work on any volume, including kind's hostPath
+  one, and run in `prod`, where Grafana's starter rules are off. A full disk stops inserts, and the collector
+  drops telemetry once its queue fills.
 
 ### Anomaly rules: alert on a change from normal
 
