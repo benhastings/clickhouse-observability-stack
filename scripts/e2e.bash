@@ -421,6 +421,9 @@ until [[ "$(clickhouse_as admin "SELECT count() FROM otel_baseline.signal_1m WHE
   sleep 10
 done
 echo "  ok"
+# baseline_series_mv writes series for the current hour of the week only, from signal_1m, which lags two
+# minutes: until minute 2 or so of an hour, signal_1m has nothing for it and the refresh writes nothing (#200).
+while ((10#$(date -u +%M) < 3)); do sleep 10; done
 step "ClickHouse: the hourly anomaly baseline views refresh without error"
 for view in baseline_mv baseline_series_mv; do
   clickhouse_as admin "SYSTEM REFRESH VIEW otel_baseline.$view; SYSTEM WAIT VIEW otel_baseline.$view"
