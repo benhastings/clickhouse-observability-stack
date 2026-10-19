@@ -141,6 +141,14 @@ poll "LogQL: checkout logs arrive" \
   '[.data.result[].values[]] | length > 0' \
   "$cerberus/loki/api/v1/query_range" --data-urlencode 'query={service_name="checkout"}' \
   --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=10'
+# Kubernetes events are logs of service kubernetes-events, with the object they're about as attributes. The
+# demo load deploys after the collector, so its pod's scheduling and start are among them.
+poll "LogQL: Kubernetes events show the demo load's pod Scheduled and Started" \
+  '[.data.result[].stream.k8s_event_reason] | index("Scheduled") != null and index("Started") != null' \
+  "$cerberus/loki/api/v1/query_range" \
+  --data-urlencode 'query={service_name="kubernetes-events"} | k8s_object_name=~"demo-load-.*" | k8s_event_reason=~"Scheduled|Started"' \
+  --data-urlencode "start=$(($(date +%s) - 3600))000000000" --data-urlencode "end=$(($(date +%s) + 60))000000000" \
+  --data-urlencode 'limit=20'
 
 # The collector's k8sattributes adds the owning workload to kubeletstats' pod metrics, matched by their pod UID, so
 # a service's pods' resources join to its RED metrics on k8s_deployment_name. (The demo load reports made-up

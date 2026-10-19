@@ -187,6 +187,24 @@ configMaps:
             check_interval: 5s
             limit_percentage: 80
             spike_limit_percentage: 25
+          # Each Kubernetes event as a log of service kubernetes-events: the note as the body, the object it is
+          # about and the reason as attributes for LogQL, and WARN for Warning events.
+          transform/kubernetes-events:
+            error_mode: ignore
+            log_statements:
+              - set(resource.attributes["service.name"], "kubernetes-events")
+              - set(log.cache["event"], log.body["object"])
+              - set(log.attributes["k8s.object.kind"], log.cache["event"]["regarding"]["kind"])
+              - set(log.attributes["k8s.object.name"], log.cache["event"]["regarding"]["name"])
+              - set(log.attributes["k8s.object.namespace"], log.cache["event"]["regarding"]["namespace"])
+              - set(log.attributes["k8s.event.reason"], log.cache["event"]["reason"])
+              - set(log.attributes["k8s.event.type"], log.cache["event"]["type"])
+              - set(log.attributes["k8s.event.controller"], log.cache["event"]["reportingController"])
+              - set(log.severity_text, "WARN") where log.cache["event"]["type"] == "Warning"
+              - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.cache["event"]["type"] == "Warning"
+              - set(log.severity_text, "INFO") where log.cache["event"]["type"] == "Normal"
+              - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["event"]["type"] == "Normal"
+              - set(log.body, log.cache["event"]["note"]) where log.cache["event"]["note"] != nil
           # Alertmanager's webhook payload, one alert per notification (the history route groups by every
           # label), as a log of service alertmanager with the alert's fields as attributes for LogQL.
           transform/alertmanager:
@@ -234,6 +252,15 @@ configMaps:
             resource_attributes:
               k8s.container.status.last_terminated_reason:
                 enabled: true
+          # Kubernetes events (scheduling, pulls, OOMKills, probe failures, rollouts), watched as they happen.
+          # Like k8s_cluster, only the replica holding the Lease watches, so each event is written once.
+          k8sobjects:
+            auth_type: serviceAccount
+            k8s_leader_elector: k8s_leader_elector
+            objects:
+              - name: events
+                group: events.k8s.io
+                mode: watch
           # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
           # fails to deliver. Only these two series are kept.
           prometheus/alertmanager:
@@ -346,6 +373,15 @@ configMaps:
               - batch
               receivers:
               - webhook_event
+            logs/kubernetes-events:
+              exporters:
+              - clickhouse
+              processors:
+              - memory_limiter
+              - transform/kubernetes-events
+              - batch
+              receivers:
+              - k8sobjects
             metrics:
               exporters:
               - clickhouse
@@ -424,6 +460,9 @@ rbac:
     - apiGroups: [autoscaling]
       resources: [horizontalpodautoscalers]
       verbs: [get, list, watch]
+    - apiGroups: [events.k8s.io]
+      resources: [events]
+      verbs: [list, watch]
   rules:
     - apiGroups: [coordination.k8s.io]
       resources: [leases]
