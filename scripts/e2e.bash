@@ -249,6 +249,9 @@ poll "Grafana: the span-metrics dashboard is provisioned" \
 poll "Grafana: the alert hygiene dashboard is provisioned" \
   '.dashboard.uid == "alert-hygiene"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/alert-hygiene"
+poll "Grafana: the SLOs dashboard is provisioned" \
+  '.dashboard.uid == "slos"' \
+  -u "$grafana_login" "$grafana/api/dashboards/uid/slos"
 
 # The service dashboard's own queries, read from its JSON with every service selected (All is .*).
 panel_expr() { # panel title
@@ -442,6 +445,11 @@ done
 echo "$slo" | awk -F'\t' '{printf "  %s: availability %s against %s, burn rate %s, budget left %s, latency threshold %s ms\n", $1, $2, $3, $4, $5, $6}'
 awk -F'\t' '$1 == "payments" && $4 > 1 {p = 1} $1 == "checkout" && $4 < 1 {c = 1} END {exit !(p && c)}' <<<"$slo" ||
   { echo "  expected payments to burn faster than 1x and checkout slower"; exit 1; }
+# The SLOs dashboard reads the same views, written back every minute as slo:* series.
+poll "PromQL: the SLO series show payments' budget spent and checkout's not, through Cerberus" \
+  '[.data.result[] | select((.metric.service_name == "payments" and (.value[1] | tonumber) < 1) or
+    (.metric.service_name == "checkout" and (.value[1] | tonumber) > 0))] | length == 2' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=slo:availability:budget_remaining'
 
 # Every rule evaluator sends to Alertmanager's v2 API. Post an alert the way one would, and read it back.
 step "Alertmanager: an alert posted to the v2 API is grouped and listed"
