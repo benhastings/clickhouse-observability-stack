@@ -29,7 +29,7 @@ flowchart LR
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. It only reads: the `clickhouse` app's schema Job creates the tables. |
-| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) from the API server, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
@@ -97,6 +97,13 @@ Below those, the dashboard has a latency heatmap of payments' and checkout's ser
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
+- **Cluster state:** the collector's `k8s_cluster` receiver reads the API server every 30 s, the half of the picture kube-state-metrics usually gives. It reports:
+  - pods: `k8s_pod_phase`
+  - containers: `k8s_container_restarts`, `k8s_container_ready`, and requests and limits (`k8s_container_cpu_request`, `k8s_container_memory_limit` and the rest), with the last terminated reason as `k8s_container_status_last_terminated_reason`
+  - workloads: `k8s_deployment_desired` and `k8s_deployment_available`, with the same pairs for StatefulSets, DaemonSets and ReplicaSets
+  - nodes: `k8s_node_condition_ready` (and memory, disk and PID pressure) and `k8s_node_allocatable_*`
+
+  Only the gateway replica holding the `otel-collector-k8s-cluster` Lease runs it, so `prod`'s two replicas don't report the cluster twice.
 - **Kubernetes attributes:** the collector's `k8sattributes` processor labels every span, log and metric with `k8s_namespace_name`, `k8s_pod_name`, `k8s_deployment_name` (or `_statefulset_`, `_daemonset_`) and `k8s_node_name`, so a service's span metrics and its pods' `k8s_pod_memory_working_set` join on `k8s_deployment_name`. Attributes a sender sets itself win: the demo load reports made-up ones for its services (`k8s_namespace_name="shop"`), so its spans don't join to its real pod. It finds a sender by the `k8s.pod.uid` or `k8s.pod.ip` resource attribute it reports, else by its connection's source IP. An Istio sidecar hides that IP, so in the mesh a sender sets `k8s.pod.uid` from the downward API, as the demo load does.
 
 ### Sending your own telemetry
@@ -1022,7 +1029,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 - **Network policies:** `global.networkPolicy.enabled: true` gives every app a policy that allows only its
   own traffic. Grafana is reachable from `global.networkPolicy.exposureNamespaces` (the ingress gateway or
   controller), queries only Cerberus and Alertmanager, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
-  answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse, the kubelets, and the API server (443 and 6443) for `k8sattributes`.
+  answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse, the kubelets, and the API server (443 and 6443) for `k8sattributes` and `k8s_cluster`.
   vmalert reaches only garmr sql-adapter and Alertmanager; the adapter answers only vmalert and reaches only
   ClickHouse. Alertmanager accepts Grafana and vmalert, and reaches only the collector's history endpoint.
   ClickHouse accepts the collector, Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
