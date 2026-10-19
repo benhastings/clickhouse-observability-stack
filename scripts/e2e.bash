@@ -440,19 +440,24 @@ slo_query="SELECT service_name, round(availability, 3), availability_objective,
   FROM otel_slo.sli(at = now64(3), minutes = 60) AS s
   INNER JOIN otel_slo.budget(at = now64(3)) AS b USING (service_name)
   WHERE service_name IN ('checkout', 'payments') ORDER BY service_name FORMAT TSV"
+# The first minutes are a few hundred requests, where checkout's handful of errors can still read as more than
+# 5%, so wait for the comparison to hold rather than reading it once.
+slo_settled() {
+  [[ "$(grep -c . <<<"$1")" == 2 ]] &&
+    awk -F'\t' '$1 == "payments" && $4 > 1 {p = 1} $1 == "checkout" && $4 < 1 {c = 1} END {exit !(p && c)}' <<<"$1"
+}
 deadline=$((SECONDS + DATA_TIMEOUT))
-until slo="$(clickhouse_as reader "$slo_query")" && [[ "$(grep -c . <<<"$slo")" == 2 ]]; do
+until slo="$(clickhouse_as reader "$slo_query")" && slo_settled "$slo"; do
   if ((SECONDS > deadline)); then
     clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_slo'"
-    clickhouse_as admin "SELECT ServiceName, count(), max(Minute) FROM otel_slo.sli_1m GROUP BY ServiceName"
-    echo "  otel_slo.sli has no window for both checkout and payments after ${DATA_TIMEOUT}s: $slo"
+    clickhouse_as admin "SELECT ServiceName, count(), sum(Requests), sum(Errors), max(Minute) FROM otel_slo.sli_1m GROUP BY ServiceName"
+    echo "  expected payments to burn faster than 1x and checkout slower after ${DATA_TIMEOUT}s; last read:"
+    awk '{print "    " $0}' <<<"$slo"
     exit 1
   fi
   sleep 10
 done
 echo "$slo" | awk -F'\t' '{printf "  %s: availability %s against %s, burn rate %s, budget left %s, latency threshold %s ms\n", $1, $2, $3, $4, $5, $6}'
-awk -F'\t' '$1 == "payments" && $4 > 1 {p = 1} $1 == "checkout" && $4 < 1 {c = 1} END {exit !(p && c)}' <<<"$slo" ||
-  { echo "  expected payments to burn faster than 1x and checkout slower"; exit 1; }
 # The SLOs dashboard reads the same views, written back every minute as slo:* series.
 poll "PromQL: the SLO series show payments' budget spent and checkout's not, through Cerberus" \
   '[.data.result[] | select((.metric.service_name == "payments" and (.value[1] | tonumber) < 1) or
