@@ -141,6 +141,14 @@ poll "LogQL: checkout logs arrive" \
   '[.data.result[].values[]] | length > 0' \
   "$cerberus/loki/api/v1/query_range" --data-urlencode 'query={service_name="checkout"}' \
   --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=10'
+# Kubernetes events are logs of service kubernetes-events, with the object they're about as attributes. The
+# demo load deploys after the collector, so its pod's scheduling and start are among them.
+poll "LogQL: Kubernetes events show the demo load's pod Scheduled and Started" \
+  '[.data.result[].stream.k8s_event_reason] | index("Scheduled") != null and index("Started") != null' \
+  "$cerberus/loki/api/v1/query_range" \
+  --data-urlencode 'query={service_name="kubernetes-events"} | k8s_object_name=~"demo-load-.*" | k8s_event_reason=~"Scheduled|Started"' \
+  --data-urlencode "start=$(($(date +%s) - 3600))000000000" --data-urlencode "end=$(($(date +%s) + 60))000000000" \
+  --data-urlencode 'limit=20'
 
 # The collector's k8sattributes adds the owning workload to kubeletstats' pod metrics, matched by their pod UID, so
 # a service's pods' resources join to its RED metrics on k8s_deployment_name. (The demo load reports made-up
@@ -395,6 +403,27 @@ analyst_limited "SELECT length(groupArray(randomString(1000))) FROM (SELECT 1 FR
   ARRAY JOIN range(1000000) AS r" MEMORY_LIMIT_EXCEEDED
 analyst_limited "SET max_memory_usage = 100000000000" SETTING_CONSTRAINT_VIOLATION
 analyst_limited "SET priority = 0" SETTING_CONSTRAINT_VIOLATION
+# otel_features: one row per trace, five minutes after its root span, and each service's log templates per minute.
+step "ClickHouse: otel_analyst reads the demo's traces in trace_summary and its log templates"
+features_query="SELECT (SELECT count() FROM otel_features.trace_summary WHERE RootService = 'web' AND has(Services, 'payments')),
+  (SELECT uniqExact(ServiceName) FROM otel_features.log_templates WHERE ServiceName IN ('checkout', 'payments', 'web')) FORMAT TSV"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until features="$(clickhouse_as analyst "$features_query")" && awk -F'\t' '{exit !($1 > 0 && $2 == 3)}' <<<"$features"; do
+  if ((SECONDS > deadline)); then
+    clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_features'"
+    echo "  expected traces through payments and templates for checkout, payments and web; got: $features"
+    exit 1
+  fi
+  sleep 10
+done
+awk -F'\t' '{printf "  %s traces from web through payments, log templates for %s services\n", $1, $2}' <<<"$features"
+# A model writes scores to otel_ml.scores as otel_analyst; a view publishes each as an ml:<model>:<signal> series.
+step "ClickHouse: otel_analyst writes a score to otel_ml.scores"
+clickhouse_as analyst "INSERT INTO otel_ml.scores (Model, ServiceName, Signal, Value) VALUES ('e2e', 'payments', 'check', 42)" </dev/null
+echo "  ok"
+poll "PromQL: the score is the series ml:e2e:check, through Cerberus" \
+  '[.data.result[] | select(.metric.service_name == "payments") | .value[1] | tonumber] == [42]' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=ml:e2e:check'
 poll "PromQL: span metrics keep arriving after the analyst's refused query" \
   '.data.result | length > 0' \
   "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls[1m]))'

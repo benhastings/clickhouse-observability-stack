@@ -380,6 +380,124 @@ data:
     ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
     ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
     ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    -- Feature tables for models and notebooks (otel_analyst reads them), in their own database so the Cerberus
+    -- schema comparison is unaffected. TTLs follow the signal each is built from.
+    --   trace_summary  one row per trace, written five minutes after its root span starts so the trace can finish
+    --   log_templates  per service and minute, each log message with numbers, UUIDs, IPs and hex IDs replaced, its
+    --                  hash and count: a first step towards log pattern anomaly detection
+    -- The anomaly baselines' signal_1m (below, when they're on) is the per-service-minute feature table: requests,
+    -- error ratio, p95 latency and error logs per minute.
+    CREATE DATABASE IF NOT EXISTS otel_features;
+    
+    CREATE TABLE IF NOT EXISTS otel_features.trace_summary
+    (
+        `TraceId` String CODEC(ZSTD(1)),
+        `Start` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `DurationMs` Float64 CODEC(ZSTD(1)),
+        `RootService` LowCardinality(String) CODEC(ZSTD(1)),
+        `RootOperation` LowCardinality(String) CODEC(ZSTD(1)),
+        `RootRoute` LowCardinality(String) CODEC(ZSTD(1)),
+        `Spans` UInt32 CODEC(ZSTD(1)),
+        `Errors` UInt32 CODEC(ZSTD(1)),
+        `Services` Array(LowCardinality(String)) CODEC(ZSTD(1))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Start)
+    ORDER BY (RootService, Start, TraceId)
+    TTL toDateTime(Start) + toIntervalDay(21)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_features.trace_summary MODIFY TTL toDateTime(Start) + toIntervalDay(21);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.trace_summary_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_features.trace_summary
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 5 MINUTE AS m
+    SELECT r.TraceId AS TraceId, r.Timestamp AS Start, r.Duration / 1e6 AS DurationMs,
+           r.ServiceName AS RootService, r.SpanName AS RootOperation, r.SpanAttributes['http.route'] AS RootRoute,
+           s.Spans AS Spans, s.Errors AS Errors, s.Services AS Services
+    FROM
+    (
+        SELECT TraceId, Timestamp, Duration, ServiceName, SpanName, SpanAttributes
+        FROM otel.otel_traces
+        WHERE ParentSpanId = '' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+    ) AS r
+    INNER JOIN
+    (
+        SELECT TraceId, toUInt32(count()) AS Spans, toUInt32(countIf(StatusCode = 'Error')) AS Errors,
+               arraySort(groupUniqArray(ServiceName)) AS Services
+        FROM otel.otel_traces
+        WHERE Timestamp >= m AND Timestamp < m + INTERVAL 6 MINUTE
+          AND TraceId IN (SELECT TraceId FROM otel.otel_traces
+                          WHERE ParentSpanId = '' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE)
+        GROUP BY TraceId
+    ) AS s USING (TraceId);
+    
+    CREATE TABLE IF NOT EXISTS otel_features.log_templates
+    (
+        `Minute` DateTime CODEC(Delta(4), ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `SeverityText` LowCardinality(String) CODEC(ZSTD(1)),
+        `TemplateHash` UInt64 CODEC(ZSTD(1)),
+        `Template` String CODEC(ZSTD(3)),
+        `Count` UInt64 CODEC(ZSTD(1)),
+        `Example` String CODEC(ZSTD(3))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Minute)
+    ORDER BY (ServiceName, Minute, SeverityText, TemplateHash)
+    TTL Minute + toIntervalDay(14)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_features.log_templates MODIFY TTL Minute + toIntervalDay(14);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.log_templates_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_features.log_templates
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 2 MINUTE AS m
+    SELECT m AS Minute, ServiceName, SeverityText, cityHash64(Template) AS TemplateHash, Template,
+           count() AS Count, any(Body) AS Example
+    FROM
+    (
+        SELECT ServiceName, SeverityText, Body,
+               replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(Body,
+                   '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<uuid>'),
+                   '\\b\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?\\b', '<ip>'),
+                   '\\b[0-9a-fA-F]*[0-9][0-9a-fA-F]*[a-fA-F][0-9a-fA-F]*\\b|\\b[0-9a-fA-F]*[a-fA-F][0-9a-fA-F]*[0-9][0-9a-fA-F]*\\b', '<hex>'),
+                   '\\d+(\\.\\d+)?', '<num>') AS Template
+        FROM otel.otel_logs
+        WHERE Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE AND Body != ''
+    )
+    GROUP BY ServiceName, SeverityText, Template;
+    -- Scores a model writes back as otel_analyst (INSERT on otel_ml.* only): each row becomes a gauge sample
+    -- ml:<Model>:<Signal> for its service, so Grafana draws it and a vmalert rule can alert on it, like the baselines.
+    CREATE DATABASE IF NOT EXISTS otel_ml;
+    
+    CREATE TABLE IF NOT EXISTS otel_ml.scores
+    (
+        `Time` DateTime64(3, 'UTC') DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+        `Model` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Signal` LowCardinality(String) CODEC(ZSTD(1)),
+        `Value` Float64 CODEC(ZSTD(1))
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(Time)
+    ORDER BY (Model, ServiceName, Signal, Time)
+    TTL toDateTime(Time) + toIntervalDay(30)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_ml.scores MODIFY TTL toDateTime(Time) + toIntervalDay(30);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_ml.scores_series_mv TO otel.otel_metrics_gauge
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT map('service.name', ServiceName) AS ResourceAttributes,
+           ServiceName,
+           'ml:' || Model || ':' || Signal AS MetricName,
+           Time AS StartTimeUnix,
+           Time AS TimeUnix,
+           Value
+    FROM otel_ml.scores;
     
     -- Anomaly baselines, in their own database so the otel database stays exactly what Cerberus expects.
     -- Three refreshable views, each running as otel_admin:
@@ -677,7 +795,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: prod
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-97a6bd0d
+  name: clickhouse-schema-20809f6d
   namespace: observability
 spec:
   activeDeadlineSeconds: 900
