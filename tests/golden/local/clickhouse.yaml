@@ -1015,7 +1015,7 @@ spec:
           name: clickhouse
           resources:
             limits:
-              memory: 1Gi
+              memory: 1536Mi
             requests:
               cpu: 100m
               memory: 256Mi

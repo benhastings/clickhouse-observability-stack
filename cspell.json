@@ -62,6 +62,7 @@
     "interserver",
     "istiod",
     "itertuples",
+    "jemalloc",
     "kubeadm",
     "kubeconform",
     "kubelet",

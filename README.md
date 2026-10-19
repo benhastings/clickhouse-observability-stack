@@ -886,7 +886,7 @@ Everything is sized for light local testing:
 
 | component | memory request | memory cap |
 |---|---|---|
-| ClickHouse | 256 Mi | 1 Gi |
+| ClickHouse | 256 Mi | 1.5 Gi |
 | Grafana | 96 Mi | 1 Gi (peaks near 700 Mi with the Drilldown apps in use) |
 | Cerberus | 64 Mi | 384 Mi |
 | Collector | 64 Mi | 256 Mi |
@@ -906,10 +906,12 @@ ClickHouse also gets a `config.d/low_memory.xml` (in `cluster-nodes/clickhouse/v
 - its internal system log tables (query log, metric log, trace log and so on) turned off
 
 The cap is checked against ClickHouse's resident memory, which includes about 460 MiB of the server binary's
-code. At ClickHouse's default 75%, recomputed as the page cache grows, a 1 GiB container left about 300 MiB
-for work, and 1–11% of inserts failed with `MEMORY_LIMIT_EXCEEDED`
-([#206](https://github.com/benhastings/clickhouse-observability-stack/issues/206)). At a fixed 90%, an hour of
-the demo load on kind had none in 37,805 queries, with the container's cgroup usage near 380 MiB.
+code and whatever jemalloc keeps resident, so it grows with uptime while the memory tracker and the cgroup
+stay flat. At ClickHouse's default 75%, recomputed as the page cache grows, a 1 GiB container left about
+300 MiB for work, and 1–11% of inserts failed with `MEMORY_LIMIT_EXCEEDED`
+([#206](https://github.com/benhastings/clickhouse-observability-stack/issues/206)). A fixed 90% of 1 GiB held
+for the first two hours, then resident memory reached the cap with only 258 MiB tracked and the cgroup at
+464 MiB. So the limit is 1.5 Gi: a cap of about 1.35 GiB, some 900 MiB above the binary.
 
 `background_pool_size` is left at its default on purpose: ClickHouse refuses to create tables if it's lower than its merge and mutation thresholds.
 

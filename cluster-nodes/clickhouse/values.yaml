@@ -56,8 +56,11 @@ clickhouse:
     requests:
       cpu: 100m
       memory: 256Mi
+    # ClickHouse checks its memory cap (90% of this, files/installation.yaml.tpl) against its resident memory,
+    # which carries about 460 MiB of its own binary and what jemalloc keeps resident. 1 Gi left too little
+    # room after a few hours of uptime (#206); the cgroup itself stays near 460 MiB.
     limits:
-      memory: 1Gi
+      memory: 1536Mi
   lowMemory: true
   # otel_analyst's settings profile and hourly quota, so a notebook can't starve ingestion or Grafana. Each
   # limit is also a constraint: the analyst may lower it for a session but not raise it. priority runs its
