@@ -100,6 +100,23 @@ clickhouse:
       - error_ratio
       - latency_p95_ms
       - error_logs_per_minute
+  # Service level objectives, computed by ClickHouse in the otel_slo database (see files/schema.sql.tpl) from
+  # each service's server spans: availability is the share not in error, latency the share no slower than
+  # latency.thresholdMs. default applies to every service, and services.<name> overrides any of its keys:
+  #
+  #   services:
+  #     checkout: {availability: 0.999, latency: {thresholdMs: 300}}
+  #
+  # windowDays is the window the error budget is measured over.
+  slo:
+    enabled: true
+    windowDays: 28
+    default:
+      availability: 0.95
+      latency:
+        thresholdMs: 1000
+        objective: 0.95
+    services: {}
   # An optional nightly clickhouse-backup run against the otel cluster, uploading to S3-compatible storage.
   # It uses ClickHouse's own BACKUP ... TO S3 (embedded mode with no backup disk), so the job needs only the
   # clickhouse:9000 Service, not the data volume. keep is how many remote backups to retain; older ones are

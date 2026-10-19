@@ -313,7 +313,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
 | `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*` and `otel_features.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
@@ -432,6 +432,48 @@ the query log off), for 20 services and four signals:
 
 For the demo load (two services) `signal_1m` grows by 8 rows a minute, and the series view writes
 2 × 4 × 3 × 60 = 1,440 gauge rows an hour.
+
+### Service level objectives: computed by ClickHouse from server spans
+
+Every service with server spans gets an availability SLO (the share of its server spans not in error) and a
+latency SLO (the share no slower than a threshold), set on the `clickhouse` app:
+
+```yaml
+clickhouse:
+  slo:
+    windowDays: 28
+    default: {availability: 0.95, latency: {thresholdMs: 1000, objective: 0.95}}
+    services:
+      checkout: {availability: 0.999, latency: {thresholdMs: 300}}   # any key, merged over default
+```
+
+A long window can't rescan raw spans on every evaluation: on kind, six hours of them took 1.25 s and a day ran
+into ClickHouse's memory limit. So, like the baselines, ClickHouse rolls them up once, in the `otel_slo` database:
+
+| object | what it is |
+|---|---|
+| `objectives` | `clickhouse.slo` as a view, one row per service under `services` and `''` for the default |
+| `sli_1m_mv` → `sli_1m` | every minute, each service's requests, errors and spans slower than its threshold, for the minute before last; kept `windowDays` plus 7 days |
+| `sli(at, minutes)` | each service's availability and latency over a window ending two minutes before `at` (the rollup's lag), with its objectives and burn rates |
+| `budget(at)` | the error budget left over the last `windowDays`: 1 untouched, 0 spent, below 0 overspent |
+
+A burn rate of 1 spends exactly the budget over the window, and 14.4 spends 2% of a 28-day budget in an hour. Rules
+and dashboards read `sli` and `budget`, so they agree, and `otel_reader` may `SELECT` from them:
+
+```sql
+SELECT service_name, availability, availability_burn_rate FROM otel_slo.sli(at = now64(3), minutes = 60)
+```
+
+A threshold change counts from the next minute the rollup writes; minutes already written keep the threshold they
+were counted against. `enabled: false` creates none of it.
+
+On `local` the default 95% availability is deliberately strict for payments, which fails 25% of requests by
+design and about 87% during the demo load's 10-minute incident each hour, a 5× to 17× burn. checkout stays under
+1×. The demo's server spans never pass 1 s, so neither service spends latency budget.
+
+Cost, measured on a local `clickhouse-server:26.9.5.2` with 28 days of `sli_1m` for 20 services (806,400 rows,
+1.1 MiB compressed): `budget` read every row in 28 ms with 9 MiB peak memory, a 3-day `sli` in 14 ms. The rollup
+reads one minute of server spans, like `signal_1m_mv`.
 
 ### Slack: one thread per alert group
 

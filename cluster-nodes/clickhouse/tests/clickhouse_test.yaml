@@ -28,7 +28,7 @@ tests:
           value: [GRANT INSERT ON otel.*]
       - equal:
           path: spec.configuration.users["otel_reader/grants/query"]
-          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON system.view_refreshes, GRANT SELECT ON system.disks]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_slo.*, GRANT SELECT ON system.view_refreshes, GRANT SELECT ON system.disks]
       - notExists:
           path: spec.configuration.users["otel_admin/grants/query"]
       - equal:
@@ -156,6 +156,44 @@ tests:
       - notMatchRegex:
           path: data["schema.sql"]
           pattern: otel_baseline
+
+  - it: renders the SLO objectives from values, a service override merged over the default
+    set:
+      clickhouse.slo.windowDays: 30
+      clickhouse.slo.default: {availability: 0.99, latency: {thresholdMs: 500, objective: 0.9}}
+      clickhouse.slo.services:
+        payments: {availability: 0.7}
+        web: {latency: {thresholdMs: 250}}
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "\\('', 0.99, 500, 0.9\\),\\n    \\('payments', 0.7, 500, 0.9\\),\\n    \\('web', 0.99, 250, 0.9\\)\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_slo.sli_1m_mv\\nREFRESH EVERY 1 MINUTE APPEND TO otel_slo.sli_1m\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE OR REPLACE VIEW otel_slo.sli\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "FROM otel_slo.sli\\(at = \\{at:DateTime64\\(3, 'UTC'\\)\\}, minutes = 43200\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ALTER TABLE otel_slo.sli_1m MODIFY TTL Minute \\+ toIntervalDay\\(37\\);"
+
+  - it: creates no SLO objects when SLOs are off
+    set:
+      clickhouse.slo.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - notMatchRegex:
+          path: data["schema.sql"]
+          pattern: otel_slo
 
   - it: gives the schema Job a native Istio sidecar, so it can finish
     set:
