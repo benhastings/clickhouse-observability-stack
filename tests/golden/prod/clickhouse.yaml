@@ -76,7 +76,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Timestamp)
     ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
-    TTL toDateTime(Timestamp) + toIntervalDay(7)
+    TTL toDateTime(Timestamp) + toIntervalDay(21)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     -- The first and last span time of each trace, so a lookup by trace ID reads one small table instead of
@@ -91,7 +91,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Start)
     ORDER BY (TraceId, Start)
-    TTL toDateTime(Start) + toIntervalDay(7)
+    TTL toDateTime(Start) + toIntervalDay(21)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE MATERIALIZED VIEW IF NOT EXISTS otel.otel_traces_trace_id_ts_mv TO otel.otel_traces_trace_id_ts
@@ -150,7 +150,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Timestamp)
     ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
-    TTL toDateTime(Timestamp) + toIntervalDay(7)
+    TTL toDateTime(Timestamp) + toIntervalDay(14)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     -- Metrics: one table per OTLP point type. Every table but summary and exponential histogram carries two
@@ -193,7 +193,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_sum
@@ -236,7 +236,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_histogram
@@ -283,7 +283,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_exponential_histogram
@@ -331,7 +331,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_summary
@@ -367,19 +367,19 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     -- Retention
     
-    ALTER TABLE otel.otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalDay(7);
-    ALTER TABLE otel.otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalDay(7);
-    ALTER TABLE otel.otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_gauge MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    ALTER TABLE otel.otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalDay(21);
+    ALTER TABLE otel.otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalDay(21);
+    ALTER TABLE otel.otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalDay(14);
+    ALTER TABLE otel.otel_metrics_gauge MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
     
     -- Anomaly baselines, in their own database so the otel database stays exactly what Cerberus expects.
     -- Three refreshable views, each running as otel_admin:
@@ -566,7 +566,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: prod
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-7704da80
+  name: clickhouse-schema-c6ae6f72
   namespace: observability
 spec:
   activeDeadlineSeconds: 900
@@ -659,6 +659,23 @@ spec:
         replicasCount: 1
         shardsCount: 1
       name: main
+    profiles:
+      analyst/constraints/max_concurrent_queries_for_user/max: 2
+      analyst/constraints/max_execution_time/max: 300
+      analyst/constraints/max_memory_usage/max: 2147483648
+      analyst/constraints/max_rows_to_read/max: 10000000000
+      analyst/constraints/priority/min: 10
+      analyst/max_concurrent_queries_for_user: 2
+      analyst/max_execution_time: 300
+      analyst/max_memory_usage: 2147483648
+      analyst/max_rows_to_read: 10000000000
+      analyst/priority: 10
+      analyst/profile: default
+    quotas:
+      analyst/interval/duration: 3600
+      analyst/interval/execution_time: 7200
+      analyst/interval/queries: 600
+      analyst/interval/read_rows: 100000000000
     users:
       otel_admin/networks/ip:
       - 0.0.0.0/0
@@ -670,10 +687,26 @@ spec:
             name: clickhouse-admin
       otel_admin/profile: default
       otel_admin/quota: default
+      otel_analyst/grants/query:
+      - GRANT SELECT ON otel.*
+      - GRANT SELECT ON otel_baseline.*
+      - GRANT SELECT ON otel_features.*
+      - GRANT INSERT ON otel_ml.*
+      otel_analyst/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_analyst/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-analyst
+      otel_analyst/profile: analyst
+      otel_analyst/quota: analyst
       otel_reader/grants/query:
       - GRANT SELECT ON otel.*
       - GRANT SELECT ON otel_baseline.*
       - GRANT SELECT ON system.view_refreshes
+      - GRANT SELECT ON system.disks
       otel_reader/networks/ip:
       - 0.0.0.0/0
       - ::/0

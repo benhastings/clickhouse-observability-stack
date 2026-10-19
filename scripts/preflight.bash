@@ -106,7 +106,7 @@ if app_enabled clickhouse-operator &&
   require_declared_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
 fi
 if app_enabled clickhouse; then
-  for user in admin:"clickhouse schema Job" writer:otel-collector reader:cerberus; do
+  for user in admin:"clickhouse schema Job" writer:otel-collector reader:cerberus analyst:"notebooks and jobs"; do
     if [[ "$(yq ".applications.clickhouse.values.secrets.${user%%:*}.create" "$values")" != true ]]; then
       require_declared_secret "$default_namespace" "clickhouse-${user%%:*}" "clickhouse, ${user#*:}"
     fi

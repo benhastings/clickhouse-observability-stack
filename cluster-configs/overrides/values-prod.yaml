@@ -37,15 +37,37 @@ applications:
       clickhouse:
         storage: 200Gi
         lowMemory: false
+        # Three weeks of traces to search, two of logs, and a month of metrics so a dashboard can compare
+        # with the same day four weeks back. Cerberus's metadata lookback below follows the longest of these.
+        schema:
+          ttlDays:
+            traces: 21
+            logs: 14
+            metrics: 30
         resources:
           requests:
             cpu: "2"
             memory: 8Gi
           limits:
             memory: 8Gi
+        # A quarter of the server for one notebook query, five minutes per query, two at a time.
+        analyst:
+          maxMemoryUsage: 2147483648
+          maxExecutionTime: 300
+          maxRowsToRead: 10000000000
+          maxConcurrentQueries: 2
+          quota:
+            readRows: 100000000000
+            executionTime: 7200
 
   cerberus:
     values:
+      # Grafana's metric and label pickers ask Cerberus without a time range, and Cerberus then looks back
+      # 14 days unless told the retention. Keep this equal to clickhouse.schema.ttlDays.metrics above.
+      configMaps:
+        env:
+          data:
+            CERBERUS_PROM_METADATA_LOOKBACK: 30d
       deployment:
         replicas: 2
         containers:

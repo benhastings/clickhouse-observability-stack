@@ -4,6 +4,11 @@ properties:
     type: object
     additionalProperties: false
     properties:
+      spanMetrics:
+        type: object
+        additionalProperties: false
+        properties:
+          cardinalityLimit: {type: integer, minimum: 0}
       auth:
         type: object
         additionalProperties: false

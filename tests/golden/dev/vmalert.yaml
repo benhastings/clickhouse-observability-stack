@@ -175,6 +175,58 @@ data:
               description: >-
                 Check system.view_refreshes for otel_baseline.{{ $labels.view }}: its exception, or why
                 last_success_time is old. Anomaly rules compare against the last baseline it wrote.
+  
+          # The spanmetrics connector counts every dimension combination past collector.spanMetrics.cardinalityLimit
+          # in one series marked otel.metric.overflow="true". Its requests are still counted, but under no span
+          # name, so the operations table and per-route panels lose them. Usually a span name or route with an ID
+          # in it.
+          - alert: SpanMetricsCardinalityLimitHit
+            expr: |
+              SELECT ServiceName AS service_name, max(Value) - min(Value) AS value
+              FROM otel.otel_metrics_sum
+              WHERE MetricName = 'traces_span_metrics_calls'
+                AND Attributes['otel.metric.overflow'] = 'true'
+                AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+              GROUP BY service_name
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.service_name }} has more span-metrics series than the collector tracks"
+              description: >-
+                {{ $value }} of {{ $labels.service_name }}'s spans in 10 minutes went to the overflow series. Look for
+                span names or http.route values with IDs in them: topk(20, count by (span_name)
+                (traces_span_metrics_calls{service_name="{{ $labels.service_name }}"})).
+  
+          # ClickHouse's own view of its disks, so this works on any volume type (kubelet reports no volume
+          # stats for hostPath volumes such as kind's) and in every environment, prod included. A full disk
+          # stops inserts: the collector queues, then drops. Object-storage disks report no total and are skipped.
+          - alert: ClickHouseDiskFilling
+            expr: |
+              SELECT name AS disk, round(1 - free_space / total_space, 3) AS value
+              FROM system.disks
+              WHERE total_space > 0 AND 1 - free_space / total_space > 0.8
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse disk {{ $labels.disk }} is {{ $value | humanizePercentage }} full"
+              description: >-
+                Lower clickhouse.schema.ttlDays or grow clickhouse.storage before it passes 90%.
+          - alert: ClickHouseDiskFull
+            expr: |
+              SELECT name AS disk, round(1 - free_space / total_space, 3) AS value
+              FROM system.disks
+              WHERE total_space > 0 AND 1 - free_space / total_space > 0.9
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClickHouse disk {{ $labels.disk }} is {{ $value | humanizePercentage }} full"
+              description: >-
+                Inserts fail when the disk fills, and the collector drops telemetry once its queue is full.
+                Grow clickhouse.storage, or lower clickhouse.schema.ttlDays and let the TTL merges free space.
 ---
 # Source: vmalert/templates/service.yaml
 apiVersion: v1
@@ -230,7 +282,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 3eb1f7ca88da689e7bbe262af8e65b30966f201a53cea92ec4d35798db372753
+        checksum/config: 75208a944da0e49164456ffcfcce4691a50c700d674ef6401e0a7d89fb246927
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false

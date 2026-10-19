@@ -659,6 +659,23 @@ spec:
         replicasCount: 1
         shardsCount: 1
       name: main
+    profiles:
+      analyst/constraints/max_concurrent_queries_for_user/max: 2
+      analyst/constraints/max_execution_time/max: 60
+      analyst/constraints/max_memory_usage/max: 268435456
+      analyst/constraints/max_rows_to_read/max: 200000000
+      analyst/constraints/priority/min: 10
+      analyst/max_concurrent_queries_for_user: 2
+      analyst/max_execution_time: 60
+      analyst/max_memory_usage: 268435456
+      analyst/max_rows_to_read: 200000000
+      analyst/priority: 10
+      analyst/profile: default
+    quotas:
+      analyst/interval/duration: 3600
+      analyst/interval/execution_time: 1800
+      analyst/interval/queries: 600
+      analyst/interval/read_rows: 2000000000
     users:
       otel_admin/networks/ip:
       - 0.0.0.0/0
@@ -670,10 +687,26 @@ spec:
             name: clickhouse-admin
       otel_admin/profile: default
       otel_admin/quota: default
+      otel_analyst/grants/query:
+      - GRANT SELECT ON otel.*
+      - GRANT SELECT ON otel_baseline.*
+      - GRANT SELECT ON otel_features.*
+      - GRANT INSERT ON otel_ml.*
+      otel_analyst/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_analyst/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-analyst
+      otel_analyst/profile: analyst
+      otel_analyst/quota: analyst
       otel_reader/grants/query:
       - GRANT SELECT ON otel.*
       - GRANT SELECT ON otel_baseline.*
       - GRANT SELECT ON system.view_refreshes
+      - GRANT SELECT ON system.disks
       otel_reader/networks/ip:
       - 0.0.0.0/0
       - ::/0

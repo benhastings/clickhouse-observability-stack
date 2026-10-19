@@ -46,6 +46,7 @@ data:
           max_items: 10000
           ttl: 5s
       spanmetrics:
+        aggregation_cardinality_limit: 5000
         dimensions:
         - name: http.request.method
         - name: http.response.status_code
@@ -444,7 +445,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: f03e442f5b40deff8b9a648b2c604390356ef3c87baa70c4740b28e7b8b39013
+        checksum/config: 2feca6694840ee076b1de2a3794cb152b224193f39b56952c37d2c1405a01c94
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

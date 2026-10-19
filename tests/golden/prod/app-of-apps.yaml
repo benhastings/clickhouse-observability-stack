@@ -105,6 +105,10 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
+        configMaps:
+          env:
+            data:
+              CERBERUS_PROM_METADATA_LOOKBACK: 30d
         deployment:
           containers:
             cerberus:
@@ -167,6 +171,14 @@ spec:
       releaseName: clickhouse
       valuesObject:
         clickhouse:
+          analyst:
+            maxConcurrentQueries: 2
+            maxExecutionTime: 300
+            maxMemoryUsage: 2147483648
+            maxRowsToRead: 10000000000
+            quota:
+              executionTime: 7200
+              readRows: 100000000000
           lowMemory: false
           resources:
             limits:
@@ -174,6 +186,11 @@ spec:
             requests:
               cpu: "2"
               memory: 8Gi
+          schema:
+            ttlDays:
+              logs: 14
+              metrics: 30
+              traces: 21
           storage: 200Gi
         global:
           exposure:

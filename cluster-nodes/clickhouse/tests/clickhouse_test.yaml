@@ -28,7 +28,7 @@ tests:
           value: [GRANT INSERT ON otel.*]
       - equal:
           path: spec.configuration.users["otel_reader/grants/query"]
-          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON system.view_refreshes]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON system.view_refreshes, GRANT SELECT ON system.disks]
       - notExists:
           path: spec.configuration.users["otel_admin/grants/query"]
       - equal:
@@ -244,7 +244,81 @@ tests:
       - notExists:
           path: spec.configuration.files
       - notExists:
-          path: spec.configuration.profiles
+          path: spec.configuration.profiles["default/max_memory_usage"]
+      - notExists:
+          path: spec.configuration.profiles["default/max_threads"]
+      - equal:
+          path: spec.configuration.profiles["analyst/max_memory_usage"]
+          value: 268435456
+
+  - it: gives notebooks and jobs an analyst user that reads the telemetry and writes only to otel_ml
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.users["otel_analyst/grants/query"]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_features.*, GRANT INSERT ON otel_ml.*]
+      - equal:
+          path: spec.configuration.users["otel_analyst/password"].valueFrom.secretKeyRef
+          value:
+            name: clickhouse-analyst
+            key: password
+      - equal:
+          path: spec.configuration.users["otel_analyst/profile"]
+          value: analyst
+      - equal:
+          path: spec.configuration.users["otel_analyst/quota"]
+          value: analyst
+      - equal:
+          path: spec.configuration.users["otel_reader/profile"]
+          value: default
+
+  - it: caps the analyst's queries with limits it may lower but not raise, and runs them after everyone else's
+    set:
+      clickhouse.analyst.maxMemoryUsage: 2147483648
+      clickhouse.analyst.quota.readRows: 100000000000
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.profiles["analyst/profile"]
+          value: default
+      - equal:
+          path: spec.configuration.profiles["analyst/max_memory_usage"]
+          value: 2147483648
+      - equal:
+          path: spec.configuration.profiles["analyst/constraints/max_memory_usage/max"]
+          value: 2147483648
+      - equal:
+          path: spec.configuration.profiles["analyst/constraints/max_execution_time/max"]
+          value: 60
+      - equal:
+          path: spec.configuration.profiles["analyst/constraints/max_rows_to_read/max"]
+          value: 200000000
+      - equal:
+          path: spec.configuration.profiles["analyst/constraints/max_concurrent_queries_for_user/max"]
+          value: 2
+      - equal:
+          path: spec.configuration.profiles["analyst/priority"]
+          value: 10
+      - equal:
+          path: spec.configuration.profiles["analyst/constraints/priority/min"]
+          value: 10
+      - equal:
+          path: spec.configuration.quotas
+          value:
+            analyst/interval/duration: 3600
+            analyst/interval/queries: 600
+            analyst/interval/read_rows: 100000000000
+            analyst/interval/execution_time: 1800
+
+  - it: never creates the analyst's Secret
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/secret.yaml
 
   - it: sizes the pod and volume from the clickhouse keys
     set:
@@ -408,7 +482,14 @@ tests:
             name: vault-backend
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
+        template: templates/externalsecret.yaml
+      - equal:
+          path: spec.target.name
+          value: clickhouse-analyst
+        documentSelector:
+          path: metadata.name
+          value: clickhouse-analyst
         template: templates/externalsecret.yaml
       - equal:
           path: spec.target.name

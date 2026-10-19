@@ -250,10 +250,82 @@ poll "Grafana: the alert hygiene dashboard is provisioned" \
   '.dashboard.uid == "alert-hygiene"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/alert-hygiene"
 
+# The service dashboard's own queries, read from its JSON with every service selected (All is .*).
+panel_expr() { # panel title
+  jq -r --arg title "$1" '.panels[] | select(.title == $title) | .targets[0].expr |
+    gsub("\\$__rate_interval"; "2m") | gsub("\\$service"; ".*")' cluster-nodes/grafana/dashboards/span-metrics.json
+}
+poll "Dashboard: the latency heatmap has buckets" \
+  '[.data.result[].metric.le] | length > 3' \
+  "$cerberus/api/v1/query" --data-urlencode "query=$(panel_expr 'Server latency heatmap')"
+poll "Span metrics: payments latency buckets carry trace_id exemplars (panels leave them off until tsouza/cerberus#3787)" \
+  '[.data[].exemplars[].labels.trace_id // empty] | length > 0' \
+  "$cerberus/api/v1/query_exemplars" \
+  --data-urlencode 'query=traces_span_metrics_duration_bucket{service_name="payments", span_kind="SPAN_KIND_SERVER"}' \
+  --data-urlencode "start=$((now - 600))" --data-urlencode "end=$end"
+poll "Dashboard: the error logs panel finds payments' errors" \
+  '[.data.result[] | select(.stream.service_name == "payments") | .values[]] | length > 0' \
+  "$cerberus/loki/api/v1/query_range" --data-urlencode "query=$(panel_expr 'Error logs')" \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=50'
+# The service graph panel is Grafana's Tempo service map, which runs these PromQL queries in the browser.
+poll "Dashboard: the service graph has the checkout -> payments edge" \
+  '[.data.result[].metric | select(.client == "checkout" and .server == "payments")] | length == 1' \
+  "$cerberus/api/v1/query" \
+  --data-urlencode 'query=sum by (client, server) (rate(traces_service_graph_request_total{server=~"payments"}[5m]))'
+poll "Dashboard: the service graph colours the failing edge" \
+  '.data.result[0].value[1] | tonumber | . > 0' \
+  "$cerberus/api/v1/query" \
+  --data-urlencode 'query=sum(rate(traces_service_graph_request_failed_total{client="checkout", server="payments"}[5m]))'
+# The Drilldown apps call more of each API than Explore does. These are the calls each one makes on first load,
+# through Grafana's datasource proxy as the apps send them.
+proxy="$grafana/api/datasources/proxy/uid"
+poll "Logs Drilldown: log volume per service" \
+  '[.data.result[].metric.service_name] | index("checkout") != null' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/index/volume" \
+  --data-urlencode 'query={service_name=~".+"}' --data-urlencode 'targetLabels=service_name' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Logs Drilldown: checkout's log patterns" \
+  '.data | length > 0' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/patterns" \
+  --data-urlencode 'query={service_name="checkout"}' --data-urlencode 'step=60s' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Logs Drilldown: checkout's detected fields include the wide-event duration" \
+  '[.fields[].label] | index("duration_ms") != null' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/detected_fields" \
+  --data-urlencode 'query={service_name="checkout"}' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Logs Drilldown: checkout's detected labels" \
+  '.detectedLabels | length > 0' \
+  -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/detected_labels" \
+  --data-urlencode 'query={service_name="checkout"}' \
+  --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000"
+poll "Traces Drilldown: span rate per service, as TraceQL metrics" \
+  '[.series[].labels[] | select(.key == "resource.service.name") | .value.stringValue] | contains(["checkout", "payments"])' \
+  -u "$grafana_login" "$proxy/cerberus-tempo/api/metrics/query_range" \
+  --data-urlencode 'q={} | rate() by (resource.service.name)' --data-urlencode 'step=60s' \
+  --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Traces Drilldown: error rate, as TraceQL metrics" \
+  '[.series[].samples[]] | length > 0' \
+  -u "$grafana_login" "$proxy/cerberus-tempo/api/metrics/query_range" \
+  --data-urlencode 'q={status=error} | rate()' --data-urlencode 'step=60s' \
+  --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Traces Drilldown: resource attribute names" \
+  '[.scopes[].tags[]] | index("service.name") != null' \
+  -u "$grafana_login" "$proxy/cerberus-tempo/api/v2/search/tags" \
+  --data-urlencode 'scope=resource' --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Metrics Drilldown: metric names" \
+  '.data | index("traces_span_metrics_calls") != null' \
+  -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/label/__name__/values" \
+  --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+poll "Metrics Drilldown: the label names of one metric, for its group-by" \
+  '.data | index("service_name") != null' \
+  -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/labels" \
+  --data-urlencode 'match[]=traces_span_metrics_calls' --data-urlencode "start=$start" --data-urlencode "end=$(date +%s)"
+
 # Each ClickHouse user can do its own job and nothing else: the collector's user inserts but cannot read,
 # Cerberus's reads but cannot write or change a table. The data checks above prove the allowed half.
 clickhouse_pod="$(kubectl -n observability get pods -l clickhouse.altinity.com/chi=otel -o name | head -1)"
-clickhouse_as() { # <admin|writer|reader> <query>
+clickhouse_as() { # <admin|writer|reader|analyst> <query>
   local password
   password="$(kubectl -n observability get secret "clickhouse-$1" -o go-template='{{.data.password | base64decode}}')"
   kubectl -n observability exec -i "$clickhouse_pod" -c clickhouse -- \
@@ -276,6 +348,31 @@ refused reader "INSERT INTO otel.otel_logs (Body) VALUES ('e2e')"
 refused reader "TRUNCATE TABLE otel.otel_logs"
 refused reader "CREATE TABLE otel.e2e (a UInt8) ENGINE = Memory"
 refused reader "INSERT INTO otel_baseline.baseline (Signal) VALUES ('e2e')"
+
+# otel_analyst, for notebooks and jobs: it reads the telemetry, can't write it, and its profile caps a
+# query's memory below what ingestion and Grafana need, a cap it can't raise.
+step "ClickHouse: otel_analyst reads traces under its own limits"
+analyst_traces="$(clickhouse_as analyst "SELECT count() FROM otel.otel_traces")"
+((analyst_traces > 0)) || { echo "  otel_analyst read no traces"; exit 1; }
+echo "  otel_analyst reads $analyst_traces spans"
+refused analyst "INSERT INTO otel.otel_traces (TraceId) VALUES ('e2e')"
+refused analyst "ALTER TABLE otel.otel_logs DROP COLUMN EventName"
+analyst_limited() { # <query> <error code name>
+  local out
+  if out="$(clickhouse_as analyst "$1" 2>&1)"; then
+    echo "  otel_analyst was allowed: $1"
+    exit 1
+  fi
+  [[ "$out" == *"$2"* ]] || { echo "  otel_analyst failed for another reason: $out"; exit 1; }
+  echo "  otel_analyst stopped ($2): $1"
+}
+analyst_limited "SELECT length(groupArray(randomString(1000))) FROM (SELECT 1 FROM otel.otel_traces LIMIT 1)
+  ARRAY JOIN range(1000000) AS r" MEMORY_LIMIT_EXCEEDED
+analyst_limited "SET max_memory_usage = 100000000000" SETTING_CONSTRAINT_VIOLATION
+analyst_limited "SET priority = 0" SETTING_CONSTRAINT_VIOLATION
+poll "PromQL: span metrics keep arriving after the analyst's refused query" \
+  '.data.result | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls[1m]))'
 
 # The schema is files/schema.sql.tpl in the clickhouse node, not Cerberus's. Ask the Cerberus image this
 # stack runs which schema it expects, create that in a scratch database, and compare the two table by table.
