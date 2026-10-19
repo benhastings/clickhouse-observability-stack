@@ -94,6 +94,8 @@ A quarter of charges time out at the payment gateway. Payments fails those reque
 
 Below those, the dashboard has a latency heatmap of payments' and checkout's server spans. Next to it is a service graph with the `checkout → payments` edge, red where calls fail. Under them is an error logs panel with payments' gateway timeouts. Click a series on the request, error or latency chart for its failing traces, its traces slower than the point you clicked, its error logs, or the service in Traces and Logs Drilldown. The charts show no exemplar dots: Cerberus v1.22.0 answers exemplar queries only for a bare selector, and every panel aggregates ([tsouza/cerberus#3787](https://github.com/tsouza/cerberus/issues/3787)). The exemplars are stored, so a Cerberus fix needs only `exemplar: true` back on the panels.
 
+At the bottom, **Resources** shows the pods that serve the selected services: CPU against requests, memory working set against requests and limits, and each container's restarts and last termination reason (`OOMKilled` when it hit its limit). It finds them by the `k8s.pod.name` the collector adds to their spans. On kind both payments and checkout come from the one `demo-load` pod, so both show it.
+
 A tour from a failing metric to its cause and back, on kind:
 
 1. On **Span metrics (RED)**, click payments' line on **Error rate**, then **Traces Drilldown: errors of payments**.
@@ -802,6 +804,35 @@ values: `mesh: istio`, and Grafana and OTLP exposed through the gateway at `graf
 and sends a span through the gateway, and repeats that with `PeerAuthentication` `STRICT`. The kind node needs
 about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
 demand (`.github/workflows/e2e-mesh.yml`).
+
+### Disk sizing
+
+Compressed bytes per row on disk, indexes and projections included, measured on kind (ClickHouse 26.9.5.2)
+after three days of the demo load (6 million spans, 4 million log records, 12 million metric samples):
+
+| signal | tables | bytes per row |
+|---|---|---|
+| span | `otel_traces`, plus `otel_traces_trace_id_ts` for trace lookups | 88 |
+| log record | `otel_logs` | 89 |
+| metric sample | `otel_metrics_gauge` 11, `otel_metrics_sum` 51, `otel_metrics_histogram` 128 | 39 for the demo's mix |
+
+```text
+disk ≈ (spans/s × 88 × days_traces + logs/s × 89 × days_logs + samples/s × 39 × days_metrics) × 86400 × 1.5
+```
+
+The 1.5 is headroom: parts not yet merged compress less, merges need room for both old and new parts, and
+`ClickHouseDiskFilling` warns at 80%. `prod`'s 200 Gi, at 21/14/30 days, covers about 400 spans/s, 300 log
+records/s and 400 metric samples/s. The demo's spans carry about 27 resource and 12 span attributes, and its
+logs 26 resource and 15 log attributes, so a site whose telemetry carries more (or less) should re-measure with
+the same query:
+
+```sql
+SELECT table, sum(rows) AS row_count, round(sum(bytes_on_disk) / sum(rows), 1) AS bytes_per_row
+FROM system.parts WHERE active AND database = 'otel' GROUP BY table ORDER BY sum(bytes_on_disk) DESC
+```
+
+and the rates from the last hour, for example `SELECT count() / 3600 FROM otel.otel_traces WHERE Timestamp >
+now() - INTERVAL 1 HOUR`.
 
 ### Low-memory sizing
 
