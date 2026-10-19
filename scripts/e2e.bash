@@ -285,6 +285,17 @@ poll "Dashboard: the service graph colours the failing edge" \
   '.data.result[0].value[1] | tonumber | . > 0' \
   "$cerberus/api/v1/query" \
   --data-urlencode 'query=sum(rate(traces_service_graph_request_failed_total{client="checkout", server="payments"}[5m]))'
+# The Resources row finds a service's pods by the k8s.pod.name on its span metrics (the hidden pod variable),
+# then reads their containers' kubelet and cluster metrics.
+step "Dashboard: the Resources row finds payments' pod from its span metrics"
+payments_pods="$(curl -fsS -G "$cerberus/api/v1/series" \
+  --data-urlencode 'match[]=traces_span_metrics_calls{service_name="payments"}' | jq -r '[.data[].k8s_pod_name // empty] | unique | join("|")')"
+[[ -n "$payments_pods" ]] || { echo "  payments' span metrics carry no k8s_pod_name"; exit 1; }
+echo "  $payments_pods"
+memory_expr="$(panel_expr 'Memory working set')"
+poll "Dashboard: the Resources row draws the working set of payments' pod" \
+  '[.data.result[] | select(.value[1] | tonumber > 0)] | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode "query=${memory_expr//\$pod/$payments_pods}"
 # The Drilldown apps call more of each API than Explore does. These are the calls each one makes on first load,
 # through Grafana's datasource proxy as the apps send them.
 proxy="$grafana/api/datasources/proxy/uid"
@@ -424,6 +435,9 @@ until [[ "$(clickhouse_as admin "SELECT count() FROM otel_baseline.signal_1m WHE
   sleep 10
 done
 echo "  ok"
+# baseline_series_mv writes series for the current hour of the week only, from signal_1m, which lags two
+# minutes: until minute 2 or so of an hour, signal_1m has nothing for it and the refresh writes nothing (#200).
+while ((10#$(date -u +%M) < 3)); do sleep 10; done
 step "ClickHouse: the hourly anomaly baseline views refresh without error"
 for view in baseline_mv baseline_series_mv; do
   clickhouse_as admin "SYSTEM REFRESH VIEW otel_baseline.$view; SYSTEM WAIT VIEW otel_baseline.$view"
