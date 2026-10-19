@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: be4673a9b332d96a32160301910beac7943ccf870ceeb379ceba663a0f844ef8
+        checksum/config: 96c8612aff6685abce858533c7a9f8eaf3aad9dcf5adfc02b7b3d13e56aac115
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
