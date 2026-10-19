@@ -119,7 +119,7 @@ tests:
           path: spec.template.spec.volumes[0].configMap.name
           value: otel-collector
 
-  - it: may read kubelet stats for system metrics, and watch pods, namespaces and replicasets for k8sattributes
+  - it: may read kubelet stats for system metrics, and watch what k8sattributes and k8s_cluster read
     documentSelector:
       path: kind
       value: ClusterRole
@@ -131,11 +131,47 @@ tests:
               resources: [nodes/stats]
               verbs: [get]
             - apiGroups: [""]
-              resources: [pods, namespaces]
+              resources: [nodes, pods, namespaces, services, replicationcontrollers, resourcequotas]
               verbs: [get, list, watch]
             - apiGroups: [apps]
-              resources: [replicasets]
+              resources: [replicasets, deployments, daemonsets, statefulsets]
               verbs: [get, list, watch]
+            - apiGroups: [batch]
+              resources: [jobs, cronjobs]
+              verbs: [get, list, watch]
+            - apiGroups: [autoscaling]
+              resources: [horizontalpodautoscalers]
+              verbs: [get, list, watch]
+
+  - it: holds k8s_cluster's Lease in its own namespace, so one gateway replica reports the cluster
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, list, watch, create, update, patch]
+        documentSelector:
+          path: kind
+          value: Role
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "k8s_leader_elector:\\n\\s+auth_type: serviceAccount\\n\\s+lease_name: otel-collector-k8s-cluster\\n\\s+lease_namespace: observability\\n"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "k8s_cluster:\\n(\\s+\\S.*\\n)*?\\s+k8s_leader_elector: k8s_leader_elector\\n"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "extensions:\\n\\s+- health_check\\n\\s+- k8s_leader_elector\\n"
+        documentSelector:
+          path: kind
+          value: ConfigMap
 
   - it: adds Kubernetes attributes in every OTLP pipeline, before batch drops the connection
     documentSelector:
@@ -211,7 +247,7 @@ tests:
           pattern: "endpoint: https://\\$\\{env:K8S_NODE_IP\\}:10250"
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- spanmetrics"
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- k8s_cluster\\n\\s+- spanmetrics"
 
   - it: adds no extra receivers by default
     documentSelector:
@@ -306,12 +342,12 @@ tests:
           value: ConfigMap
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- spanmetrics"
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- kubeletstats\\n\\s+- k8s_cluster\\n\\s+- spanmetrics"
         documentSelector:
           path: kind
           value: ConfigMap
 
-  - it: moves kubeletstats from the gateway to a DaemonSet agent when the agent is enabled
+  - it: moves kubeletstats from the gateway to a DaemonSet agent when the agent is enabled, and keeps k8s_cluster
     set:
       collector:
         agent:
@@ -327,7 +363,7 @@ tests:
           value: ConfigMap
       - matchRegex:
           path: data["relay.yaml"]
-          pattern: "receivers:\\n\\s+- otlp\\n\\s+- spanmetrics\\n\\s+- servicegraph"
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- k8s_cluster\\n\\s+- spanmetrics\\n\\s+- servicegraph"
         documentSelector:
           path: kind
           value: ConfigMap
@@ -346,7 +382,7 @@ tests:
           value: DaemonSet
       - notMatchRegex:
           path: spec.template.spec.containers[0].env[?(@.name == "OTELCOL_AGENT_CONFIG")].value
-          pattern: "spanmetrics|servicegraph|otlp"
+          pattern: "spanmetrics|servicegraph|otlp|k8s_cluster"
         documentSelector:
           path: kind
           value: DaemonSet
