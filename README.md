@@ -562,6 +562,35 @@ before it, then that ErrorRatioAnomaly fires for payments, prints both numbers, 
 5 minutes into the incident, before incident minutes enter the reference's hour of mean and deviation), and
 resolves once the incident is over. That makes it the longest part of `make test/e2e`, about 30 minutes.
 
+### SLO alerts: page on error budget burn
+
+`cluster-nodes/vmalert/files/rules/slo.yaml` alerts on each service's SLOs (see **Service level objectives**),
+with the SRE workbook's multi-window, multi-burn-rate rules over `otel_slo.sli`. A rule fires when both its long
+and its short window burn faster than its rate: the long window says enough budget went, the short one that it's
+still going, so a page stops soon after the burn does.
+
+| severity | burn | windows | of a 28-day budget | for |
+|---|---|---|---|---|
+| `critical` | 14.4× | 1 h and 5 m | 2% in an hour | 2 m |
+| `critical` | 6× | 6 h and 30 m | 5% in six hours | 2 m |
+| `warning` | 1× | 3 d and 6 h | 10% in three days | 15 m |
+
+There is one set for availability (`AvailabilityBudgetBurn`) and one for latency (`LatencyBudgetBurn`), labelled
+`slo`, `severity`, `window` and `service_name`. A short window needs 10 requests. Each notification prints the
+SLI over the long window, the objective, and the budget left. They run in every environment, `prod` included.
+
+**Anomaly or SLO.** Anomaly rules ask "is this service unlike itself right now", which catches a change within
+minutes, including one that spends no budget, such as a traffic drop. They are silent about a service that has
+always been bad. SLO rules ask "are users getting what we promised", and page only when enough budget is going
+that it matters. Page on SLO burn; treat anomalies as warnings that explain it, or that catch what the
+objectives don't cover.
+
+**On `local`, payments pages every hour by design.** At the 95% default its steady 25% errors are a 5× burn, so
+the 1× ticket is always open. The demo load's 10-minute incident each hour pushes the last 30 minutes and 6 hours
+past 6×, so the 6× page fires a few minutes into each incident and resolves about half an hour after it ends.
+The 14.4× page doesn't fire: the hour stays near 7×. checkout raises nothing. `make test/e2e` checks all of this
+on the first incident, which adds about 15 minutes after ErrorRatioAnomaly resolves.
+
 ### Alert history: every notification is a log in ClickHouse
 
 Alertmanager's first route sends every alert to a `history` receiver (`continue: true`, so it then carries on to
