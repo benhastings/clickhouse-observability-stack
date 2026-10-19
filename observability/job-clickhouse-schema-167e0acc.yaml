@@ -12,7 +12,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: dev
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-7704da80
+  name: clickhouse-schema-167e0acc
   namespace: observability
 spec:
   activeDeadlineSeconds: 900

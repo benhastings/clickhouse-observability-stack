@@ -65,6 +65,7 @@ spec:
       otel_reader/grants/query:
         - GRANT SELECT ON otel.*
         - GRANT SELECT ON otel_baseline.*
+        - GRANT SELECT ON otel_slo.*
         - GRANT SELECT ON system.view_refreshes
         - GRANT SELECT ON system.disks
       otel_reader/networks/ip:
