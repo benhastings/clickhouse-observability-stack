@@ -403,6 +403,20 @@ analyst_limited "SELECT length(groupArray(randomString(1000))) FROM (SELECT 1 FR
   ARRAY JOIN range(1000000) AS r" MEMORY_LIMIT_EXCEEDED
 analyst_limited "SET max_memory_usage = 100000000000" SETTING_CONSTRAINT_VIOLATION
 analyst_limited "SET priority = 0" SETTING_CONSTRAINT_VIOLATION
+# otel_features: one row per trace, five minutes after its root span, and each service's log templates per minute.
+step "ClickHouse: otel_analyst reads the demo's traces in trace_summary and its log templates"
+features_query="SELECT (SELECT count() FROM otel_features.trace_summary WHERE RootService = 'web' AND has(Services, 'payments')),
+  (SELECT uniqExact(ServiceName) FROM otel_features.log_templates WHERE ServiceName IN ('checkout', 'payments', 'web')) FORMAT TSV"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until features="$(clickhouse_as analyst "$features_query")" && awk -F'\t' '{exit !($1 > 0 && $2 == 3)}' <<<"$features"; do
+  if ((SECONDS > deadline)); then
+    clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_features'"
+    echo "  expected traces through payments and templates for checkout, payments and web; got: $features"
+    exit 1
+  fi
+  sleep 10
+done
+awk -F'\t' '{printf "  %s traces from web through payments, log templates for %s services\n", $1, $2}' <<<"$features"
 poll "PromQL: span metrics keep arriving after the analyst's refused query" \
   '.data.result | length > 0' \
   "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls[1m]))'
