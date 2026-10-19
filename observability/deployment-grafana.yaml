@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 225848cd74e083ee0f3bf70e4e2d55de7cd104fd85a34c82d7d76af262f1b76b
+        checksum/config: ba4834189c82f27a5582e6db3318fc8392ec247c2b22db4b72f2d95a8b4891f7
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
