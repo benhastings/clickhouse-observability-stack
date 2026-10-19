@@ -183,6 +183,12 @@ tests:
       - matchRegex:
           path: data["schema.sql"]
           pattern: "ALTER TABLE otel_slo.sli_1m MODIFY TTL Minute \\+ toIntervalDay\\(37\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "REFRESH EVERY 1 MINUTE DEPENDS ON otel_slo.sli_1m_mv APPEND TO otel.otel_metrics_gauge\\nDEFINER = otel_admin"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "UNION ALL SELECT '30d', \\* FROM otel_slo.sli\\(at = now\\(\\), minutes = 43200\\)"
 
   - it: creates no SLO objects when SLOs are off
     set:

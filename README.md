@@ -53,7 +53,7 @@ What the stack is for, what delivers each part, and where to see it. Where a par
 | Wide-event logs | log attributes kept as a map column; the demo's one event per request carries `duration_ms`, `user.id`, `outcome` and more | `{service_name="checkout"} \| main="true"` | |
 | Moving between metrics, logs and traces in Grafana | exemplars, the logs' `trace_id` link, trace to logs and to metrics, the service graph | [What you should see](#what-you-should-see) | [#177](https://github.com/benhastings/clickhouse-observability-stack/issues/177): the same links from the dashboards |
 | Default alerts on latency and availability | vmalert's anomaly rules over ClickHouse baselines, Grafana's starter rules, and the alerting pipeline watching itself | [Anomaly rules](#anomaly-rules-alert-on-a-change-from-normal) | [#165](https://github.com/benhastings/clickhouse-observability-stack/issues/165): SLOs with burn-rate alerts |
-| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
+| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, **SLOs**, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
 | Grafana's Drilldown apps | Metrics, Logs and Traces Drilldown, preinstalled at pinned versions | Grafana → Drilldown | [#166](https://github.com/benhastings/clickhouse-observability-stack/issues/166): proven against Cerberus |
 | A path for ML and AI over traces and logs | the baselines show the pattern: ClickHouse computes, writes series back, everything reads them | [Anomaly baselines](#anomaly-baselines-computed-by-clickhouse-read-as-series) | [#167](https://github.com/benhastings/clickhouse-observability-stack/issues/167): an analyst user, feature tables, docs |
 
@@ -463,13 +463,20 @@ into ClickHouse's memory limit. So, like the baselines, ClickHouse rolls them up
 | `sli_1m_mv` → `sli_1m` | every minute, each service's requests, errors and spans slower than its threshold, for the minute before last; kept `windowDays` plus 7 days |
 | `sli(at, minutes)` | each service's availability and latency over a window ending two minutes before `at` (the rollup's lag), with its objectives and burn rates |
 | `budget(at)` | the error budget left over the last `windowDays`: 1 untouched, 0 spent, below 0 overspent |
+| `series_mv` | every minute, after `sli_1m_mv`: `sli` and `budget` appended to `otel.otel_metrics_gauge` as `slo:*` series |
 
 A burn rate of 1 spends exactly the budget over the window, and 14.4 spends 2% of a 28-day budget in an hour. Rules
-and dashboards read `sli` and `budget`, so they agree, and `otel_reader` may `SELECT` from them:
+read `sli` and `budget`, and `otel_reader` may `SELECT` from them:
 
 ```sql
 SELECT service_name, availability, availability_burn_rate FROM otel_slo.sli(at = now64(3), minutes = 60)
 ```
+
+Dashboards read the series `series_mv` writes from the same views, so they agree with the rules, and Cerberus serves
+them with no new datasource: `slo:availability` and `slo:latency` (the SLI) and their `:burn_rate` with a `window`
+label (`5m`, `1h`, `6h`, `3d` and `28d`), and `slo:availability:objective`, `:budget_remaining` and their latency
+equivalents. The **SLOs** dashboard (Dashboards → Cerberus) shows each service's SLI, objective, budget left and
+burn rates, budget and burn rate over time against the alert thresholds, and links to its span metrics.
 
 A threshold change counts from the next minute the rollup writes; minutes already written keep the threshold they
 were counted against. `enabled: false` creates none of it.
@@ -480,7 +487,9 @@ design and about 87% during the demo load's 10-minute incident each hour, a 5× 
 
 Cost, measured on a local `clickhouse-server:26.9.5.2` with 28 days of `sli_1m` for 20 services (806,400 rows,
 1.1 MiB compressed): `budget` read every row in 28 ms with 9 MiB peak memory, a 3-day `sli` in 14 ms. The rollup
-reads one minute of server spans, like `signal_1m_mv`.
+reads one minute of server spans, like `signal_1m_mv`. `series_mv` runs five `sli` windows a minute (144 ms on
+kind with two services and a few hours of `sli_1m`) and writes 24 gauge rows per service, 2,880 an hour for the
+demo load.
 
 ### Slack: one thread per alert group
 

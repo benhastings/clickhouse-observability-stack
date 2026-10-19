@@ -547,7 +547,8 @@ INNER JOIN otel_baseline.expected(at = {at:DateTime64(3, 'UTC')}) AS e
 --               objectives and burn rates: 1 spends exactly the budget over the window, 14.4 a 28-day
 --               budget's 2% in an hour
 --   budget      the error budget left over the last {{ int .windowDays }} days: 1 untouched, 0 spent, below 0 overspent
--- Alert rules and dashboards read sli and budget, so they agree. A threshold change counts from the next
+--   series_mv   every minute, after sli_1m_mv, appends sli and budget to otel.otel_metrics_gauge as slo:* series
+-- Alert rules read sli and budget, and dashboards the series written from them, so they agree. A threshold change counts from the next
 -- minute sli_1m_mv writes; minutes already written keep the threshold they were counted against.
 
 CREATE DATABASE IF NOT EXISTS otel_slo;
@@ -621,4 +622,37 @@ SELECT service_name, requests,
        availability, availability_objective, 1 - availability_burn_rate AS availability_budget_remaining,
        latency, latency_objective, latency_threshold_ms, 1 - latency_burn_rate AS latency_budget_remaining
 FROM otel_slo.sli(at = {at:DateTime64(3, 'UTC')}, minutes = {{ mul (int .windowDays) 1440 }});
+
+-- The series, as the baselines are written back, so Cerberus serves them with no new datasource:
+-- slo:availability and slo:latency (the SLI) and their :burn_rate, each with a window label (5m, the alert
+-- windows and {{ int .windowDays }}d), and :objective and :budget_remaining with none.
+CREATE MATERIALIZED VIEW IF NOT EXISTS otel_slo.series_mv
+REFRESH EVERY 1 MINUTE DEPENDS ON otel_slo.sli_1m_mv APPEND TO otel.otel_metrics_gauge
+DEFINER = otel_admin SQL SECURITY DEFINER
+AS
+WITH toStartOfMinute(now()) AS t
+SELECT map('service.name', service_name) AS ResourceAttributes,
+       service_name AS ServiceName,
+       'slo:' || name AS MetricName,
+       if(name LIKE '%:objective' OR name LIKE '%:budget_remaining', map(), map('window', w)) AS Attributes,
+       t AS StartTimeUnix,
+       t AS TimeUnix,
+       value AS Value
+FROM
+(
+    SELECT '5m' AS w, * FROM otel_slo.sli(at = now(), minutes = 5)
+    UNION ALL SELECT '1h', * FROM otel_slo.sli(at = now(), minutes = 60)
+    UNION ALL SELECT '6h', * FROM otel_slo.sli(at = now(), minutes = 360)
+    UNION ALL SELECT '3d', * FROM otel_slo.sli(at = now(), minutes = 4320)
+    UNION ALL SELECT '{{ int .windowDays }}d', * FROM otel_slo.sli(at = now(), minutes = {{ mul (int .windowDays) 1440 }})
+)
+ARRAY JOIN
+    if(w = '{{ int .windowDays }}d',
+       ['availability', 'availability:burn_rate', 'latency', 'latency:burn_rate',
+        'availability:objective', 'latency:objective', 'availability:budget_remaining', 'latency:budget_remaining'],
+       ['availability', 'availability:burn_rate', 'latency', 'latency:burn_rate']) AS name,
+    if(w = '{{ int .windowDays }}d',
+       [availability, availability_burn_rate, latency, latency_burn_rate,
+        availability_objective, latency_objective, 1 - availability_burn_rate, 1 - latency_burn_rate],
+       [availability, availability_burn_rate, latency, latency_burn_rate]) AS value;
 {{- end }}{{ end }}
