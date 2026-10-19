@@ -793,7 +793,6 @@ spec:
       analyst/max_memory_usage: 268435456
       analyst/max_rows_to_read: 200000000
       analyst/priority: 10
-      analyst/profile: default
     quotas:
       analyst/interval/duration: 3600
       analyst/interval/execution_time: 1800

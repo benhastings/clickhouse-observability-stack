@@ -63,6 +63,15 @@ tests:
           path: data["stack.yaml"]
           pattern: "(?s)alert: Watchdog.*alert: AlertmanagerNotificationsFailing.*alert: BaselineRefreshFailing"
       - matchRegex:
+          path: data["stack.yaml"]
+          pattern: "(?s)alert: CollectorRefusingData.*alert: CollectorMemoryLimiterRefusing.*alert: CollectorMemoryNearLimit.*alert: CollectorExportFailing.*severity: critical.*alert: CollectorExportQueueFull.*alert: ClickHouseInsertsFailing.*alert: ClickHouseMemoryLimitRejects.*alert: ClickHouseTooManyParts"
+      - matchRegex:
+          path: data["stack.yaml"]
+          pattern: "MetricName LIKE 'otelcol_receiver_refused_%'"
+      - matchRegex:
+          path: data["stack.yaml"]
+          pattern: "w.working_set / l.memory_limit > 0.8"
+      - matchRegex:
           path: data["slo.yaml"]
           pattern: "(?s)alert: AvailabilityBudgetBurn.*minutes = 60\\) AS l.*minutes = 5\\) AS s.*> 14.4.*severity: critical.*alert: LatencyBudgetBurn.*minutes = 4320\\) AS l.*minutes = 360\\) AS s.*severity: warning"
       - matchRegex:

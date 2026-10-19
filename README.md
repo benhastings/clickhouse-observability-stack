@@ -368,6 +368,28 @@ It writes only to `otel_ml`, for scores and predictions, which it can't create; 
 `kubectl -n observability port-forward svc/clickhouse 8123 9000`, then connect any ClickHouse client as
 `otel_analyst` with the password from the `clickhouse-analyst` Secret.
 
+An AI agent reaches the telemetry the same way, through ClickHouse's MCP server
+([`mcp-clickhouse`](https://github.com/ClickHouse/mcp-clickhouse), Apache-2.0) running next to the agent as
+`otel_analyst`. The stack doesn't ship it ([#191](https://github.com/benhastings/clickhouse-observability-stack/issues/191)):
+the analyst user and its limits are the stack's part. With the port-forward above, point the server at ClickHouse's
+HTTP port:
+
+```sh
+export CLICKHOUSE_HOST=localhost CLICKHOUSE_PORT=8123 CLICKHOUSE_SECURE=false CLICKHOUSE_USER=otel_analyst
+export CLICKHOUSE_PASSWORD="$(kubectl -n observability get secret clickhouse-analyst -o jsonpath='{.data.password}' | base64 -d)"
+uv run --with mcp-clickhouse --python 3.12 mcp-clickhouse
+```
+
+An MCP client starts that command itself; give it the same environment, and keep the password out of any file
+you commit. The agent gets three tools: `list_databases` (`otel` and `otel_baseline`), `list_tables`, which
+returns each table's `CREATE` statement, so the schema is its context, and `run_query`. Queries run with
+`readonly=1`; leave `CLICKHOUSE_ALLOW_WRITE_ACCESS` unset unless the agent should write scores into `otel_ml`.
+The analyst profile still applies (memory, rows, execution time, two concurrent queries, the hourly quota), and
+the server gives up waiting on a query after 30 seconds (`CLICKHOUSE_MCP_QUERY_TIMEOUT`). Outside a laptop,
+reach ClickHouse over TLS (`CLICKHOUSE_SECURE=true`) rather than exposing its HTTP port. Tried on kind with
+`mcp-clickhouse` 0.7.0 installed with pip (the `uv run` line is the project's own): it listed both databases and
+the `otel` tables, answered a per-service error-ratio query, and gave up on a cross join after 30 seconds.
+
 Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default, for the
 laptop's 2 Gi volume) on the `clickhouse` app. `prod` keeps traces 21 days, logs 14 and metrics 30, and
 sets Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` to the metrics retention: without it, Grafana's metric
@@ -570,6 +592,22 @@ to `route.receiver`, not back to Slack.
   (above 90% for 5 minutes, critical) read `system.disks`, so they work on any volume, including kind's hostPath
   one, and run in `prod`, where Grafana's starter rules are off. A full disk stops inserts, and the collector
   drops telemetry once its queue fills.
+- **The telemetry pipeline:** over the series [Stack health](#stack-health-the-pipeline-watching-itself)
+  scrapes, each threshold relative to the component's own limit, so `local` and `prod` need no values:
+
+  | rule | fires when | severity |
+  |---|---|---|
+  | `CollectorRefusingData` | a receiver refused items in 10 minutes, for 5 | warning |
+  | `CollectorMemoryLimiterRefusing` | `memory_limiter` refused items (the Go heap is past its soft limit, 55% of the container), for 5 minutes | warning |
+  | `CollectorMemoryNearLimit` | a collector's working set is above 80% of its container limit for 10 minutes | warning |
+  | `CollectorExportFailing` | an exporter dropped items after its retries, or couldn't queue them, for 5 minutes | critical |
+  | `CollectorExportQueueFull` | an export queue is more than 80% full for 5 minutes | warning |
+  | `ClickHouseInsertsFailing` | more than 1% of a replica's inserts failed over 10 minutes, for 10 | warning |
+  | `ClickHouseMemoryLimitRejects` | a replica refused more than 10 queries or inserts with `MEMORY_LIMIT_EXCEEDED` in 10 minutes, for 10 | warning |
+  | `ClickHouseTooManyParts` | a partition has more than 1000 active parts (inserts slow down; at 3000 they fail) for 10 minutes | warning |
+
+  Each description says where to look next. A malformed OTLP batch is rejected with a 400 before the collector
+  counts it, so `refused` means data the collector read and turned away, usually from `memory_limiter`.
 
 ### Anomaly rules: alert on a change from normal
 
