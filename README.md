@@ -740,9 +740,17 @@ Everything is sized for light local testing:
 The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
 
 ClickHouse also gets a `config.d/low_memory.xml` (in `cluster-nodes/clickhouse/values.yaml`; the `prod` environment removes it) with:
+- a fixed memory cap at 90% of the container (`max_server_memory_usage_to_ram_ratio`,
+  `memory_worker_dynamic_hard_limit: false`)
 - small caches
 - fewer background threads
 - its internal system log tables (query log, metric log, trace log and so on) turned off
+
+The cap is checked against ClickHouse's resident memory, which includes about 460 MiB of the server binary's
+code. At ClickHouse's default 75%, recomputed as the page cache grows, a 1 GiB container left about 300 MiB
+for work, and 1–11% of inserts failed with `MEMORY_LIMIT_EXCEEDED`
+([#206](https://github.com/benhastings/clickhouse-observability-stack/issues/206)). At a fixed 90%, an hour of
+the demo load on kind had none in 37,805 queries, with the container's cgroup usage near 380 MiB.
 
 `background_pool_size` is left at its default on purpose: ClickHouse refuses to create tables if it's lower than its merge and mutation thresholds.
 

@@ -256,8 +256,9 @@ tests:
           value:
             shardsCount: 1
             replicasCount: 1
-      - exists:
+      - matchRegex:
           path: spec.configuration.files["config.d/low_memory.xml"]
+          pattern: "<max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>\\n\\s+<memory_worker_dynamic_hard_limit>false</memory_worker_dynamic_hard_limit>"
       - equal:
           path: spec.configuration.profiles["default/max_threads"]
           value: 2

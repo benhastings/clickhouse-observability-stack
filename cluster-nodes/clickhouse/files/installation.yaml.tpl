@@ -59,9 +59,13 @@ spec:
       analyst/interval/execution_time: {{ int64 $analyst.quota.executionTime }}
     {{- if $ch.lowMemory }}
     files:
+      # A fixed cap at 90% of the container: ClickHouse checks its resident memory against it, and that
+      # includes about 460 MiB of the server binary's own code, so 75% left a 1 GiB container about 300 MiB
+      # for queries and inserts. The dynamic limit (the default) lowers the cap as the page cache grows.
       config.d/low_memory.xml: |
         <clickhouse>
-          <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+          <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+          <memory_worker_dynamic_hard_limit>false</memory_worker_dynamic_hard_limit>
           <mark_cache_size>67108864</mark_cache_size>
           <uncompressed_cache_size>0</uncompressed_cache_size>
           <index_mark_cache_size>0</index_mark_cache_size>

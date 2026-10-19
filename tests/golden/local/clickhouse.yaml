@@ -771,7 +771,8 @@ spec:
     files:
       config.d/low_memory.xml: |
         <clickhouse>
-          <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+          <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+          <memory_worker_dynamic_hard_limit>false</memory_worker_dynamic_hard_limit>
           <mark_cache_size>67108864</mark_cache_size>
           <uncompressed_cache_size>0</uncompressed_cache_size>
           <index_mark_cache_size>0</index_mark_cache_size>
