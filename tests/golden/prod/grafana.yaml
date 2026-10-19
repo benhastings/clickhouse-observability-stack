@@ -2495,7 +2495,7 @@ data:
               {
                 "matcher": {
                   "id": "byRegexp",
-                  "options": "^memory_limiter .*"
+                  "options": "^memory_limiter soft .*"
                 },
                 "properties": [
                   {
@@ -2513,6 +2513,31 @@ data:
                     "value": {
                       "mode": "fixed",
                       "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^memory_limiter hard .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "dark-orange"
                     }
                   }
                 ]
@@ -2578,18 +2603,28 @@ data:
                 "type": "prometheus",
                 "uid": "cerberus-prometheus"
               },
-              "expr": "0.8 * max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})",
+              "expr": "0.55 * max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})",
               "refId": "E",
               "range": true,
-              "legendFormat": "memory_limiter refuses {{k8s_pod_name}}"
+              "legendFormat": "memory_limiter soft limit {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "0.8 * max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})",
+              "refId": "F",
+              "range": true,
+              "legendFormat": "memory_limiter hard limit {{k8s_pod_name}}"
             }
           ],
-          "description": "Working set and RSS from kubeletstats, the Go heap from the collector's own telemetry, against the container limit. The memory_limiter processor refuses data above 80% of the limit (the dashed red line), and the kernel kills the container at the limit."
+          "description": "Working set and RSS from kubeletstats and the Go heap from the collector's own telemetry, against the container limit. memory_limiter compares the Go heap with its soft limit, 55% of the container limit (limit_percentage 80 minus spike_limit_percentage 25), and refuses data above it; at its hard limit, 80%, it also forces garbage collection. The kernel kills the container at the limit."
         },
         {
           "id": 3,
           "type": "gauge",
-          "title": "Collector memory, share of its limit",
+          "title": "Collector Go heap, share of its limit",
           "gridPos": {
             "h": 9,
             "w": 8,
@@ -2600,7 +2635,7 @@ data:
             "type": "prometheus",
             "uid": "cerberus-prometheus"
           },
-          "description": "Working set over the container limit. memory_limiter starts refusing data at 80%.",
+          "description": "The Go heap over the container limit: what memory_limiter checks. It refuses data from 55% (orange) and forces garbage collection from 80% (red).",
           "fieldConfig": {
             "defaults": {
               "unit": "percentunit",
@@ -2615,7 +2650,7 @@ data:
                   },
                   {
                     "color": "orange",
-                    "value": 0.7
+                    "value": 0.55
                   },
                   {
                     "color": "red",
@@ -2643,8 +2678,8 @@ data:
               "refId": "A",
               "instant": true,
               "range": false,
-              "legendFormat": "{{k8s_pod_name}}",
-              "expr": "max by (k8s_pod_name) (container_memory_working_set{k8s_container_name=\"otel-collector\"}) / max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})"
+              "legendFormat": "Go heap",
+              "expr": "max(otelcol_process_runtime_heap_alloc_bytes) / max(k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})"
             }
           ]
         },
@@ -3479,7 +3514,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: ac6ce9e4af7c473870749283a3e03fc1651e062cb4f88db2c9ac41cc119e6c31
+        checksum/config: 4f89c7916ca94ed9ea6d70529ff582be7a5b0389de2b2353650071f51c8b4e87
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

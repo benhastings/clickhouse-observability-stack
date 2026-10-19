@@ -638,8 +638,10 @@ tables, each job with a keep-list of the series a panel or rule reads:
 | `cerberus` | `global.services.cerberus` | request latency per route (`http_server_request_duration_seconds`) and `cerberus_queries_total` |
 
 The **Stack health** dashboard (Dashboards → Cerberus) leads with the collector's memory: working set and RSS from
-`kubeletstats` and its Go heap, against the container limit and the 80% line where `memory_limiter` starts
-refusing data. Below are items accepted, refused and failed per signal, and the export queue's fill. Then come
+`kubeletstats` and its Go heap, against the container limit. `memory_limiter` (`limit_percentage: 80`,
+`spike_limit_percentage: 25`) checks the Go heap: above its soft limit, 55% of the container limit, it refuses
+data, and above its hard limit, 80%, it also forces garbage collection. On kind the heap peaked at 110 MiB in
+an hour against a soft limit of 141 MiB. Below are items accepted, refused and failed per signal, and the export queue's fill. Then come
 ClickHouse's memory against its container (tracked, resident and cgroup), inserts, insert and query errors, and
 parts per partition, and Cerberus's latency per route and its requests by status.
 On kind with the demo load the three jobs add about 210 rows a minute (12,600 an hour): Cerberus 94, the
