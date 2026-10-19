@@ -547,6 +547,22 @@ to `route.receiver`, not back to Slack.
   (above 90% for 5 minutes, critical) read `system.disks`, so they work on any volume, including kind's hostPath
   one, and run in `prod`, where Grafana's starter rules are off. A full disk stops inserts, and the collector
   drops telemetry once its queue fills.
+- **The telemetry pipeline:** over the series [Stack health](#stack-health-the-pipeline-watching-itself)
+  scrapes, each threshold relative to the component's own limit, so `local` and `prod` need no values:
+
+  | rule | fires when | severity |
+  |---|---|---|
+  | `CollectorRefusingData` | a receiver refused items in 10 minutes, for 5 | warning |
+  | `CollectorMemoryLimiterRefusing` | `memory_limiter` refused items (the Go heap is past its soft limit, 55% of the container), for 5 minutes | warning |
+  | `CollectorMemoryNearLimit` | a collector's working set is above 80% of its container limit for 10 minutes | warning |
+  | `CollectorExportFailing` | an exporter dropped items after its retries, or couldn't queue them, for 5 minutes | critical |
+  | `CollectorExportQueueFull` | an export queue is more than 80% full for 5 minutes | warning |
+  | `ClickHouseInsertsFailing` | more than 1% of a replica's inserts failed over 10 minutes, for 10 | warning |
+  | `ClickHouseMemoryLimitRejects` | a replica refused more than 10 queries or inserts with `MEMORY_LIMIT_EXCEEDED` in 10 minutes, for 10 | warning |
+  | `ClickHouseTooManyParts` | a partition has more than 1000 active parts (inserts slow down; at 3000 they fail) for 10 minutes | warning |
+
+  Each description says where to look next. A malformed OTLP batch is rejected with a 400 before the collector
+  counts it, so `refused` means data the collector read and turned away, usually from `memory_limiter`.
 
 ### Anomaly rules: alert on a change from normal
 
