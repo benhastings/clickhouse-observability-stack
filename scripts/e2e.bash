@@ -361,6 +361,11 @@ step "ClickHouse: otel_analyst reads traces under its own limits"
 analyst_traces="$(clickhouse_as analyst "SELECT count() FROM otel.otel_traces")"
 ((analyst_traces > 0)) || { echo "  otel_analyst read no traces"; exit 1; }
 echo "  otel_analyst reads $analyst_traces spans"
+analyst_cap="$(kubectl -n observability get chi otel -o jsonpath='{.spec.configuration.profiles.analyst/max_memory_usage}')"
+analyst_session_cap="$(clickhouse_as analyst "SELECT getSetting('max_memory_usage')")"
+[[ "$analyst_session_cap" == "$analyst_cap" ]] ||
+  { echo "  otel_analyst's sessions get max_memory_usage $analyst_session_cap, not its profile's $analyst_cap"; exit 1; }
+echo "  otel_analyst's sessions are capped at its profile's max_memory_usage, $analyst_cap"
 refused analyst "INSERT INTO otel.otel_traces (TraceId) VALUES ('e2e')"
 refused analyst "ALTER TABLE otel.otel_logs DROP COLUMN EventName"
 analyst_limited() { # <query> <error code name>
