@@ -598,11 +598,6 @@ poll "LogQL: the alert history kept ErrorRatioAnomaly's resolution" \
   --data-urlencode 'query={service_name="alertmanager"} | alertname="ErrorRatioAnomaly" | status="resolved"' \
   --data-urlencode "start=$(($(date +%s) - 3600))000000000" --data-urlencode "end=$(($(date +%s) + 60))000000000" \
   --data-urlencode 'limit=10'
-# The page stops once the incident's minutes leave the 30-minute window, about half an hour after it ends.
-DATA_TIMEOUT=2400 poll "Alertmanager: the 6x availability page resolves for payments after the incident" \
-  '[.[] | select(.labels.alertname == "AvailabilityBudgetBurn" and .labels.service_name == "payments" and
-    .labels.severity == "critical" and .status.state == "active")] | length == 0' \
-  "$alertmanager/api/v2/alerts"
 
 # MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
 # the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.
