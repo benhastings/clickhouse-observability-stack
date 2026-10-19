@@ -780,6 +780,35 @@ and sends a span through the gateway, and repeats that with `PeerAuthentication`
 about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
 demand (`.github/workflows/e2e-mesh.yml`).
 
+### Disk sizing
+
+Compressed bytes per row on disk, indexes and projections included, measured on kind (ClickHouse 26.9.5.2)
+after three days of the demo load (6 million spans, 4 million log records, 12 million metric samples):
+
+| signal | tables | bytes per row |
+|---|---|---|
+| span | `otel_traces`, plus `otel_traces_trace_id_ts` for trace lookups | 88 |
+| log record | `otel_logs` | 89 |
+| metric sample | `otel_metrics_gauge` 11, `otel_metrics_sum` 51, `otel_metrics_histogram` 128 | 39 for the demo's mix |
+
+```text
+disk ≈ (spans/s × 88 × days_traces + logs/s × 89 × days_logs + samples/s × 39 × days_metrics) × 86400 × 1.5
+```
+
+The 1.5 is headroom: parts not yet merged compress less, merges need room for both old and new parts, and
+`ClickHouseDiskFilling` warns at 80%. `prod`'s 200 Gi, at 21/14/30 days, covers about 400 spans/s, 300 log
+records/s and 400 metric samples/s. The demo's spans carry about 27 resource and 12 span attributes, and its
+logs 26 resource and 15 log attributes, so a site whose telemetry carries more (or less) should re-measure with
+the same query:
+
+```sql
+SELECT table, sum(rows) AS row_count, round(sum(bytes_on_disk) / sum(rows), 1) AS bytes_per_row
+FROM system.parts WHERE active AND database = 'otel' GROUP BY table ORDER BY sum(bytes_on_disk) DESC
+```
+
+and the rates from the last hour, for example `SELECT count() / 3600 FROM otel.otel_traces WHERE Timestamp >
+now() - INTERVAL 1 HOUR`.
+
 ### Low-memory sizing
 
 Everything is sized for light local testing:
