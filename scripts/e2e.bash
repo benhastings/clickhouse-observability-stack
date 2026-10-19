@@ -417,6 +417,13 @@ until features="$(clickhouse_as analyst "$features_query")" && awk -F'\t' '{exit
   sleep 10
 done
 awk -F'\t' '{printf "  %s traces from web through payments, log templates for %s services\n", $1, $2}' <<<"$features"
+# A model writes scores to otel_ml.scores as otel_analyst; a view publishes each as an ml:<model>:<signal> series.
+step "ClickHouse: otel_analyst writes a score to otel_ml.scores"
+clickhouse_as analyst "INSERT INTO otel_ml.scores (Model, ServiceName, Signal, Value) VALUES ('e2e', 'payments', 'check', 42)" </dev/null
+echo "  ok"
+poll "PromQL: the score is the series ml:e2e:check, through Cerberus" \
+  '[.data.result[] | select(.metric.service_name == "payments") | .value[1] | tonumber] == [42]' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=ml:e2e:check'
 poll "PromQL: span metrics keep arriving after the analyst's refused query" \
   '.data.result | length > 0' \
   "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls[1m]))'

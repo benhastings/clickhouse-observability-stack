@@ -368,7 +368,7 @@ never raise it, and its `priority` of 10 puts its queries behind the collector's
 | quota per hour | 600 queries, 2 billion rows read, 30 min of execution | 600 queries, 100 billion rows, 2 h |
 
 It writes only to `otel_ml`, for scores and predictions, which it can't create; `otel_admin` creates those tables.
-`otel_ml` doesn't exist until something creates it. From a laptop, run
+A model writes its scores to `otel_ml.scores`, and each becomes a gauge series `ml:<model>:<signal>` that Grafana and vmalert read like the baselines. [docs/analysis.md](docs/analysis.md) has the data dictionary and a Python walkthrough: connecting, recipes, Parquet export and writing scores back. From a laptop, run
 `kubectl -n observability port-forward svc/clickhouse 8123 9000`, then connect any ClickHouse client as
 `otel_analyst` with the password from the `clickhouse-analyst` Secret.
 

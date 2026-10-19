@@ -213,6 +213,23 @@ tests:
           path: data["schema.sql"]
           pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.log_templates_mv\\nREFRESH EVERY 1 MINUTE APPEND TO otel_features.log_templates\\nDEFINER = otel_admin SQL SECURITY DEFINER"
 
+  - it: publishes each score in otel_ml.scores as an ml:<model>:<signal> gauge series, kept as long as metrics
+    set:
+      clickhouse.schema.ttlDays: {traces: 21, logs: 14, metrics: 30}
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ALTER TABLE otel_ml.scores MODIFY TTL toDateTime\\(Time\\) \\+ toIntervalDay\\(30\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_ml.scores_series_mv TO otel.otel_metrics_gauge\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "'ml:' \\|\\| Model \\|\\| ':' \\|\\| Signal AS MetricName"
+
   - it: creates no SLO objects when SLOs are off
     set:
       clickhouse.slo.enabled: false
