@@ -548,6 +548,15 @@ if curl -fsS "$alertmanager/api/v2/alerts" |
   exit 1
 fi
 echo "  ok"
+# At the 95% objective payments' steady 25% errors burn its budget 5x: below the 6x and 14.4x pages.
+step "Alertmanager: payments' steady burn raised no SLO page before the incident"
+if curl -fsS "$alertmanager/api/v2/alerts" |
+  jq -e '[.[] | select(.labels.slo != null and .labels.severity == "critical")] | length > 0' >/dev/null; then
+  curl -fsS "$alertmanager/api/v2/alerts" | jq -c '.[] | .labels | select(.slo != null)'
+  echo "  an SLO page fired on the steady load"
+  exit 1
+fi
+echo "  ok"
 DATA_TIMEOUT=900 poll "Alertmanager: vmalert's ErrorRatioAnomaly fires for payments during the incident" \
   '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .status.state == "active") | .labels.service_name]
    | index("payments") != null' \
@@ -556,6 +565,28 @@ poll "Alertmanager: ErrorRatioAnomaly prints the observed error ratio and its ba
   '[.[] | select(.labels.alertname == "ErrorRatioAnomaly" and .labels.service_name == "payments")
    | .annotations.description | test("payments errors on [0-9.]+% of server spans; normally [0-9.]+%")] | any' \
   "$alertmanager/api/v2/alerts"
+# The incident pushes payments' last 30 minutes and 6 hours past a 6x burn, so the slow-burn page fires; the
+# 1x ticket is open from the steady burn alone. checkout stays well under its budget.
+DATA_TIMEOUT=900 poll "Alertmanager: the 6x availability budget burn pages for payments during the incident" \
+  '[.[] | select(.labels.alertname == "AvailabilityBudgetBurn" and .labels.window == "6h" and
+    .labels.severity == "critical" and .status.state == "active") | .labels.service_name] | index("payments") != null' \
+  "$alertmanager/api/v2/alerts"
+poll "Alertmanager: the page prints payments' availability and the budget left" \
+  '[.[] | select(.labels.alertname == "AvailabilityBudgetBurn" and .labels.service_name == "payments" and .labels.window == "6h")
+   | .annotations.description | test("availability over the last 6h is [0-9.]+% against an objective of 95%; -?[0-9.]+% of its budget is left")] | any' \
+  "$alertmanager/api/v2/alerts"
+poll "Alertmanager: the 1x availability budget ticket is open for payments" \
+  '[.[] | select(.labels.alertname == "AvailabilityBudgetBurn" and .labels.window == "3d" and
+    .labels.severity == "warning" and .status.state == "active") | .labels.service_name] | index("payments") != null' \
+  "$alertmanager/api/v2/alerts"
+step "Alertmanager: checkout raised no SLO alert"
+if curl -fsS "$alertmanager/api/v2/alerts" |
+  jq -e '[.[] | select(.labels.slo != null and .labels.service_name == "checkout")] | length > 0' >/dev/null; then
+  curl -fsS "$alertmanager/api/v2/alerts" | jq -c '.[] | .labels | select(.slo != null and .service_name == "checkout")'
+  echo "  checkout is burning its budget"
+  exit 1
+fi
+echo "  ok"
 # The reference compares the last 5 minutes with the mean and standard deviation of the hour before them, so it
 # is evaluated 5 minutes into the incident: the 5 minutes are all incident and the hour before is all steady
 # load. Later, incident minutes enter that hour and drag the mean and deviation up until it stops firing,
