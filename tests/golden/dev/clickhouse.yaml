@@ -551,6 +551,83 @@ data:
     FROM otel_baseline.current(at = {at:DateTime64(3, 'UTC')}) AS c
     INNER JOIN otel_baseline.expected(at = {at:DateTime64(3, 'UTC')}) AS e
         ON e.service_name = c.service_name AND e.signal = c.signal;
+    
+    -- Service level objectives, in their own database like the baselines, from each service's server spans:
+    --   objectives  clickhouse.slo: one row per service under services, and '' for the default every other gets
+    --   sli_1m_mv   every minute, appends each service's requests, errors and spans slower than its latency
+    --               threshold, for the minute before last, to sli_1m
+    --   sli         each service's SLIs over a window ending two minutes before at (sli_1m's lag), with its
+    --               objectives and burn rates: 1 spends exactly the budget over the window, 14.4 a 28-day
+    --               budget's 2% in an hour
+    --   budget      the error budget left over the last 28 days: 1 untouched, 0 spent, below 0 overspent
+    -- Alert rules and dashboards read sli and budget, so they agree. A threshold change counts from the next
+    -- minute sli_1m_mv writes; minutes already written keep the threshold they were counted against.
+    
+    CREATE DATABASE IF NOT EXISTS otel_slo;
+    CREATE OR REPLACE VIEW otel_slo.objectives
+    AS
+    SELECT *
+    FROM values('ServiceName String, Availability Float64, LatencyThresholdMs Float64, LatencyObjective Float64',
+        ('', 0.95, 1000, 0.95));
+    
+    CREATE TABLE IF NOT EXISTS otel_slo.sli_1m
+    (
+        `Minute` DateTime CODEC(Delta(4), ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Requests` UInt64 CODEC(ZSTD(1)),
+        `Errors` UInt64 CODEC(ZSTD(1)),
+        `Slow` UInt64 CODEC(ZSTD(1))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Minute)
+    ORDER BY (ServiceName, Minute)
+    TTL Minute + toIntervalDay(35)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_slo.sli_1m MODIFY TTL Minute + toIntervalDay(35);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_slo.sli_1m_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_slo.sli_1m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 2 MINUTE AS m,
+         (SELECT mapFromArrays(groupArray(ServiceName), groupArray(LatencyThresholdMs * 1e6)) FROM otel_slo.objectives)
+             AS threshold_ns
+    SELECT m AS Minute, ServiceName, count() AS Requests, countIf(StatusCode = 'Error') AS Errors,
+           countIf(Duration > if(mapContains(threshold_ns, ServiceName), threshold_ns[ServiceName], threshold_ns[''])) AS Slow
+    FROM otel.otel_traces
+    WHERE SpanKind = 'Server' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+    GROUP BY ServiceName;
+    
+    CREATE OR REPLACE VIEW otel_slo.sli
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute({at:DateTime64(3, 'UTC')}) - INTERVAL 2 MINUTE AS e
+    SELECT s.ServiceName AS service_name, s.requests AS requests, s.errors AS errors, s.slow AS slow,
+           1 - s.errors / s.requests AS availability,
+           1 - s.slow / s.requests AS latency,
+           if(o.ServiceName = '', d.Availability, o.Availability) AS availability_objective,
+           if(o.ServiceName = '', d.LatencyObjective, o.LatencyObjective) AS latency_objective,
+           if(o.ServiceName = '', d.LatencyThresholdMs, o.LatencyThresholdMs) AS latency_threshold_ms,
+           (s.errors / s.requests) / (1 - availability_objective) AS availability_burn_rate,
+           (s.slow / s.requests) / (1 - latency_objective) AS latency_burn_rate
+    FROM
+    (
+        SELECT ServiceName, sum(Requests) AS requests, sum(Errors) AS errors, sum(Slow) AS slow
+        FROM otel_slo.sli_1m FINAL
+        WHERE Minute >= e - toIntervalMinute({minutes:UInt32}) AND Minute < e
+        GROUP BY ServiceName
+        HAVING requests > 0
+    ) AS s
+    LEFT JOIN (SELECT * FROM otel_slo.objectives WHERE ServiceName != '') AS o ON o.ServiceName = s.ServiceName
+    CROSS JOIN (SELECT * FROM otel_slo.objectives WHERE ServiceName = '') AS d;
+    
+    CREATE OR REPLACE VIEW otel_slo.budget
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT service_name, requests,
+           availability, availability_objective, 1 - availability_burn_rate AS availability_budget_remaining,
+           latency, latency_objective, latency_threshold_ms, 1 - latency_burn_rate AS latency_budget_remaining
+    FROM otel_slo.sli(at = {at:DateTime64(3, 'UTC')}, minutes = 40320);
 ---
 # Source: clickhouse/templates/objects.yaml
 apiVersion: batch/v1
@@ -566,7 +643,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: dev
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-7704da80
+  name: clickhouse-schema-167e0acc
   namespace: observability
 spec:
   activeDeadlineSeconds: 900
@@ -705,6 +782,7 @@ spec:
       otel_reader/grants/query:
       - GRANT SELECT ON otel.*
       - GRANT SELECT ON otel_baseline.*
+      - GRANT SELECT ON otel_slo.*
       - GRANT SELECT ON system.view_refreshes
       - GRANT SELECT ON system.disks
       otel_reader/networks/ip:

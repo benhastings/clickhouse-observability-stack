@@ -51,6 +51,16 @@ properties:
             type: array
             items:
               enum: [requests_per_minute, error_ratio, latency_p95_ms, error_logs_per_minute]
+      slo:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          windowDays: {type: integer, minimum: 1, maximum: 90}
+          default: {$ref: "#/definitions/sloObjective"}
+          services:
+            type: object
+            additionalProperties: {$ref: "#/definitions/sloObjective"}
       backup:
         type: object
         additionalProperties: false
@@ -65,3 +75,15 @@ properties:
           keep: {type: integer, minimum: 0}
           image: {$ref: "#/definitions/image"}
           resources: {type: object}
+definitions:
+  sloObjective:
+    type: object
+    additionalProperties: false
+    properties:
+      availability: {type: number, exclusiveMinimum: 0, exclusiveMaximum: 1}
+      latency:
+        type: object
+        additionalProperties: false
+        properties:
+          thresholdMs: {type: number, exclusiveMinimum: 0}
+          objective: {type: number, exclusiveMinimum: 0, exclusiveMaximum: 1}
