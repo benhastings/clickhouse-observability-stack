@@ -70,6 +70,30 @@ data:
         endpoint: ${env:MY_POD_IP}:13133
     processors:
       batch: {}
+      # Kubernetes attributes on every span, log and metric, so a service's RED metrics join to its pods'
+      # resources. A sender is matched by the k8s.pod.uid or k8s.pod.ip it reports, else by the
+      # connection's source IP, which a sidecar hides (it presents 127.0.0.6), so under Istio a sender
+      # sets k8s.pod.uid. Runs before batch, which drops the connection.
+      k8sattributes:
+        auth_type: serviceAccount
+        extract:
+          metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.node.name
+        pod_association:
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+        - sources:
+          - from: connection
       memory_limiter:
         check_interval: 5s
         limit_percentage: 80
@@ -141,6 +165,7 @@ data:
           - clickhouse
           processors:
           - memory_limiter
+          - k8sattributes
           - batch
           receivers:
           - otlp
@@ -158,6 +183,7 @@ data:
           - clickhouse
           processors:
           - memory_limiter
+          - k8sattributes
           - batch
           receivers:
           - otlp
@@ -172,6 +198,7 @@ data:
           - servicegraph
           processors:
           - memory_limiter
+          - k8sattributes
           - batch
           receivers:
           - otlp
