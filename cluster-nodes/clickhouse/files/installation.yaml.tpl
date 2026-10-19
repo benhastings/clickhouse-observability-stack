@@ -40,12 +40,14 @@ spec:
       {{- end }}
       {{- end }}
     {{- $analyst := $ch.analyst }}
+    # analyst doesn't inherit default (<profile>): the operator writes a profile's keys in alphabetical order,
+    # so an inherited <profile> comes last and its max_memory_usage would replace analyst's own cap.
     profiles:
       {{- if $ch.lowMemory }}
       default/max_threads: 2
       default/max_memory_usage: 536870912
+      analyst/max_threads: 2
       {{- end }}
-      analyst/profile: default
       {{- range $setting, $value := dict "max_memory_usage" $analyst.maxMemoryUsage "max_execution_time" $analyst.maxExecutionTime "max_rows_to_read" $analyst.maxRowsToRead "max_concurrent_queries_for_user" $analyst.maxConcurrentQueries }}
       analyst/{{ $setting }}: {{ int64 $value }}
       analyst/constraints/{{ $setting }}/max: {{ int64 $value }}

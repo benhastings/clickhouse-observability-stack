@@ -809,8 +809,8 @@ spec:
       analyst/max_execution_time: 60
       analyst/max_memory_usage: 268435456
       analyst/max_rows_to_read: 200000000
+      analyst/max_threads: 2
       analyst/priority: 10
-      analyst/profile: default
       default/max_memory_usage: 536870912
       default/max_threads: 2
     quotas:
