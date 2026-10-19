@@ -469,6 +469,35 @@ data:
         WHERE Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE AND Body != ''
     )
     GROUP BY ServiceName, SeverityText, Template;
+    -- Scores a model writes back as otel_analyst (INSERT on otel_ml.* only): each row becomes a gauge sample
+    -- ml:<Model>:<Signal> for its service, so Grafana draws it and a vmalert rule can alert on it, like the baselines.
+    CREATE DATABASE IF NOT EXISTS otel_ml;
+    
+    CREATE TABLE IF NOT EXISTS otel_ml.scores
+    (
+        `Time` DateTime64(3, 'UTC') DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+        `Model` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Signal` LowCardinality(String) CODEC(ZSTD(1)),
+        `Value` Float64 CODEC(ZSTD(1))
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(Time)
+    ORDER BY (Model, ServiceName, Signal, Time)
+    TTL toDateTime(Time) + toIntervalDay(30)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_ml.scores MODIFY TTL toDateTime(Time) + toIntervalDay(30);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_ml.scores_series_mv TO otel.otel_metrics_gauge
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT map('service.name', ServiceName) AS ResourceAttributes,
+           ServiceName,
+           'ml:' || Model || ':' || Signal AS MetricName,
+           Time AS StartTimeUnix,
+           Time AS TimeUnix,
+           Value
+    FROM otel_ml.scores;
     
     -- Anomaly baselines, in their own database so the otel database stays exactly what Cerberus expects.
     -- Three refreshable views, each running as otel_admin:
@@ -766,7 +795,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: prod
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-191d058e
+  name: clickhouse-schema-20809f6d
   namespace: observability
 spec:
   activeDeadlineSeconds: 900
