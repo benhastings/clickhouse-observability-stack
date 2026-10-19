@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: a08c84ed06eca8a33d8db2a37597f42aa200f2791049ea1f3471a32addde8168
+        checksum/config: 35469aebe77f62f540bc6b71bcfe813d3686d644a6ea0f775731185b7813aaaf
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false
