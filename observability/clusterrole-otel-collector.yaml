@@ -21,8 +21,12 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - nodes
       - pods
       - namespaces
+      - services
+      - replicationcontrollers
+      - resourcequotas
     verbs:
       - get
       - list
@@ -31,6 +35,26 @@ rules:
       - apps
     resources:
       - replicasets
+      - deployments
+      - daemonsets
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
     verbs:
       - get
       - list
