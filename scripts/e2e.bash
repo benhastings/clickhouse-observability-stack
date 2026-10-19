@@ -534,6 +534,23 @@ poll "vmalert: BaselineRefreshFailing reads system.view_refreshes as otel_reader
   '[.data.groups[].rules[] | select(.name == "BaselineRefreshFailing" and .health == "ok" and
     .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
   "$vmalert/api/v1/rules"
+# A malformed OTLP batch is rejected before the collector counts it, and memory_limiter refuses only under
+# memory pressure, so write two scraped samples of a refused counter that grew by 5, for a receiver named
+# e2e, an hour ago, and run CollectorRefusingData's own query as otel_reader for that moment. The live rule
+# only looks back 10 minutes, so it never sees them.
+step "vmalert: CollectorRefusingData's query counts a refused-items counter that grew by 5"
+clickhouse_as admin "INSERT INTO otel.otel_metrics_sum
+  (ResourceAttributes, ServiceName, MetricName, Attributes, TimeUnix, Value, IsMonotonic, AggregationTemporality)
+  SELECT map('service.name', 'otel-collector', 'service.instance.id', 'e2e:8888'), 'otel-collector',
+         'otelcol_receiver_refused_spans', map('receiver', 'e2e', 'transport', 'http'),
+         now64(9) - INTERVAL 1 HOUR - toIntervalSecond(ago), value, true, 2
+  FROM values('ago UInt32, value Float64', (90, 10), (30, 15))" </dev/null
+refusing="$(yq '.groups[].rules[] | select(.alert == "CollectorRefusingData") | .expr' cluster-nodes/vmalert/files/rules/stack.yaml)"
+refusing="${refusing//\{time:DateTime64(3, \'UTC\')\}/(now64(3) - INTERVAL 1 HOUR)}"
+out="$(clickhouse_as reader "$refusing FORMAT TSV" </dev/null)"
+awk -F'\t' '$1 == "e2e" && $2 == 5 {found = 1} END {exit !found}' <<<"$out" ||
+  { echo "  expected a row for receiver e2e with 5, got: $out"; exit 1; }
+echo "  ok: receiver e2e, 5 refused"
 # local turns on Grafana's starter rules, which send to the same Alertmanager through the stack-alertmanager
 # contact point. Grafana labels what it sends with the rule's folder.
 poll "Alertmanager: Grafana's span error ratio rule fires for payments" \
