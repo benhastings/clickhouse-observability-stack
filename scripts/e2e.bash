@@ -407,21 +407,23 @@ poll "PromQL: the requests-per-minute baseline exists as a series for payments" 
 # otel_slo keeps each service's requests, errors and slow spans per minute, and the sli and budget views read
 # them against clickhouse.slo's objectives as otel_reader, the user garmr sql-adapter runs the rules as. At 95%,
 # payments (25% errors by design) burns its budget and checkout (under 5%) doesn't.
+# sli's window ends two minutes back, where the rollup's newest minute starts, so wait for sli itself.
 step "ClickHouse: the SLO rollup records both demo services, and otel_reader reads their SLIs"
+slo_query="SELECT service_name, round(availability, 3), availability_objective,
+  round(availability_burn_rate, 2), round(availability_budget_remaining, 2), latency_threshold_ms
+  FROM otel_slo.sli(at = now64(3), minutes = 60) AS s
+  INNER JOIN otel_slo.budget(at = now64(3)) AS b USING (service_name)
+  WHERE service_name IN ('checkout', 'payments') ORDER BY service_name FORMAT TSV"
 deadline=$((SECONDS + DATA_TIMEOUT))
-until [[ "$(clickhouse_as admin "SELECT uniqExact(ServiceName) FROM otel_slo.sli_1m WHERE ServiceName IN ('checkout', 'payments')")" == 2 ]]; do
+until slo="$(clickhouse_as reader "$slo_query")" && [[ "$(grep -c . <<<"$slo")" == 2 ]]; do
   if ((SECONDS > deadline)); then
     clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_slo'"
-    echo "  otel_slo.sli_1m has no rows for both checkout and payments after ${DATA_TIMEOUT}s"
+    clickhouse_as admin "SELECT ServiceName, count(), max(Minute) FROM otel_slo.sli_1m GROUP BY ServiceName"
+    echo "  otel_slo.sli has no window for both checkout and payments after ${DATA_TIMEOUT}s: $slo"
     exit 1
   fi
   sleep 10
 done
-slo="$(clickhouse_as reader "SELECT service_name, round(availability, 3), availability_objective,
-  round(availability_burn_rate, 2), round(availability_budget_remaining, 2), latency_threshold_ms
-  FROM otel_slo.sli(at = now64(3), minutes = 60) AS s
-  INNER JOIN otel_slo.budget(at = now64(3)) AS b USING (service_name)
-  WHERE service_name IN ('checkout', 'payments') ORDER BY service_name FORMAT TSV")"
 echo "$slo" | awk -F'\t' '{printf "  %s: availability %s against %s, burn rate %s, budget left %s, latency threshold %s ms\n", $1, $2, $3, $4, $5, $6}'
 awk -F'\t' '$1 == "payments" && $4 > 1 {p = 1} $1 == "checkout" && $4 < 1 {c = 1} END {exit !(p && c)}' <<<"$slo" ||
   { echo "  expected payments to burn faster than 1x and checkout slower"; exit 1; }
