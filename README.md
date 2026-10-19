@@ -344,9 +344,29 @@ never raise it, and its `priority` of 10 puts its queries behind the collector's
 | quota per hour | 600 queries, 2 billion rows read, 30 min of execution | 600 queries, 100 billion rows, 2 h |
 
 It writes only to `otel_ml`, for scores and predictions, which it can't create; `otel_admin` creates those tables.
-`otel_features` and `otel_ml` don't exist until something creates them (#189). From a laptop, run
+`otel_ml` doesn't exist until something creates it. From a laptop, run
 `kubectl -n observability port-forward svc/clickhouse 8123 9000`, then connect any ClickHouse client as
 `otel_analyst` with the password from the `clickhouse-analyst` Secret.
+
+`otel_features` holds tables shaped for models and notebooks, built by refreshable views every minute and kept
+as long as the signal they come from:
+
+| table | a row is | columns |
+|---|---|---|
+| `trace_summary` | one trace, written five minutes after its root span starts so the trace can finish | `TraceId`, `Start`, `DurationMs`, `RootService`, `RootOperation`, `RootRoute` (the root's `http.route`), `Spans`, `Errors`, `Services` |
+| `log_templates` | one service's messages of one template in one minute | `Minute`, `ServiceName`, `SeverityText`, `Template` (numbers, UUIDs, IPs and hex IDs replaced by `<num>`, `<uuid>`, `<ip>`, `<hex>`), `TemplateHash`, `Count`, `Example` |
+
+`otel_baseline.signal_1m` is the per-service-minute table: requests, error ratio, p95 latency and error logs.
+For example, the share of failing traces per root operation over the last hour:
+
+```sql
+SELECT RootService, RootOperation, count() AS traces, round(avg(Errors > 0), 3) AS failing
+FROM otel_features.trace_summary WHERE Start > now() - INTERVAL 1 HOUR GROUP BY ALL ORDER BY traces DESC
+```
+
+On kind each refresh reads about a minute's spans or logs: `trace_summary` 41,000 rows in 26 ms with 7 MiB,
+`log_templates` 8,500 rows in 10 ms with 6 MiB. A trace whose root span is missing, or lasts longer than five
+minutes, gets no row or a partial one, and the summary has no tree depth yet.
 
 An AI agent reaches the telemetry the same way, through ClickHouse's MCP server
 ([`mcp-clickhouse`](https://github.com/ClickHouse/mcp-clickhouse), Apache-2.0) running next to the agent as
