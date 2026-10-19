@@ -74,6 +74,7 @@
     "multiquery",
     "mutatingwebhookconfigurations",
     "nindent",
+    "percentencode",
     "percentunit",
     "pipefail",
     "pipx",
