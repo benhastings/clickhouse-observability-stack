@@ -3,7 +3,7 @@
 Generated; do not edit or push to this branch by hand. The `render-dev` workflow rewrites it from
 `main` on every push, as one commit per render.
 
-- Source: https://github.com/benhastings/clickhouse-observability-stack/commit/f67a7c722884429a89e4f44cdae3a4f3f0615bd4
+- Source: https://github.com/benhastings/clickhouse-observability-stack/commit/23d5db5ec15d7084fda93abce6a2d0d8376345cb
 - Environment: `cluster-configs/overrides/values-dev.yaml`
 - Layout: `<namespace>/<kind>-<name>.yaml`, CRDs included, no Argo CD Applications
 
