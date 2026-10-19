@@ -68,6 +68,7 @@ add a target. `make help` lists everything.
 | `make test`                 | every offline test: `test/unit` and `test/credentials`                         |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
+| `make test/traceql-latency` | needs Docker: times TraceQL through Cerberus over `DAYS` of synthetic traces at `RATE`; by hand, not CI |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
 | `make helm/install ENV=<env>` | without Argo CD: preflight, the operator and its CRDs, then the `stack` umbrella release |
 | `make helm/uninstall ENV=<env>` | removes both Helm releases; CRDs, namespaces, Secrets and volumes stay   |
