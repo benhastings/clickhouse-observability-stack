@@ -35,6 +35,8 @@ applications:
   clickhouse:
     values:
       clickhouse:
+        # About 400 spans/s, 300 log records/s and 400 metric samples/s at the retention below, with 50% headroom
+        # (README: Disk sizing). Measure your own bytes per row before trusting the formula with real attributes.
         storage: 200Gi
         lowMemory: false
         # Three weeks of traces to search, two of logs, and a month of metrics so a dashboard can compare

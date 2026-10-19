@@ -53,7 +53,7 @@ What the stack is for, what delivers each part, and where to see it. Where a par
 | Wide-event logs | log attributes kept as a map column; the demo's one event per request carries `duration_ms`, `user.id`, `outcome` and more | `{service_name="checkout"} \| main="true"` | |
 | Moving between metrics, logs and traces in Grafana | exemplars, the logs' `trace_id` link, trace to logs and to metrics, the service graph | [What you should see](#what-you-should-see) | [#177](https://github.com/benhastings/clickhouse-observability-stack/issues/177): the same links from the dashboards |
 | Default alerts on latency and availability | vmalert's anomaly rules over ClickHouse baselines, Grafana's starter rules, and the alerting pipeline watching itself | [Anomaly rules](#anomaly-rules-alert-on-a-change-from-normal) | [#165](https://github.com/benhastings/clickhouse-observability-stack/issues/165): SLOs with burn-rate alerts |
-| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, **SLOs**, **Stack health**, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
+| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, **SLOs**, **Stack health**, **Kubernetes**, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
 | Grafana's Drilldown apps | Metrics, Logs and Traces Drilldown, preinstalled at pinned versions | Grafana → Drilldown | [#166](https://github.com/benhastings/clickhouse-observability-stack/issues/166): proven against Cerberus |
 | A path for ML and AI over traces and logs | the baselines show the pattern: ClickHouse computes, writes series back, everything reads them | [Anomaly baselines](#anomaly-baselines-computed-by-clickhouse-read-as-series) | [#167](https://github.com/benhastings/clickhouse-observability-stack/issues/167): an analyst user, feature tables, docs |
 
@@ -94,6 +94,8 @@ A quarter of charges time out at the payment gateway. Payments fails those reque
 
 Below those, the dashboard has a latency heatmap of payments' and checkout's server spans. Next to it is a service graph with the `checkout → payments` edge, red where calls fail. Under them is an error logs panel with payments' gateway timeouts. Click a series on the request, error or latency chart for its failing traces, its traces slower than the point you clicked, its error logs, or the service in Traces and Logs Drilldown. The charts show no exemplar dots: Cerberus v1.22.0 answers exemplar queries only for a bare selector, and every panel aggregates ([tsouza/cerberus#3787](https://github.com/tsouza/cerberus/issues/3787)). The exemplars are stored, so a Cerberus fix needs only `exemplar: true` back on the panels.
 
+At the bottom, **Resources** shows the pods that serve the selected services: CPU against requests, memory working set against requests and limits, and each container's restarts and last termination reason (`OOMKilled` when it hit its limit). It finds them by the `k8s.pod.name` the collector adds to their spans. On kind both payments and checkout come from the one `demo-load` pod, so both show it.
+
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
@@ -106,6 +108,7 @@ Below those, the dashboard has a latency heatmap of payments' and checkout's ser
   Only the gateway replica holding the `otel-collector-k8s-cluster` Lease runs it, so `prod`'s two replicas don't report the cluster twice.
 - **Kubernetes events:** the collector watches every event (`k8sobjects`, on the replica holding the same Lease as `k8s_cluster`) and writes each as a log of service `kubernetes-events`: the note as the body, `WARN` for Warning events, and `k8s_object_kind`, `k8s_object_name`, `k8s_object_namespace`, `k8s_event_reason`, `k8s_event_type` and `k8s_event_controller` as attributes. Scheduling, image pulls, probe failures, OOMKills and rollouts sit next to the services' own logs: `{service_name="kubernetes-events"} | k8s_object_name=~"demo-load-.*"`, or `| detected_level="warn"` for the Warning ones. They're log attributes, not stream labels, so filter on them after the selector.
 - **Kubernetes attributes:** the collector's `k8sattributes` processor labels every span, log and metric with `k8s_namespace_name`, `k8s_pod_name`, `k8s_deployment_name` (or `_statefulset_`, `_daemonset_`) and `k8s_node_name`, so a service's span metrics and its pods' `k8s_pod_memory_working_set` join on `k8s_deployment_name`. Attributes a sender sets itself win: the demo load reports made-up ones for its services (`k8s_namespace_name="shop"`), so its spans don't join to its real pod. It finds a sender by the `k8s.pod.uid` or `k8s.pod.ip` resource attribute it reports, else by its connection's source IP. An Istio sidecar hides that IP, so in the mesh a sender sets `k8s.pod.uid` from the downward API, as the demo load does.
+- **Dashboards → Cerberus → Kubernetes:** those series together, with node and namespace variables. Nodes: CPU and memory against allocatable, filesystem use, network, and conditions. Namespaces: CPU and memory used against requests and limits. Pods: the top memory and CPU consumers, pods per phase, containers that restarted with their last termination reason (`OOMKilled` in red), and pods that are Pending, Failed or Unknown. There's no load average: that needs the `hostmetrics` receiver in the collector agent, which is off.
 
 ### Sending your own telemetry
 
@@ -780,6 +783,35 @@ values: `mesh: istio`, and Grafana and OTLP exposed through the gateway at `graf
 and sends a span through the gateway, and repeats that with `PeerAuthentication` `STRICT`. The kind node needs
 about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
 demand (`.github/workflows/e2e-mesh.yml`).
+
+### Disk sizing
+
+Compressed bytes per row on disk, indexes and projections included, measured on kind (ClickHouse 26.9.5.2)
+after three days of the demo load (6 million spans, 4 million log records, 12 million metric samples):
+
+| signal | tables | bytes per row |
+|---|---|---|
+| span | `otel_traces`, plus `otel_traces_trace_id_ts` for trace lookups | 88 |
+| log record | `otel_logs` | 89 |
+| metric sample | `otel_metrics_gauge` 11, `otel_metrics_sum` 51, `otel_metrics_histogram` 128 | 39 for the demo's mix |
+
+```text
+disk ≈ (spans/s × 88 × days_traces + logs/s × 89 × days_logs + samples/s × 39 × days_metrics) × 86400 × 1.5
+```
+
+The 1.5 is headroom: parts not yet merged compress less, merges need room for both old and new parts, and
+`ClickHouseDiskFilling` warns at 80%. `prod`'s 200 Gi, at 21/14/30 days, covers about 400 spans/s, 300 log
+records/s and 400 metric samples/s. The demo's spans carry about 27 resource and 12 span attributes, and its
+logs 26 resource and 15 log attributes, so a site whose telemetry carries more (or less) should re-measure with
+the same query:
+
+```sql
+SELECT table, sum(rows) AS row_count, round(sum(bytes_on_disk) / sum(rows), 1) AS bytes_per_row
+FROM system.parts WHERE active AND database = 'otel' GROUP BY table ORDER BY sum(bytes_on_disk) DESC
+```
+
+and the rates from the last hour, for example `SELECT count() / 3600 FROM otel.otel_traces WHERE Timestamp >
+now() - INTERVAL 1 HOUR`.
 
 ### Low-memory sizing
 

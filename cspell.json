@@ -55,6 +55,7 @@
     "gomemlimit",
     "gopath",
     "gsub",
+    "hostmetrics",
     "ingressgateway",
     "interserver",
     "istiod",
