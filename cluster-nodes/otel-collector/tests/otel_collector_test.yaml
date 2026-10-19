@@ -119,7 +119,7 @@ tests:
           path: spec.template.spec.volumes[0].configMap.name
           value: otel-collector
 
-  - it: may read kubelet stats for system metrics, and watch what k8sattributes and k8s_cluster read
+  - it: may read kubelet stats for system metrics, and watch what k8sattributes, k8s_cluster and k8sobjects read
     documentSelector:
       path: kind
       value: ClusterRole
@@ -142,6 +142,9 @@ tests:
             - apiGroups: [autoscaling]
               resources: [horizontalpodautoscalers]
               verbs: [get, list, watch]
+            - apiGroups: [events.k8s.io]
+              resources: [events]
+              verbs: [list, watch]
 
   - it: holds k8s_cluster's Lease in its own namespace, so one gateway replica reports the cluster
     asserts:
@@ -652,6 +655,21 @@ tests:
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "- servicegraph\\n\\s+- prometheus/alertmanager"
+
+  - it: watches Kubernetes events on the Lease holder only, into their own logs pipeline
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "k8sobjects:\\n\\s+auth_type: serviceAccount\\n\\s+k8s_leader_elector: k8s_leader_elector\\n\\s+objects:\\n\\s+- name: events\\n\\s+group: events.k8s.io\\n\\s+mode: watch"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "logs/kubernetes-events:\\n(.*\\n){4}\\s+- transform/kubernetes-events\\n(.*\\n){2}\\s+- k8sobjects\\n"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "set\\(resource.attributes\\[\"service.name\"\\], \"kubernetes-events\"\\)"
 
   - it: scrapes its own telemetry, every ClickHouse replica and Cerberus into the metrics pipeline
     documentSelector:
