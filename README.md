@@ -856,6 +856,30 @@ FROM system.parts WHERE active AND database = 'otel' GROUP BY table ORDER BY sum
 and the rates from the last hour, for example `SELECT count() / 3600 FROM otel.otel_traces WHERE Timestamp >
 now() - INTERVAL 1 HOUR`.
 
+### TraceQL latency over three weeks
+
+`make test/traceql-latency` (run by hand, not in CI) starts a throwaway ClickHouse and Cerberus in Docker at the
+versions this stack pins, applies the clickhouse node's schema, seeds `DAYS` (21) of synthetic three-span traces
+(web → checkout → payments, 20 routes, 5% failing) at `RATE` (50) spans/s, and times each request three times
+through Cerberus, with the rows ClickHouse read from `system.query_log`. On a 4-core, 16 GB laptop with
+ClickHouse 26.9.5.2 and Cerberus 1.22.0 at their default settings (no container limits), 90.7 million spans,
+3.5 GiB on disk:
+
+| request | median | rows read |
+|---|---|---|
+| trace by ID, 10 days old | 0.06 s | 98 thousand |
+| `{span.http.route="/checkout" && status=error}` over 1 h, limit 20 | 0.10 s | 1.6 million |
+| the same over 24 h | 0.11 s | 1.7 million |
+| the same over 21 d | 0.29 s | 4.1 million |
+| `{span.http.route="/no-such-route"}` over 21 d, no match | 0.95 s | 30.2 million |
+| `{} \| rate() by (resource.service.name)` over 24 h | 1.13 s | 14.0 million |
+
+A search stops once it has its limit of traces, so a common match is fast at any range. A rare one reads what
+the attribute indexes can't rule out: the bloom filters on the map columns skip about two thirds of three weeks
+for a value that never occurs, under a second here. The trace-ID lookup table keeps trace by ID flat with age.
+TraceQL metrics read every span in range. At `prod`'s 21-day retention none of this calls for a materialized
+attribute column yet; re-run it at your own rate before deciding.
+
 ### Low-memory sizing
 
 Everything is sized for light local testing:

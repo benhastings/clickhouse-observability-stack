@@ -157,6 +157,10 @@ test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Arg
 	MESH=$(MESH) scripts/kind-up.sh $(REVISION)
 	MESH=$(MESH) scripts/e2e.bash
 
+.PHONY: test/traceql-latency
+test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (21) of synthetic traces at RATE (50) spans/s; by hand, not CI
+	RATE=$(or $(RATE),50) DAYS=$(or $(DAYS),21) scripts/traceql-bench.bash
+
 .PHONY: test/credentials
 test/credentials: ## Prove check-credentials.bash rejects the leaky fixture in tests/credentials/leaky
 	@if scripts/check-credentials.bash tests/credentials/leaky >/dev/null 2>&1; then \
