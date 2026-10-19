@@ -430,6 +430,1350 @@ data:
       "title": "Alert hygiene",
       "uid": "alert-hygiene"
     }
+  kubernetes.json: |
+    {
+      "uid": "kubernetes",
+      "title": "Kubernetes",
+      "tags": [
+        "kubernetes",
+        "cerberus",
+        "clickhouse"
+      ],
+      "editable": true,
+      "schemaVersion": 41,
+      "refresh": "1m",
+      "time": {
+        "from": "now-3h",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "links": [],
+      "templating": {
+        "list": [
+          {
+            "name": "node",
+            "label": "Node",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "cerberus-prometheus"
+            },
+            "includeAll": true,
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "refresh": 2,
+            "definition": "label_values(k8s_node_condition_ready, k8s_node_name)",
+            "query": {
+              "query": "label_values(k8s_node_condition_ready, k8s_node_name)",
+              "refId": "node"
+            }
+          },
+          {
+            "name": "namespace",
+            "label": "Namespace",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "cerberus-prometheus"
+            },
+            "includeAll": true,
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            },
+            "refresh": 2,
+            "definition": "label_values(k8s_pod_phase, k8s_namespace_name)",
+            "query": {
+              "query": "label_values(k8s_pod_phase, k8s_namespace_name)",
+              "refId": "namespace"
+            }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "text",
+          "title": "",
+          "gridPos": {
+            "h": 2,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "Nodes, pods and containers from the collector's `kubeletstats` and `k8s_cluster` receivers. Load average needs the `hostmetrics` receiver, which runs in the collector agent (off by default), so this dashboard leaves it out."
+          }
+        },
+        {
+          "id": 2,
+          "type": "row",
+          "title": "Nodes",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 2
+          },
+          "panels": []
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Node CPU (cores)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 3
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^allocatable .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_cpu_usage{k8s_node_name=~\"$node\"})",
+              "refId": "A",
+              "legendFormat": "used {{k8s_node_name}}",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_allocatable_cpu{k8s_node_name=~\"$node\"})",
+              "refId": "B",
+              "legendFormat": "allocatable {{k8s_node_name}}",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Node memory",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 3
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^allocatable .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_memory_working_set{k8s_node_name=~\"$node\"})",
+              "refId": "A",
+              "legendFormat": "working set {{k8s_node_name}}",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_allocatable_memory{k8s_node_name=~\"$node\"})",
+              "refId": "B",
+              "legendFormat": "allocatable {{k8s_node_name}}",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Node filesystem used",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 3
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_filesystem_usage{k8s_node_name=~\"$node\"}) / max by (k8s_node_name) (k8s_node_filesystem_capacity{k8s_node_name=~\"$node\"})",
+              "refId": "A",
+              "legendFormat": "{{k8s_node_name}}",
+              "range": true
+            }
+          ],
+          "description": "The node's root filesystem, which holds images, container layers, logs and emptyDir volumes. The kubelet evicts pods under disk pressure."
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Node network",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 11
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_node_name, direction) (rate(k8s_node_network_io{k8s_node_name=~\"$node\"}[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{direction}} {{k8s_node_name}}",
+              "range": true
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_node_name) (rate(k8s_node_network_errors{k8s_node_name=~\"$node\"}[$__rate_interval]))",
+              "refId": "B",
+              "legendFormat": "errors {{k8s_node_name}}",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Node conditions",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 11
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ready"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "false",
+                            "color": "red"
+                          },
+                          "1": {
+                            "text": "true",
+                            "color": "green"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Memory pressure"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "false",
+                            "color": "green"
+                          },
+                          "1": {
+                            "text": "true",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Disk pressure"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "false",
+                            "color": "green"
+                          },
+                          "1": {
+                            "text": "true",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "PID pressure"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "0": {
+                            "text": "false",
+                            "color": "green"
+                          },
+                          "1": {
+                            "text": "true",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_condition_ready{k8s_node_name=~\"$node\"})",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_condition_memory_pressure{k8s_node_name=~\"$node\"})",
+              "refId": "B",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_condition_disk_pressure{k8s_node_name=~\"$node\"})",
+              "refId": "C",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_node_name) (k8s_node_condition_pid_pressure{k8s_node_name=~\"$node\"})",
+              "refId": "D",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "k8s_node_name": "Node",
+                  "Value #A": "Ready",
+                  "Value #B": "Memory pressure",
+                  "Value #C": "Disk pressure",
+                  "Value #D": "PID pressure"
+                },
+                "indexByName": {
+                  "k8s_node_name": 0,
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3,
+                  "Value #D": 4
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "row",
+          "title": "Namespaces",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 19
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Usage against requests",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 20
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "CPU used"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "none"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "CPU requested"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "none"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Memory used"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Memory requested"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Memory limits"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Memory used",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_namespace_name) (k8s_pod_cpu_usage{k8s_namespace_name=~\"$namespace\"})",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_namespace_name) (k8s_container_cpu_request{k8s_namespace_name=~\"$namespace\"})",
+              "refId": "B",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_namespace_name) (k8s_pod_memory_working_set{k8s_namespace_name=~\"$namespace\"})",
+              "refId": "C",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_namespace_name) (k8s_container_memory_request{k8s_namespace_name=~\"$namespace\"})",
+              "refId": "D",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_namespace_name) (k8s_container_memory_limit{k8s_namespace_name=~\"$namespace\"})",
+              "refId": "E",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "k8s_namespace_name": "Namespace",
+                  "Value #A": "CPU used",
+                  "Value #B": "CPU requested",
+                  "Value #C": "Memory used",
+                  "Value #D": "Memory requested",
+                  "Value #E": "Memory limits"
+                },
+                "indexByName": {
+                  "k8s_namespace_name": 0,
+                  "Value #A": 1,
+                  "Value #B": 2,
+                  "Value #C": 3,
+                  "Value #D": 4,
+                  "Value #E": 5
+                }
+              }
+            }
+          ],
+          "description": "CPU in cores. Requested is what the scheduler reserved; a namespace using far more than it requested is the first to suffer on a busy node."
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Memory working set by namespace",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 20
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (k8s_namespace_name) (k8s_pod_memory_working_set{k8s_namespace_name=~\"$namespace\"})",
+              "refId": "A",
+              "legendFormat": "{{k8s_namespace_name}}",
+              "range": true
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "row",
+          "title": "Pods",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 28
+          },
+          "panels": []
+        },
+        {
+          "id": 12,
+          "type": "table",
+          "title": "Top memory",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 0,
+            "y": 29
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Working set"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Working set",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "topk(10, max by (k8s_namespace_name, k8s_pod_name) (k8s_pod_memory_working_set{k8s_namespace_name=~\"$namespace\"}))",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_pod_name": "Pod",
+                  "Value": "Working set"
+                },
+                "indexByName": {
+                  "k8s_namespace_name": 0,
+                  "k8s_pod_name": 1,
+                  "Value": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "table",
+          "title": "Top CPU",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 8,
+            "y": 29
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Cores"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "none"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Cores",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "topk(10, max by (k8s_namespace_name, k8s_pod_name) (k8s_pod_cpu_usage{k8s_namespace_name=~\"$namespace\"}))",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_pod_name": "Pod",
+                  "Value": "Cores"
+                },
+                "indexByName": {
+                  "k8s_namespace_name": 0,
+                  "k8s_pod_name": 1,
+                  "Value": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Pods by phase",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 16,
+            "y": 29
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "1"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Pending"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "2"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Running"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "3"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Succeeded"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "4"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Failed"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "5"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Unknown"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "count_values(\"phase\", max by (k8s_namespace_name, k8s_pod_name) (k8s_pod_phase{k8s_namespace_name=~\"$namespace\"}))",
+              "refId": "A",
+              "legendFormat": "{{phase}}",
+              "range": true
+            }
+          ],
+          "description": "k8s_cluster reports phase as a number: 1 Pending, 2 Running, 3 Succeeded, 4 Failed, 5 Unknown."
+        },
+        {
+          "id": 15,
+          "type": "table",
+          "title": "Containers that restarted",
+          "gridPos": {
+            "h": 8,
+            "w": 16,
+            "x": 0,
+            "y": 38
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last termination"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "OOMKilled": {
+                            "color": "red",
+                            "text": "OOMKilled"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Restarts",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_namespace_name, k8s_pod_name, k8s_container_name, k8s_container_status_last_terminated_reason) (k8s_container_restarts{k8s_namespace_name=~\"$namespace\"}) > 0",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_pod_name": "Pod",
+                  "k8s_container_name": "Container",
+                  "Value": "Restarts",
+                  "k8s_container_status_last_terminated_reason": "Last termination"
+                },
+                "indexByName": {
+                  "k8s_namespace_name": 0,
+                  "k8s_pod_name": 1,
+                  "k8s_container_name": 2,
+                  "Value": 3,
+                  "k8s_container_status_last_terminated_reason": 4
+                }
+              }
+            }
+          ],
+          "description": "Every container with a restart, and why it last stopped. OOMKilled means it reached its memory limit."
+        },
+        {
+          "id": 16,
+          "type": "table",
+          "title": "Pods not running",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 38
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "None: every pod is Running or Succeeded"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "1": {
+                            "text": "Pending",
+                            "color": "orange"
+                          },
+                          "4": {
+                            "text": "Failed",
+                            "color": "red"
+                          },
+                          "5": {
+                            "text": "Unknown",
+                            "color": "red"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_namespace_name, k8s_pod_name) (k8s_pod_phase{k8s_namespace_name=~\"$namespace\"}) != 2 and max by (k8s_namespace_name, k8s_pod_name) (k8s_pod_phase{k8s_namespace_name=~\"$namespace\"}) != 3",
+              "refId": "A",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                },
+                "renameByName": {
+                  "k8s_namespace_name": "Namespace",
+                  "k8s_pod_name": "Pod",
+                  "Value": "Phase"
+                },
+                "indexByName": {
+                  "k8s_namespace_name": 0,
+                  "k8s_pod_name": 1,
+                  "Value": 2
+                }
+              }
+            }
+          ],
+          "description": "Pending, Failed or Unknown pods."
+        }
+      ]
+    }
   slos.json: |
     {
       "uid": "slos",
@@ -3629,7 +4973,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 7b0a0f8bf48d5ba473c76962f668651cf1137474f948861e0725f7789b653c07
+        checksum/config: 7a023ef4b4af0e0fa381d3a0cd0a43b0af328a7b2df363d9f9c2ef0b4835f6de
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
