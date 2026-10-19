@@ -45,7 +45,7 @@ tests:
             configMap:
               name: vmalert-rules
 
-  - it: ships the anomaly and stack rules as written, labelled with the keys Alertmanager routes on
+  - it: ships the anomaly, SLO and stack rules as written, labelled with the keys Alertmanager routes on
     documentSelector:
       path: metadata.name
       value: vmalert-rules
@@ -62,6 +62,15 @@ tests:
       - matchRegex:
           path: data["stack.yaml"]
           pattern: "(?s)alert: Watchdog.*alert: AlertmanagerNotificationsFailing.*alert: BaselineRefreshFailing"
+      - matchRegex:
+          path: data["slo.yaml"]
+          pattern: "(?s)alert: AvailabilityBudgetBurn.*minutes = 60\\) AS l.*minutes = 5\\) AS s.*> 14.4.*severity: critical.*alert: LatencyBudgetBurn.*minutes = 4320\\) AS l.*minutes = 360\\) AS s.*severity: warning"
+      - matchRegex:
+          path: data["slo.yaml"]
+          pattern: "slo: availability\\n +window: 6h"
+      - matchRegex:
+          path: data["slo.yaml"]
+          pattern: "FROM otel_slo.budget\\(at = \\{time:DateTime64\\(3, 'UTC'\\)\\}\\) WHERE service_name = '%s'\" \\$labels.service_name"
       - notExists:
           path: data["anomaly-reference.yaml"]
 

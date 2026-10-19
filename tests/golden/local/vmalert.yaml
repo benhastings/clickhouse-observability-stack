@@ -119,6 +119,133 @@ data:
               description: >-
                 {{ $labels.service_name }} normally serves {{ $value | printf "%.0f" }} requests a minute but has sent
                 no server spans for 5 minutes: it is down, or its telemetry isn't reaching the collector.
+  slo.yaml: |
+    # Error budget burn alerts on each service's SLOs, per the SRE workbook's multi-window, multi-burn-rate
+    # alerts. Each expr is ClickHouse SQL that garmr sql-adapter runs as otel_reader, over otel_slo.sli (the
+    # clickhouse node's schema): a service's availability and latency over a window, against the objectives in
+    # clickhouse.slo, as burn rates. A burn rate of 1 spends exactly the budget over clickhouse.slo.windowDays.
+    # A rule fires when both its long and its short window burn faster than its rate, so it pages on a burn that is
+    # still happening and stops soon after the burn does:
+    #
+    #   severity  burn   windows    spends of a 28-day budget
+    #   critical  14.4x  1h and 5m  2% in an hour
+    #   critical  6x     6h and 30m 5% in six hours
+    #   warning   1x     3d and 6h  10% in three days
+    #
+    # Pages wait 2 minutes and the ticket 15. The value is the slower of the two burn rates. A short window needs
+    # 10 requests, so a quiet service doesn't page on one failure. These alert on budget spent; anomaly.yaml alerts
+    # on a change from normal.
+    groups:
+      - name: slo
+        interval: 1m
+        rules:
+          - alert: AvailabilityBudgetBurn
+            expr: |
+              SELECT service_name, least(l.availability_burn_rate, s.availability_burn_rate) AS value
+              FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 60) AS l
+              INNER JOIN otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 5) AS s USING (service_name)
+              WHERE s.requests >= 10 AND l.availability_burn_rate > 14.4 AND s.availability_burn_rate > 14.4
+            for: 2m
+            labels:
+              severity: critical
+              slo: availability
+              window: 1h
+            annotations:
+              summary: "{{ $labels.service_name }} is spending its availability error budget {{ $value | printf \"%.1f\" }}x too fast (1h)"
+              description: >-
+                {{ $labels.service_name }}'s availability over the last 1h is {{ with printf "SELECT availability AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 60) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}
+                against an objective of {{ with printf "SELECT availability_objective AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 60) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }};
+                {{ with printf "SELECT availability_budget_remaining AS value FROM otel_slo.budget(at = {time:DateTime64(3, 'UTC')}) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of its budget is left.
+  
+          - alert: AvailabilityBudgetBurn
+            expr: |
+              SELECT service_name, least(l.availability_burn_rate, s.availability_burn_rate) AS value
+              FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) AS l
+              INNER JOIN otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 30) AS s USING (service_name)
+              WHERE s.requests >= 10 AND l.availability_burn_rate > 6 AND s.availability_burn_rate > 6
+            for: 2m
+            labels:
+              severity: critical
+              slo: availability
+              window: 6h
+            annotations:
+              summary: "{{ $labels.service_name }} is spending its availability error budget {{ $value | printf \"%.1f\" }}x too fast (6h)"
+              description: >-
+                {{ $labels.service_name }}'s availability over the last 6h is {{ with printf "SELECT availability AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}
+                against an objective of {{ with printf "SELECT availability_objective AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }};
+                {{ with printf "SELECT availability_budget_remaining AS value FROM otel_slo.budget(at = {time:DateTime64(3, 'UTC')}) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of its budget is left.
+  
+          - alert: AvailabilityBudgetBurn
+            expr: |
+              SELECT service_name, least(l.availability_burn_rate, s.availability_burn_rate) AS value
+              FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 4320) AS l
+              INNER JOIN otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) AS s USING (service_name)
+              WHERE s.requests >= 10 AND l.availability_burn_rate > 1 AND s.availability_burn_rate > 1
+            for: 15m
+            labels:
+              severity: warning
+              slo: availability
+              window: 3d
+            annotations:
+              summary: "{{ $labels.service_name }} is spending its availability error budget {{ $value | printf \"%.1f\" }}x too fast (3d)"
+              description: >-
+                {{ $labels.service_name }}'s availability over the last 3d is {{ with printf "SELECT availability AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 4320) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}
+                against an objective of {{ with printf "SELECT availability_objective AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 4320) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }};
+                {{ with printf "SELECT availability_budget_remaining AS value FROM otel_slo.budget(at = {time:DateTime64(3, 'UTC')}) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of its budget is left.
+  
+          - alert: LatencyBudgetBurn
+            expr: |
+              SELECT service_name, least(l.latency_burn_rate, s.latency_burn_rate) AS value
+              FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 60) AS l
+              INNER JOIN otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 5) AS s USING (service_name)
+              WHERE s.requests >= 10 AND l.latency_burn_rate > 14.4 AND s.latency_burn_rate > 14.4
+            for: 2m
+            labels:
+              severity: critical
+              slo: latency
+              window: 1h
+            annotations:
+              summary: "{{ $labels.service_name }} is spending its latency error budget {{ $value | printf \"%.1f\" }}x too fast (1h)"
+              description: >-
+                {{ $labels.service_name }}'s latency over the last 1h is {{ with printf "SELECT latency AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 60) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}
+                against an objective of {{ with printf "SELECT latency_objective AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 60) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }};
+                {{ with printf "SELECT latency_budget_remaining AS value FROM otel_slo.budget(at = {time:DateTime64(3, 'UTC')}) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of its budget is left.
+  
+          - alert: LatencyBudgetBurn
+            expr: |
+              SELECT service_name, least(l.latency_burn_rate, s.latency_burn_rate) AS value
+              FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) AS l
+              INNER JOIN otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 30) AS s USING (service_name)
+              WHERE s.requests >= 10 AND l.latency_burn_rate > 6 AND s.latency_burn_rate > 6
+            for: 2m
+            labels:
+              severity: critical
+              slo: latency
+              window: 6h
+            annotations:
+              summary: "{{ $labels.service_name }} is spending its latency error budget {{ $value | printf \"%.1f\" }}x too fast (6h)"
+              description: >-
+                {{ $labels.service_name }}'s latency over the last 6h is {{ with printf "SELECT latency AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}
+                against an objective of {{ with printf "SELECT latency_objective AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }};
+                {{ with printf "SELECT latency_budget_remaining AS value FROM otel_slo.budget(at = {time:DateTime64(3, 'UTC')}) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of its budget is left.
+  
+          - alert: LatencyBudgetBurn
+            expr: |
+              SELECT service_name, least(l.latency_burn_rate, s.latency_burn_rate) AS value
+              FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 4320) AS l
+              INNER JOIN otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 360) AS s USING (service_name)
+              WHERE s.requests >= 10 AND l.latency_burn_rate > 1 AND s.latency_burn_rate > 1
+            for: 15m
+            labels:
+              severity: warning
+              slo: latency
+              window: 3d
+            annotations:
+              summary: "{{ $labels.service_name }} is spending its latency error budget {{ $value | printf \"%.1f\" }}x too fast (3d)"
+              description: >-
+                {{ $labels.service_name }}'s latency over the last 3d is {{ with printf "SELECT latency AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 4320) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }}
+                against an objective of {{ with printf "SELECT latency_objective AS value FROM otel_slo.sli(at = {time:DateTime64(3, 'UTC')}, minutes = 4320) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }};
+                {{ with printf "SELECT latency_budget_remaining AS value FROM otel_slo.budget(at = {time:DateTime64(3, 'UTC')}) WHERE service_name = '%s'" $labels.service_name | query }}{{ . | first | value | humanizePercentage }}{{ end }} of its budget is left.
   stack.yaml: |
     # The rules that watch the stack itself. The rules about services are anomaly.yaml. Each expr is ClickHouse
     # SQL that garmr sql-adapter runs as otel_reader: the column named value is the sample, every other column is
@@ -282,7 +409,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 3f235d8637b53de9aada1f7e64f67f6aa90fd4ed800149308a59aad901ce6ad2
+        checksum/config: 1f89c3030c3c7c7ef156f73017abcafc6d19d742533b4e90799305534f7c8679
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false
