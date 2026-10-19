@@ -372,6 +372,11 @@ step "ClickHouse: otel_analyst reads traces under its own limits"
 analyst_traces="$(clickhouse_as analyst "SELECT count() FROM otel.otel_traces")"
 ((analyst_traces > 0)) || { echo "  otel_analyst read no traces"; exit 1; }
 echo "  otel_analyst reads $analyst_traces spans"
+analyst_cap="$(kubectl -n observability get chi otel -o jsonpath='{.spec.configuration.profiles.analyst/max_memory_usage}')"
+analyst_session_cap="$(clickhouse_as analyst "SELECT getSetting('max_memory_usage')")"
+[[ "$analyst_session_cap" == "$analyst_cap" ]] ||
+  { echo "  otel_analyst's sessions get max_memory_usage $analyst_session_cap, not its profile's $analyst_cap"; exit 1; }
+echo "  otel_analyst's sessions are capped at its profile's max_memory_usage, $analyst_cap"
 refused analyst "INSERT INTO otel.otel_traces (TraceId) VALUES ('e2e')"
 refused analyst "ALTER TABLE otel.otel_logs DROP COLUMN EventName"
 analyst_limited() { # <query> <error code name>
@@ -446,19 +451,24 @@ slo_query="SELECT service_name, round(availability, 3), availability_objective,
   FROM otel_slo.sli(at = now64(3), minutes = 60) AS s
   INNER JOIN otel_slo.budget(at = now64(3)) AS b USING (service_name)
   WHERE service_name IN ('checkout', 'payments') ORDER BY service_name FORMAT TSV"
+# The first minutes are a few hundred requests, where checkout's handful of errors can still read as more than
+# 5%, so wait for the comparison to hold rather than reading it once.
+slo_settled() {
+  [[ "$(grep -c . <<<"$1")" == 2 ]] &&
+    awk -F'\t' '$1 == "payments" && $4 > 1 {p = 1} $1 == "checkout" && $4 < 1 {c = 1} END {exit !(p && c)}' <<<"$1"
+}
 deadline=$((SECONDS + DATA_TIMEOUT))
-until slo="$(clickhouse_as reader "$slo_query")" && [[ "$(grep -c . <<<"$slo")" == 2 ]]; do
+until slo="$(clickhouse_as reader "$slo_query")" && slo_settled "$slo"; do
   if ((SECONDS > deadline)); then
     clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_slo'"
-    clickhouse_as admin "SELECT ServiceName, count(), max(Minute) FROM otel_slo.sli_1m GROUP BY ServiceName"
-    echo "  otel_slo.sli has no window for both checkout and payments after ${DATA_TIMEOUT}s: $slo"
+    clickhouse_as admin "SELECT ServiceName, count(), sum(Requests), sum(Errors), max(Minute) FROM otel_slo.sli_1m GROUP BY ServiceName"
+    echo "  expected payments to burn faster than 1x and checkout slower after ${DATA_TIMEOUT}s; last read:"
+    awk '{print "    " $0}' <<<"$slo"
     exit 1
   fi
   sleep 10
 done
 echo "$slo" | awk -F'\t' '{printf "  %s: availability %s against %s, burn rate %s, budget left %s, latency threshold %s ms\n", $1, $2, $3, $4, $5, $6}'
-awk -F'\t' '$1 == "payments" && $4 > 1 {p = 1} $1 == "checkout" && $4 < 1 {c = 1} END {exit !(p && c)}' <<<"$slo" ||
-  { echo "  expected payments to burn faster than 1x and checkout slower"; exit 1; }
 # The SLOs dashboard reads the same views, written back every minute as slo:* series.
 poll "PromQL: the SLO series show payments' budget spent and checkout's not, through Cerberus" \
   '[.data.result[] | select((.metric.service_name == "payments" and (.value[1] | tonumber) < 1) or
@@ -540,6 +550,23 @@ poll "vmalert: BaselineRefreshFailing reads system.view_refreshes as otel_reader
   '[.data.groups[].rules[] | select(.name == "BaselineRefreshFailing" and .health == "ok" and
     .lastEvaluation != "0001-01-01T00:00:00Z")] | length == 1' \
   "$vmalert/api/v1/rules"
+# A malformed OTLP batch is rejected before the collector counts it, and memory_limiter refuses only under
+# memory pressure, so write two scraped samples of a refused counter that grew by 5, for a receiver named
+# e2e, an hour ago, and run CollectorRefusingData's own query as otel_reader for that moment. The live rule
+# only looks back 10 minutes, so it never sees them.
+step "vmalert: CollectorRefusingData's query counts a refused-items counter that grew by 5"
+clickhouse_as admin "INSERT INTO otel.otel_metrics_sum
+  (ResourceAttributes, ServiceName, MetricName, Attributes, TimeUnix, Value, IsMonotonic, AggregationTemporality)
+  SELECT map('service.name', 'otel-collector', 'service.instance.id', 'e2e:8888'), 'otel-collector',
+         'otelcol_receiver_refused_spans', map('receiver', 'e2e', 'transport', 'http'),
+         now64(9) - INTERVAL 1 HOUR - toIntervalSecond(ago), value, true, 2
+  FROM values('ago UInt32, value Float64', (90, 10), (30, 15))" </dev/null
+refusing="$(yq '.groups[].rules[] | select(.alert == "CollectorRefusingData") | .expr' cluster-nodes/vmalert/files/rules/stack.yaml)"
+refusing="${refusing//\{time:DateTime64(3, \'UTC\')\}/(now64(3) - INTERVAL 1 HOUR)}"
+out="$(clickhouse_as reader "$refusing FORMAT TSV" </dev/null)"
+awk -F'\t' '$1 == "e2e" && $2 == 5 {found = 1} END {exit !found}' <<<"$out" ||
+  { echo "  expected a row for receiver e2e with 5, got: $out"; exit 1; }
+echo "  ok: receiver e2e, 5 refused"
 # local turns on Grafana's starter rules, which send to the same Alertmanager through the stack-alertmanager
 # contact point. Grafana labels what it sends with the rule's folder.
 poll "Alertmanager: Grafana's span error ratio rule fires for payments" \
