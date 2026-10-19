@@ -249,6 +249,9 @@ poll "Grafana: the span-metrics dashboard is provisioned" \
 poll "Grafana: the alert hygiene dashboard is provisioned" \
   '.dashboard.uid == "alert-hygiene"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/alert-hygiene"
+poll "Grafana: the Kubernetes dashboard is provisioned" \
+  '.dashboard.uid == "kubernetes"' \
+  -u "$grafana_login" "$grafana/api/dashboards/uid/kubernetes"
 poll "Grafana: the SLOs dashboard is provisioned" \
   '.dashboard.uid == "slos"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/slos"
