@@ -247,6 +247,47 @@ configMaps:
                     - source_labels: [__name__]
                       regex: alertmanager_notifications(_failed)?_total
                       action: keep
+          # The pipeline's own health, for the Stack health dashboard and vmalert's pipeline rules: this
+          # collector's telemetry, every ClickHouse replica's Prometheus endpoint, and Cerberus. Each job keeps
+          # only the series a panel or rule reads.
+          prometheus/stack:
+            config:
+              scrape_configs:
+                - job_name: otel-collector
+                  scrape_interval: 30s
+                  static_configs:
+                    - targets: ['${env:MY_POD_IP}:8888']
+                  metric_relabel_configs:
+                    - source_labels: [__name__]
+                      regex: otelcol_(receiver_(accepted|refused|failed)_.*|exporter_(sent|send_failed|enqueue_failed)_.*|exporter_queue_(size|capacity)|processor_memory_limiter_refused_.*|process_memory_rss|process_runtime_heap_alloc_bytes)
+                      action: keep
+                - job_name: clickhouse
+                  scrape_interval: 30s
+                  kubernetes_sd_configs:
+                    - role: pod
+                      namespaces:
+                        names: ['{{ .Release.Namespace }}']
+                      selectors:
+                        - role: pod
+                          label: clickhouse.altinity.com/chi=otel
+                  relabel_configs:
+                    - source_labels: [__meta_kubernetes_pod_ip]
+                      replacement: $$1:9363
+                      target_label: __address__
+                    - source_labels: [__meta_kubernetes_pod_name]
+                      target_label: k8s_pod_name
+                  metric_relabel_configs:
+                    - source_labels: [__name__]
+                      regex: ClickHouse(ProfileEvents_(InsertQuery|FailedInsertQuery|InsertedRows|InsertedBytes|SelectQuery|FailedSelectQuery)|Metrics_(MemoryTracking|Query|BackgroundMergesAndMutationsPoolTask)|AsyncMetrics_(MaxPartCountForPartition|MemoryResident|CGroupMemoryUsed|CGroupMemoryTotal)|ErrorMetric_(MEMORY_LIMIT_EXCEEDED|TOO_MANY_PARTS))
+                      action: keep
+                - job_name: cerberus
+                  scrape_interval: 30s
+                  static_configs:
+                    - targets: ['{{ include "common.serviceAddress" (list $ "cerberus") | trimPrefix "http://" | trimPrefix "https://" }}']
+                  metric_relabel_configs:
+                    - source_labels: [__name__]
+                      regex: http_server_request_duration_seconds_(bucket|count|sum)|cerberus_queries_total
+                      action: keep
           # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
           webhook_event:
             endpoint: 0.0.0.0:8088
@@ -327,6 +368,7 @@ configMaps:
               - spanmetrics
               - servicegraph
               - prometheus/alertmanager
+              - prometheus/stack
               {{- range dig "metrics" "receivers" list $pipelines }}
               - {{ . }}
               {{- end }}
@@ -560,8 +602,8 @@ daemonset:
 
 # With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may
 # send OTLP (which includes the ingress gateway or controller for exposed OTLP), and Alertmanager posts its
-# notifications to 8088; the collector reaches Alertmanager on 9093 for its metrics,
-# ClickHouse, each node's kubelet on 10250 for kubeletstats, and the API server for k8sattributes.
+# notifications to 8088; the collector reaches Alertmanager on 9093 and Cerberus on 8080 for their metrics,
+# ClickHouse on 9000 and its metrics on 9363, each node's kubelet on 10250 for kubeletstats, and the API server for k8sattributes.
 networkPolicy:
   podSelector:
     matchExpressions:
@@ -592,6 +634,15 @@ networkPolicy:
               clickhouse.altinity.com/chi: otel
       ports:
         - port: 9000
+          protocol: TCP
+        - port: 9363
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cerberus
+      ports:
+        - port: 8080
           protocol: TCP
     - ports:
         - port: 10250

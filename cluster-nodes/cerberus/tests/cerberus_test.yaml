@@ -85,7 +85,7 @@ tests:
           path: data.CERBERUS_CH_ADDR
           value: clickhouse.data.svc.cluster.local:9000
 
-  - it: lets only Grafana's pods query Cerberus when network policies are on
+  - it: lets only Grafana query Cerberus, and the collector scrape it, when network policies are on
     set:
       global:
         networkPolicy:
@@ -98,5 +98,7 @@ tests:
           path: spec.ingress[0].from
           value:
             - podSelector:
-                matchLabels:
-                  app.kubernetes.io/name: grafana
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [grafana, otel-collector]

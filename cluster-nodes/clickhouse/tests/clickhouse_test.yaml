@@ -265,6 +265,33 @@ tests:
       - notExists:
           path: spec.templates.volumeClaimTemplates[0].spec.storageClassName
 
+  - it: serves Prometheus metrics, events, asynchronous metrics and errors on 9363
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - matchRegex:
+          path: spec.configuration.files["config.d/prometheus.xml"]
+          pattern: "<port>9363</port>\\n\\s+<metrics>true</metrics>\\n\\s+<events>true</events>\\n\\s+<asynchronous_metrics>true</asynchronous_metrics>\\n\\s+<errors>true</errors>"
+
+  - it: lets the collector scrape the Prometheus port when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: otel-collector
+            ports:
+              - port: 9363
+                protocol: TCP
+
   - it: sets replicasCount from clickhouse.replicas alone
     set:
       clickhouse.replicas: 3
@@ -287,7 +314,9 @@ tests:
       value: ClickHouseInstallation
     asserts:
       - notExists:
-          path: spec.configuration.files
+          path: spec.configuration.files["config.d/low_memory.xml"]
+      - exists:
+          path: spec.configuration.files["config.d/prometheus.xml"]
       - notExists:
           path: spec.configuration.profiles["default/max_memory_usage"]
       - notExists:
