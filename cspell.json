@@ -75,6 +75,7 @@
     "mutatingwebhookconfigurations",
     "nindent",
     "nofile",
+    "percentencode",
     "percentunit",
     "pipefail",
     "pipx",

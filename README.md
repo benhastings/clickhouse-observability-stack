@@ -29,7 +29,7 @@ flowchart LR
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. It only reads: the `clickhouse` app's schema Job creates the tables. |
-| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) and Kubernetes events from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
@@ -96,6 +96,29 @@ Below those, the dashboard has a latency heatmap of payments' and checkout's ser
 
 At the bottom, **Resources** shows the pods that serve the selected services: CPU against requests, memory working set against requests and limits, and each container's restarts and last termination reason (`OOMKilled` when it hit its limit). It finds them by the `k8s.pod.name` the collector adds to their spans. On kind both payments and checkout come from the one `demo-load` pod, so both show it.
 
+A tour from a failing metric to its cause and back, on kind:
+
+1. On **Span metrics (RED)**, click payments' line on **Error rate**, then **Traces Drilldown: errors of payments**.
+   Traces Drilldown opens on payments' error rate over the dashboard's time range, broken down by attribute.
+2. Open the **Traces** tab and pick a trace. Its spans show where it failed.
+3. On the failing span, **Logs for this span** opens the logs that carry its `trace_id`, here payments'
+   gateway timeouts. Back on a log line in Explore, **View trace** opens the trace again.
+4. A span's links also include **Request rate** and **p95 latency (ms)**, which open payments' span metrics in
+   Explore: the series the dashboard draws.
+
+The same panel's **Failing traces of payments** and **Error logs of payments** go straight to Explore instead,
+and **Logs Drilldown: payments** opens the service in Logs Drilldown. A new dashboard links the same way; the
+parameters these links use:
+
+| app | path | parameters |
+|---|---|---|
+| Traces Drilldown | `/a/grafana-exploretraces-app/explore` | `var-ds=cerberus-tempo`; `var-filters=resource.service.name\|=\|<service>` (URL-encoded, one per filter); `var-metric=rate`, `errors` or `duration`; `var-primarySignal=true` for all spans (the default, root spans only, finds nothing for a service that isn't a trace's root); `actionView=breakdown`, `traces` and so on; `from`, `to` |
+| Logs Drilldown | `/a/grafana-lokiexplore-app/explore/service/<service>/logs` | `var-ds=cerberus-loki`; `from`, `to` |
+| Explore | `/explore` | `panes`: URL-encoded JSON with the datasource uid and the query (`cerberus-tempo` with TraceQL, `cerberus-loki` with LogQL) |
+
+In a panel link, `${__field.labels.service_name:percentencode}` fills in the clicked series' service and
+`${__from}`/`${__to}` the time range.
+
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
@@ -106,6 +129,7 @@ At the bottom, **Resources** shows the pods that serve the selected services: CP
   - nodes: `k8s_node_condition_ready` (and memory, disk and PID pressure) and `k8s_node_allocatable_*`
 
   Only the gateway replica holding the `otel-collector-k8s-cluster` Lease runs it, so `prod`'s two replicas don't report the cluster twice.
+- **Kubernetes events:** the collector watches every event (`k8sobjects`, on the replica holding the same Lease as `k8s_cluster`) and writes each as a log of service `kubernetes-events`: the note as the body, `WARN` for Warning events, and `k8s_object_kind`, `k8s_object_name`, `k8s_object_namespace`, `k8s_event_reason`, `k8s_event_type` and `k8s_event_controller` as attributes. Scheduling, image pulls, probe failures, OOMKills and rollouts sit next to the services' own logs: `{service_name="kubernetes-events"} | k8s_object_name=~"demo-load-.*"`, or `| detected_level="warn"` for the Warning ones. They're log attributes, not stream labels, so filter on them after the selector.
 - **Kubernetes attributes:** the collector's `k8sattributes` processor labels every span, log and metric with `k8s_namespace_name`, `k8s_pod_name`, `k8s_deployment_name` (or `_statefulset_`, `_daemonset_`) and `k8s_node_name`, so a service's span metrics and its pods' `k8s_pod_memory_working_set` join on `k8s_deployment_name`. Attributes a sender sets itself win: the demo load reports made-up ones for its services (`k8s_namespace_name="shop"`), so its spans don't join to its real pod. It finds a sender by the `k8s.pod.uid` or `k8s.pod.ip` resource attribute it reports, else by its connection's source IP. An Istio sidecar hides that IP, so in the mesh a sender sets `k8s.pod.uid` from the downward API, as the demo load does.
 - **Dashboards → Cerberus → Kubernetes:** those series together, with node and namespace variables. Nodes: CPU and memory against allocatable, filesystem use, network, and conditions. Namespaces: CPU and memory used against requests and limits. Pods: the top memory and CPU consumers, pods per phase, containers that restarted with their last termination reason (`OOMKilled` in red), and pods that are Pending, Failed or Unknown. There's no load average: that needs the `hostmetrics` receiver in the collector agent, which is off.
 
