@@ -1775,8 +1775,8 @@ data:
                   "url": "/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%7B%22datasource%22%3A%22cerberus-loki%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22cerberus-loki%22%7D%2C%22expr%22%3A%22%7Bservice_name%3D%5C%22${__field.labels.service_name:percentencode}%5C%22%7D%20%7C%20detected_level%3D~%5C%22error%7Ccritical%7Cfatal%5C%22%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22${__from}%22%2C%22to%22%3A%22${__to}%22%7D%7D%7D"
                 },
                 {
-                  "title": "Traces Drilldown: ${__field.labels.service_name}",
-                  "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=rate&var-primarySignal=true&actionView=breakdown"
+                  "title": "Traces Drilldown: errors of ${__field.labels.service_name}",
+                  "url": "/a/grafana-exploretraces-app/explore?from=${__from}&to=${__to}&var-ds=cerberus-tempo&var-filters=resource.service.name%7C%3D%7C${__field.labels.service_name:percentencode}&var-metric=errors&var-primarySignal=true&actionView=breakdown"
                 },
                 {
                   "title": "Logs Drilldown: ${__field.labels.service_name}",
@@ -3514,7 +3514,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 225848cd74e083ee0f3bf70e4e2d55de7cd104fd85a34c82d7d76af262f1b76b
+        checksum/config: 02479d0da52447994dedf8b4a39b66560a0ce2e94b5d310c5f5ca27cc4776f64
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

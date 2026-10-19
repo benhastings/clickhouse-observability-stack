@@ -94,6 +94,29 @@ A quarter of charges time out at the payment gateway. Payments fails those reque
 
 Below those, the dashboard has a latency heatmap of payments' and checkout's server spans. Next to it is a service graph with the `checkout → payments` edge, red where calls fail. Under them is an error logs panel with payments' gateway timeouts. Click a series on the request, error or latency chart for its failing traces, its traces slower than the point you clicked, its error logs, or the service in Traces and Logs Drilldown. The charts show no exemplar dots: Cerberus v1.22.0 answers exemplar queries only for a bare selector, and every panel aggregates ([tsouza/cerberus#3787](https://github.com/tsouza/cerberus/issues/3787)). The exemplars are stored, so a Cerberus fix needs only `exemplar: true` back on the panels.
 
+A tour from a failing metric to its cause and back, on kind:
+
+1. On **Span metrics (RED)**, click payments' line on **Error rate**, then **Traces Drilldown: errors of payments**.
+   Traces Drilldown opens on payments' error rate over the dashboard's time range, broken down by attribute.
+2. Open the **Traces** tab and pick a trace. Its spans show where it failed.
+3. On the failing span, **Logs for this span** opens the logs that carry its `trace_id`, here payments'
+   gateway timeouts. Back on a log line in Explore, **View trace** opens the trace again.
+4. A span's links also include **Request rate** and **p95 latency (ms)**, which open payments' span metrics in
+   Explore: the series the dashboard draws.
+
+The same panel's **Failing traces of payments** and **Error logs of payments** go straight to Explore instead,
+and **Logs Drilldown: payments** opens the service in Logs Drilldown. A new dashboard links the same way; the
+parameters these links use:
+
+| app | path | parameters |
+|---|---|---|
+| Traces Drilldown | `/a/grafana-exploretraces-app/explore` | `var-ds=cerberus-tempo`; `var-filters=resource.service.name\|=\|<service>` (URL-encoded, one per filter); `var-metric=rate`, `errors` or `duration`; `var-primarySignal=true` for all spans (the default, root spans only, finds nothing for a service that isn't a trace's root); `actionView=breakdown`, `traces` and so on; `from`, `to` |
+| Logs Drilldown | `/a/grafana-lokiexplore-app/explore/service/<service>/logs` | `var-ds=cerberus-loki`; `from`, `to` |
+| Explore | `/explore` | `panes`: URL-encoded JSON with the datasource uid and the query (`cerberus-tempo` with TraceQL, `cerberus-loki` with LogQL) |
+
+In a panel link, `${__field.labels.service_name:percentencode}` fills in the clicked series' service and
+`${__from}`/`${__to}` the time range.
+
 - **Explore → Tempo (Cerberus):** TraceQL such as `{resource.service.name="payments" && status=error}` finds the failing traces. The Service Graph tab uses the servicegraph metrics. In a trace, **Logs for this span** opens the logs written in that trace.
 - **Explore → Loki (Cerberus):** `{service_name="checkout"}` shows the demo log lines. Expand one and **View trace** opens its trace. `{service_name="checkout"} | main="true"` shows only the wide events, one per request, with `duration_ms`, `user.id`, `user.team.id`, `db.query_count`, `cache.hit`, `outcome` and more.
 - **Explore → Prometheus (Cerberus):** system metrics from the collector's `kubeletstats` receiver, every 30 s: `k8s_node_cpu_usage` and `k8s_node_memory_working_set` for the node, and the same names under `k8s_pod_` and `container_` per pod and container, plus `*_filesystem_usage` and `*_network_io`.
