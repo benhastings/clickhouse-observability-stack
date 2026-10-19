@@ -354,6 +354,190 @@ data:
               description: >-
                 Inserts fail when the disk fills, and the collector drops telemetry once its queue is full.
                 Grow clickhouse.storage, or lower clickhouse.schema.ttlDays and let the TTL merges free space.
+  
+          # The telemetry pipeline, from the collector's, ClickHouse's and the kubelet's metrics that the collector
+          # scrapes (the Stack health dashboard draws the same series). Counters are cumulative: an increase is the
+          # max minus the min over the window, per collector or ClickHouse instance, so a restart's reset is
+          # bounded by the window.
+          - alert: CollectorRefusingData
+            expr: |
+              SELECT receiver, sum(increase) AS value
+              FROM (
+                  SELECT Attributes['receiver'] AS receiver, max(Value) - min(Value) AS increase
+                  FROM otel.otel_metrics_sum
+                  WHERE MetricName LIKE 'otelcol_receiver_refused_%'
+                    AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                    AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+                  GROUP BY MetricName, receiver, ResourceAttributes['service.instance.id']
+              )
+              GROUP BY receiver
+              HAVING value > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The collector's {{ $labels.receiver }} receiver refused {{ $value }} items in 10 minutes"
+              description: >-
+                Senders got an error and must retry or drop. Usually memory_limiter (see CollectorMemoryLimiterRefusing
+                and the Stack health dashboard's Go heap) or a full export queue (CollectorExportQueueFull). Raise the
+                collector's memory limit, or find why ClickHouse is slow to accept inserts.
+  
+          - alert: CollectorMemoryLimiterRefusing
+            expr: |
+              SELECT sum(increase) AS value
+              FROM (
+                  SELECT max(Value) - min(Value) AS increase
+                  FROM otel.otel_metrics_sum
+                  WHERE MetricName LIKE 'otelcol_processor_memory_limiter_refused_%'
+                    AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                    AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+                  GROUP BY MetricName, ResourceAttributes['service.instance.id']
+              )
+              HAVING value > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The collector's memory_limiter refused {{ $value }} items in 10 minutes"
+              description: >-
+                Its Go heap is above memory_limiter's soft limit (limit_percentage minus spike_limit_percentage of the
+                container limit; 55% here). Raise the collector's memory limit, or lower what it holds: the export
+                queue, batch sizes, or span-metrics cardinality.
+  
+          - alert: CollectorMemoryNearLimit
+            expr: |
+              SELECT w.k8s_pod_name AS k8s_pod_name, round(w.working_set / l.memory_limit, 3) AS value
+              FROM (
+                  SELECT ResourceAttributes['k8s.pod.name'] AS k8s_pod_name, argMax(Value, TimeUnix) AS working_set
+                  FROM otel.otel_metrics_gauge
+                  WHERE MetricName = 'container.memory.working_set'
+                    AND ResourceAttributes['k8s.container.name'] = 'otel-collector'
+                    AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE
+                    AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+                  GROUP BY k8s_pod_name
+              ) AS w
+              INNER JOIN (
+                  SELECT ResourceAttributes['k8s.pod.name'] AS k8s_pod_name, argMax(Value, TimeUnix) AS memory_limit
+                  FROM otel.otel_metrics_gauge
+                  WHERE MetricName = 'k8s.container.memory_limit'
+                    AND ResourceAttributes['k8s.container.name'] = 'otel-collector'
+                    AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE
+                    AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+                  GROUP BY k8s_pod_name
+              ) AS l USING (k8s_pod_name)
+              WHERE l.memory_limit > 0 AND w.working_set / l.memory_limit > 0.8
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Collector {{ $labels.k8s_pod_name }} uses {{ $value | humanizePercentage }} of its memory limit"
+              description: >-
+                The kernel kills the container at its limit, and memory_limiter is likely refusing data already.
+                Raise the otel-collector container's memory limit (and GOMEMLIMIT with it).
+  
+          - alert: CollectorExportFailing
+            expr: |
+              SELECT exporter, sum(increase) AS value
+              FROM (
+                  SELECT Attributes['exporter'] AS exporter, max(Value) - min(Value) AS increase
+                  FROM otel.otel_metrics_sum
+                  WHERE (MetricName LIKE 'otelcol_exporter_send_failed_%' OR MetricName LIKE 'otelcol_exporter_enqueue_failed_%')
+                    AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                    AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+                  GROUP BY MetricName, exporter, ResourceAttributes['service.instance.id']
+              )
+              GROUP BY exporter
+              HAVING value > 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "The collector's {{ $labels.exporter }} exporter dropped {{ $value }} items in 10 minutes"
+              description: >-
+                A batch failed after its retries, or didn't fit in the full queue, and is lost. Check the collector's
+                log for the exporter's error, and ClickHouseInsertsFailing and ClickHouseMemoryLimitRejects.
+  
+          - alert: CollectorExportQueueFull
+            expr: |
+              SELECT Attributes['exporter'] AS exporter, Attributes['data_type'] AS data_type,
+                     round(argMaxIf(Value, TimeUnix, MetricName = 'otelcol_exporter_queue_size')
+                         / argMaxIf(Value, TimeUnix, MetricName = 'otelcol_exporter_queue_capacity'), 3) AS value
+              FROM otel.otel_metrics_gauge
+              WHERE MetricName IN ('otelcol_exporter_queue_size', 'otelcol_exporter_queue_capacity')
+                AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE
+                AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+              GROUP BY exporter, data_type
+              HAVING value > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The collector's {{ $labels.exporter }} queue for {{ $labels.data_type }} is {{ $value | humanizePercentage }} full"
+              description: >-
+                The exporter can't keep up: ClickHouse is slow, rejecting inserts, or down. A full queue drops new
+                data (CollectorExportFailing).
+  
+          - alert: ClickHouseInsertsFailing
+            expr: |
+              SELECT Attributes['k8s_pod_name'] AS k8s_pod_name,
+                     round((maxIf(Value, MetricName = 'ClickHouseProfileEvents_FailedInsertQuery')
+                            - minIf(Value, MetricName = 'ClickHouseProfileEvents_FailedInsertQuery'))
+                         / greatest(maxIf(Value, MetricName = 'ClickHouseProfileEvents_InsertQuery')
+                                    - minIf(Value, MetricName = 'ClickHouseProfileEvents_InsertQuery'), 1), 3) AS value
+              FROM otel.otel_metrics_sum
+              WHERE MetricName IN ('ClickHouseProfileEvents_FailedInsertQuery', 'ClickHouseProfileEvents_InsertQuery')
+                AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+              GROUP BY k8s_pod_name
+              HAVING value > 0.01
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $value | humanizePercentage }} of inserts into {{ $labels.k8s_pod_name }} fail"
+              description: >-
+                The collector retries them, then drops the batch. system.query_log on that replica has the
+                exceptions: memory (ClickHouseMemoryLimitRejects), too many parts (ClickHouseTooManyParts), a full
+                disk (ClickHouseDiskFull), or a schema mismatch after a collector upgrade.
+  
+          - alert: ClickHouseMemoryLimitRejects
+            expr: |
+              SELECT Attributes['k8s_pod_name'] AS k8s_pod_name, max(Value) - min(Value) AS value
+              FROM otel.otel_metrics_sum
+              WHERE MetricName = 'ClickHouseErrorMetric_MEMORY_LIMIT_EXCEEDED'
+                AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 10 MINUTE
+                AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+              GROUP BY k8s_pod_name
+              HAVING value > 10
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.k8s_pod_name }} refused {{ $value }} queries or inserts for memory in 10 minutes"
+              description: >-
+                MEMORY_LIMIT_EXCEEDED (code 241), the ClickHouse side of CollectorExportFailing. "(total)" in
+                system.query_log's exception means the server cap (grow clickhouse's memory); otherwise one query's own
+                limit, such as otel_analyst's. The Stack health dashboard draws tracked, resident and cgroup memory.
+  
+          # Defaults: parts_to_delay_insert 1000 slows inserts down, parts_to_throw_insert 3000 fails them.
+          - alert: ClickHouseTooManyParts
+            expr: |
+              SELECT Attributes['k8s_pod_name'] AS k8s_pod_name, max(Value) AS value
+              FROM otel.otel_metrics_gauge
+              WHERE MetricName = 'ClickHouseAsyncMetrics_MaxPartCountForPartition'
+                AND TimeUnix > {time:DateTime64(3, 'UTC')} - INTERVAL 5 MINUTE
+                AND TimeUnix <= {time:DateTime64(3, 'UTC')}
+              GROUP BY k8s_pod_name
+              HAVING value > 1000
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "A partition on {{ $labels.k8s_pod_name }} has {{ $value }} active parts"
+              description: >-
+                Past 1000 ClickHouse delays inserts, and past 3000 it rejects them (TOO_MANY_PARTS). Merges aren't keeping
+                up with small inserts: check the collector's batch size and that async inserts are on, and merges in
+                system.merges.
 ---
 # Source: vmalert/templates/service.yaml
 apiVersion: v1
@@ -409,7 +593,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 1f89c3030c3c7c7ef156f73017abcafc6d19d742533b4e90799305534f7c8679
+        checksum/config: 1f89514073fab98a8f36c8b725e6fec0df0605c0fb8565509ced9121199b156e
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false
