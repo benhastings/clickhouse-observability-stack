@@ -85,6 +85,12 @@ data:
     extensions:
       health_check:
         endpoint: ${env:MY_POD_IP}:13133
+      # Only the replica holding this Lease runs k8s_cluster, so prod's two gateways don't report the
+      # cluster twice.
+      k8s_leader_elector:
+        auth_type: serviceAccount
+        lease_name: otel-collector-k8s-cluster
+        lease_namespace: observability
     processors:
       batch: {}
       # Kubernetes attributes on every span, log and metric, so a service's RED metrics join to its pods'
@@ -148,6 +154,18 @@ data:
         endpoint: https://${env:K8S_NODE_IP}:10250
         insecure_skip_verify: false
         metric_groups: [node, pod, container, volume]
+      # Cluster state from the API server, kube-state-metrics' half: pod phase, container restarts and
+      # readiness, workload desired and available replicas, node conditions and allocatable, and every
+      # container's requests and limits. Always in the gateway, agent or not.
+      k8s_cluster:
+        auth_type: serviceAccount
+        collection_interval: 30s
+        k8s_leader_elector: k8s_leader_elector
+        node_conditions_to_report: [Ready, MemoryPressure, DiskPressure, PIDPressure]
+        allocatable_types_to_report: [cpu, memory, ephemeral-storage, pods]
+        resource_attributes:
+          k8s.container.status.last_terminated_reason:
+            enabled: true
       # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
       # fails to deliver. Only these two series are kept.
       prometheus/alertmanager:
@@ -176,6 +194,7 @@ data:
     service:
       extensions:
       - health_check
+      - k8s_leader_elector
       pipelines:
         logs:
           exporters:
@@ -205,6 +224,7 @@ data:
           receivers:
           - otlp
           - kubeletstats
+          - k8s_cluster
           - spanmetrics
           - servicegraph
           - prometheus/alertmanager
@@ -251,8 +271,12 @@ rules:
   - apiGroups:
     - ""
     resources:
+    - nodes
     - pods
     - namespaces
+    - services
+    - replicationcontrollers
+    - resourcequotas
     verbs:
     - get
     - list
@@ -261,6 +285,26 @@ rules:
     - apps
     resources:
     - replicasets
+    - deployments
+    - daemonsets
+    - statefulsets
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - batch
+    resources:
+    - jobs
+    - cronjobs
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - autoscaling
+    resources:
+    - horizontalpodautoscalers
     verbs:
     - get
     - list
@@ -282,6 +326,56 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: observability
+---
+# Source: otel-collector/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: dev
+rules:
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+---
+# Source: otel-collector/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
   name: otel-collector
 subjects:
   - kind: ServiceAccount
@@ -351,7 +445,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: a5ed530d15b2fc8b80a719247477bd895125d3342e6aef240689623f2f389a91
+        checksum/config: be4673a9b332d96a32160301910beac7943ccf870ceeb379ceba663a0f844ef8
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

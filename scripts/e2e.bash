@@ -122,6 +122,21 @@ poll "PromQL: per-pod memory for more than five pods" \
   '.data.result[0].value[1] | tonumber | . > 5' \
   "$cerberus/api/v1/query" --data-urlencode 'query=count(k8s_pod_memory_working_set)'
 
+# Cluster state from k8s_cluster, which runs on whichever gateway replica holds the Lease.
+step "k8s_cluster: a gateway replica holds the otel-collector-k8s-cluster Lease"
+holder="$(kubectl -n observability get lease otel-collector-k8s-cluster -o jsonpath='{.spec.holderIdentity}')"
+[[ -n "$holder" ]] || { echo "  the Lease has no holder"; exit 1; }
+echo "  held by $holder"
+poll "PromQL: the demo-load Deployment has an available replica" \
+  '.data.result[0].value[1] | tonumber | . >= 1' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=max(k8s_deployment_available{k8s_deployment_name="demo-load"})'
+poll "PromQL: container restarts are reported for the demo-load pod" \
+  '.data.result | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=max by (k8s_pod_name) (k8s_container_restarts{k8s_namespace_name="observability", k8s_pod_name=~"demo-load-.*"})'
+poll "PromQL: every node reports Ready" \
+  '.data.result[0].value[1] | tonumber | . >= 1' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=min(k8s_node_condition_ready)'
+
 poll "LogQL: checkout logs arrive" \
   '[.data.result[].values[]] | length > 0' \
   "$cerberus/loki/api/v1/query_range" --data-urlencode 'query={service_name="checkout"}' \
