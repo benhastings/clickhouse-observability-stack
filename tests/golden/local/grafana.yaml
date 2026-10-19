@@ -2407,6 +2407,1059 @@ data:
         ]
       }
     }
+  stack-health.json: |
+    {
+      "uid": "stack-health",
+      "title": "Stack health",
+      "tags": [
+        "stack",
+        "cerberus",
+        "clickhouse"
+      ],
+      "editable": true,
+      "schemaVersion": 41,
+      "refresh": "1m",
+      "time": {
+        "from": "now-3h",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "links": [],
+      "templating": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "Collector",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Collector memory",
+          "gridPos": {
+            "h": 9,
+            "w": 16,
+            "x": 0,
+            "y": 1
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^limit .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^memory_limiter soft .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^memory_limiter hard .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "dark-orange"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (container_memory_working_set{k8s_container_name=\"otel-collector\"})",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "working set {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (container_memory_rss{k8s_container_name=\"otel-collector\"})",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "RSS {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (service_instance_id) (otelcol_process_runtime_heap_alloc_bytes)",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "Go heap {{service_instance_id}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})",
+              "refId": "D",
+              "range": true,
+              "legendFormat": "limit {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "0.55 * max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})",
+              "refId": "E",
+              "range": true,
+              "legendFormat": "memory_limiter soft limit {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "0.8 * max by (k8s_pod_name) (k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})",
+              "refId": "F",
+              "range": true,
+              "legendFormat": "memory_limiter hard limit {{k8s_pod_name}}"
+            }
+          ],
+          "description": "Working set and RSS from kubeletstats and the Go heap from the collector's own telemetry, against the container limit. memory_limiter compares the Go heap with its soft limit, 55% of the container limit (limit_percentage 80 minus spike_limit_percentage 25), and refuses data above it; at its hard limit, 80%, it also forces garbage collection. The kernel kills the container at the limit."
+        },
+        {
+          "id": 3,
+          "type": "gauge",
+          "title": "Collector Go heap, share of its limit",
+          "gridPos": {
+            "h": 9,
+            "w": 8,
+            "x": 16,
+            "y": 1
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "description": "The Go heap over the container limit: what memory_limiter checks. It refuses data from 55% (orange) and forces garbage collection from 80% (red).",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.55
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.8
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "showThresholdMarkers": true
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "refId": "A",
+              "instant": true,
+              "range": false,
+              "legendFormat": "Go heap",
+              "expr": "max(otelcol_process_runtime_heap_alloc_bytes) / max(k8s_container_memory_limit{k8s_container_name=\"otel-collector\"})"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Accepted per second",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 10
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_receiver_accepted_spans[$__rate_interval]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "spans"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_receiver_accepted_log_records[$__rate_interval]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "log records"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_receiver_accepted_metric_points[$__rate_interval]))",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "metric points"
+            }
+          ],
+          "description": "Items the collector's receivers accepted, per signal."
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Refused and failed per second",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 10
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_receiver_refused_spans[$__rate_interval]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "refused spans"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_receiver_refused_log_records[$__rate_interval]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "refused log records"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_receiver_refused_metric_points[$__rate_interval]))",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "refused metric points"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_exporter_send_failed_spans[$__rate_interval]))",
+              "refId": "D",
+              "range": true,
+              "legendFormat": "send failed spans"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_exporter_send_failed_log_records[$__rate_interval]))",
+              "refId": "E",
+              "range": true,
+              "legendFormat": "send failed log records"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(otelcol_exporter_send_failed_metric_points[$__rate_interval]))",
+              "refId": "F",
+              "range": true,
+              "legendFormat": "send failed metric points"
+            }
+          ],
+          "description": "Refused: a receiver turned data away, usually memory_limiter or malformed data. Send failed: an exporter gave up on a batch after its retries, which drops it."
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Export queue fill",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 10
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "min": 0,
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.8
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.9
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (exporter) (otelcol_exporter_queue_size) / max by (exporter) (otelcol_exporter_queue_capacity)",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{exporter}}"
+            }
+          ],
+          "description": "Batches waiting for an exporter over its queue capacity. A full queue drops new data; it fills when ClickHouse is slow or rejecting inserts."
+        },
+        {
+          "id": 7,
+          "type": "row",
+          "title": "ClickHouse",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 18
+          },
+          "panels": []
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "ClickHouse memory",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 19
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^limit .*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseMetrics_MemoryTracking)",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "tracked {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseAsyncMetrics_MemoryResident)",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "resident {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseAsyncMetrics_CGroupMemoryUsed)",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "cgroup used {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseAsyncMetrics_CGroupMemoryTotal)",
+              "refId": "D",
+              "range": true,
+              "legendFormat": "limit {{k8s_pod_name}}"
+            }
+          ],
+          "description": "What ClickHouse's memory tracker counts, the process's resident memory (which includes about 460 MiB of the server binary), and the container's cgroup usage, against the container limit. Queries and inserts fail with MEMORY_LIMIT_EXCEEDED near max_server_memory_usage."
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Inserts",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 19
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(ClickHouseProfileEvents_InsertedRows[$__rate_interval]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "rows per second"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(ClickHouseProfileEvents_InsertQuery[$__rate_interval]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "inserts per second"
+            }
+          ],
+          "description": "Rows and insert queries ClickHouse accepted, across replicas."
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Insert and query errors per second",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 19
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(ClickHouseProfileEvents_FailedInsertQuery[$__rate_interval]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "failed inserts"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(ClickHouseProfileEvents_FailedSelectQuery[$__rate_interval]))",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "failed selects"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(ClickHouseErrorMetric_MEMORY_LIMIT_EXCEEDED[$__rate_interval]))",
+              "refId": "C",
+              "range": true,
+              "legendFormat": "MEMORY_LIMIT_EXCEEDED"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum(rate(ClickHouseErrorMetric_TOO_MANY_PARTS[$__rate_interval]))",
+              "refId": "D",
+              "range": true,
+              "legendFormat": "TOO_MANY_PARTS"
+            }
+          ],
+          "description": "A failed insert is retried by the collector's exporter, and dropped once its retries run out."
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Most active parts in one partition",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 27
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "transparent",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1000
+                  },
+                  {
+                    "color": "red",
+                    "value": 3000
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseAsyncMetrics_MaxPartCountForPartition)",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{k8s_pod_name}}"
+            }
+          ],
+          "description": "Inserts slow down past parts_to_delay_insert (1000) and fail past parts_to_throw_insert (3000): merges aren't keeping up with small inserts."
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Running queries and merges",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 27
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseMetrics_Query)",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "queries {{k8s_pod_name}}"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "max by (k8s_pod_name) (ClickHouseMetrics_BackgroundMergesAndMutationsPoolTask)",
+              "refId": "B",
+              "range": true,
+              "legendFormat": "merges {{k8s_pod_name}}"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "row",
+          "title": "Cerberus",
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 35
+          },
+          "panels": []
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Cerberus latency, 95th percentile",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 36
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": true
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket[$__rate_interval])))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{http_route}}"
+            }
+          ],
+          "description": "How long Cerberus takes to answer Grafana, per API route, including the ClickHouse query it runs."
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Cerberus requests per second",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 36
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "cerberus-prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "spanNulls": true,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "cerberus-prometheus"
+              },
+              "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count[$__rate_interval]))",
+              "refId": "A",
+              "range": true,
+              "legendFormat": "{{http_response_status_code}}"
+            }
+          ],
+          "description": "By HTTP status. 503s are queries Cerberus refused or ClickHouse failed."
+        }
+      ]
+    }
 ---
 # Source: grafana/templates/objects.yaml
 apiVersion: v1
@@ -2576,7 +3629,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: d0bf6ee2dc969ff0582e4520f23950ba14eb293998d8978e112ffbda3708d1fe
+        checksum/config: 7b0a0f8bf48d5ba473c76962f668651cf1137474f948861e0725f7789b653c07
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false

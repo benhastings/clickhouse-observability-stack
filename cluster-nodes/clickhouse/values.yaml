@@ -179,7 +179,8 @@ configMaps:
 
 # With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
 # operator's own label. The collector, Cerberus, garmr sql-adapter, the schema Job and the backup job reach the native and HTTP ports, the
-# operator reaches them from its namespace, and replicas reach each other on the interserver port.
+# operator reaches them from its namespace, the collector scrapes the Prometheus port, and replicas reach each
+# other on the interserver port.
 networkPolicy:
   podSelector:
     matchLabels:
@@ -195,6 +196,13 @@ networkPolicy:
         - port: 9000
           protocol: TCP
         - port: 8123
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - port: 9363
           protocol: TCP
     - from:
         - namespaceSelector:

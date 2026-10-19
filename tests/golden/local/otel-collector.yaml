@@ -179,6 +179,47 @@ data:
                 - source_labels: [__name__]
                   regex: alertmanager_notifications(_failed)?_total
                   action: keep
+      # The pipeline's own health, for the Stack health dashboard and vmalert's pipeline rules: this
+      # collector's telemetry, every ClickHouse replica's Prometheus endpoint, and Cerberus. Each job keeps
+      # only the series a panel or rule reads.
+      prometheus/stack:
+        config:
+          scrape_configs:
+            - job_name: otel-collector
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['${env:MY_POD_IP}:8888']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: otelcol_(receiver_(accepted|refused|failed)_.*|exporter_(sent|send_failed|enqueue_failed)_.*|exporter_queue_(size|capacity)|processor_memory_limiter_refused_.*|process_memory_rss|process_runtime_heap_alloc_bytes)
+                  action: keep
+            - job_name: clickhouse
+              scrape_interval: 30s
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names: ['observability']
+                  selectors:
+                    - role: pod
+                      label: clickhouse.altinity.com/chi=otel
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_ip]
+                  replacement: $$1:9363
+                  target_label: __address__
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: k8s_pod_name
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: ClickHouse(ProfileEvents_(InsertQuery|FailedInsertQuery|InsertedRows|InsertedBytes|SelectQuery|FailedSelectQuery)|Metrics_(MemoryTracking|Query|BackgroundMergesAndMutationsPoolTask)|AsyncMetrics_(MaxPartCountForPartition|MemoryResident|CGroupMemoryUsed|CGroupMemoryTotal)|ErrorMetric_(MEMORY_LIMIT_EXCEEDED|TOO_MANY_PARTS))
+                  action: keep
+            - job_name: cerberus
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['cerberus:8080']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: http_server_request_duration_seconds_(bucket|count|sum)|cerberus_queries_total
+                  action: keep
       # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
       webhook_event:
         endpoint: 0.0.0.0:8088
@@ -228,6 +269,7 @@ data:
           - spanmetrics
           - servicegraph
           - prometheus/alertmanager
+          - prometheus/stack
         traces:
           exporters:
           - clickhouse
@@ -445,7 +487,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 2feca6694840ee076b1de2a3794cb152b224193f39b56952c37d2c1405a01c94
+        checksum/config: d3700be7159ed834d5f188c40b863127f73b4845ba4191962a40472d1b20142c
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

@@ -252,6 +252,9 @@ poll "Grafana: the alert hygiene dashboard is provisioned" \
 poll "Grafana: the SLOs dashboard is provisioned" \
   '.dashboard.uid == "slos"' \
   -u "$grafana_login" "$grafana/api/dashboards/uid/slos"
+poll "Grafana: the stack health dashboard is provisioned" \
+  '.dashboard.uid == "stack-health"' \
+  -u "$grafana_login" "$grafana/api/dashboards/uid/stack-health"
 
 # The service dashboard's own queries, read from its JSON with every service selected (All is .*).
 panel_expr() { # panel title
@@ -508,6 +511,16 @@ poll "Alertmanager: vmalert's Watchdog is active and routed to the heartbeat rec
 poll "PromQL: the collector scrapes Alertmanager's notification counters" \
   '[.data.result[].metric.integration] | index("webhook") != null' \
   "$cerberus/api/v1/query" --data-urlencode 'query=alertmanager_notifications_total'
+# The Stack health dashboard's three scrapes: the collector itself, every ClickHouse replica, and Cerberus.
+poll "PromQL: the collector scrapes its own telemetry: spans the clickhouse exporter sent" \
+  '[.data.result[] | select(.metric.exporter == "clickhouse" and (.value[1] | tonumber) > 0)] | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=otelcol_exporter_sent_spans'
+poll "PromQL: the collector scrapes ClickHouse: rows inserted, per replica" \
+  '[.data.result[] | select((.metric.k8s_pod_name // "" | test("^chi-otel-")) and (.value[1] | tonumber) > 0)] | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=ClickHouseProfileEvents_InsertedRows'
+poll "PromQL: the collector scrapes Cerberus: its request latency histogram" \
+  '[.data.result[] | select(.metric.service_name == "cerberus")] | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=http_server_request_duration_seconds_count'
 poll "vmalert: AlertmanagerNotificationsFailing evaluates without error and is not firing" \
   '[.data.groups[].rules[] | select(.name == "AlertmanagerNotificationsFailing" and .health == "ok" and
     .lastEvaluation != "0001-01-01T00:00:00Z" and (.alerts | length) == 0)] | length == 1' \

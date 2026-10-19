@@ -57,8 +57,20 @@ spec:
       analyst/interval/queries: {{ int64 $analyst.quota.queries }}
       analyst/interval/read_rows: {{ int64 $analyst.quota.readRows }}
       analyst/interval/execution_time: {{ int64 $analyst.quota.executionTime }}
-    {{- if $ch.lowMemory }}
     files:
+      # The collector scrapes every replica here (the otel-collector node's prometheus/stack receiver).
+      config.d/prometheus.xml: |
+        <clickhouse>
+          <prometheus>
+            <endpoint>/metrics</endpoint>
+            <port>9363</port>
+            <metrics>true</metrics>
+            <events>true</events>
+            <asynchronous_metrics>true</asynchronous_metrics>
+            <errors>true</errors>
+          </prometheus>
+        </clickhouse>
+      {{- if $ch.lowMemory }}
       # A fixed cap at 90% of the container: ClickHouse checks its resident memory against it, and that
       # includes about 460 MiB of the server binary's own code, so 75% left a 1 GiB container about 300 MiB
       # for queries and inserts. The dynamic limit (the default) lowers the cap as the page cache grows.
@@ -92,7 +104,7 @@ spec:
           <session_log remove="1"/>
           <blob_storage_log remove="1"/>
         </clickhouse>
-    {{- end }}
+      {{- end }}
     clusters:
       - name: main
         layout:

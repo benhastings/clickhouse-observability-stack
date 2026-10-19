@@ -29,7 +29,7 @@ flowchart LR
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. It only reads: the `clickhouse` app's schema Job creates the tables. |
-| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) from the API server, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
@@ -53,7 +53,7 @@ What the stack is for, what delivers each part, and where to see it. Where a par
 | Wide-event logs | log attributes kept as a map column; the demo's one event per request carries `duration_ms`, `user.id`, `outcome` and more | `{service_name="checkout"} \| main="true"` | |
 | Moving between metrics, logs and traces in Grafana | exemplars, the logs' `trace_id` link, trace to logs and to metrics, the service graph | [What you should see](#what-you-should-see) | [#177](https://github.com/benhastings/clickhouse-observability-stack/issues/177): the same links from the dashboards |
 | Default alerts on latency and availability | vmalert's anomaly rules over ClickHouse baselines, Grafana's starter rules, and the alerting pipeline watching itself | [Anomaly rules](#anomaly-rules-alert-on-a-change-from-normal) | [#165](https://github.com/benhastings/clickhouse-observability-stack/issues/165): SLOs with burn-rate alerts |
-| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, **SLOs**, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
+| Default service dashboards | **Span metrics (RED)** with the request-rate baseline, **SLOs**, **Stack health**, and **Alert hygiene** | Dashboards → Cerberus | [#164](https://github.com/benhastings/clickhouse-observability-stack/issues/164): latency heatmap, service graph, resources, cluster and stack health |
 | Grafana's Drilldown apps | Metrics, Logs and Traces Drilldown, preinstalled at pinned versions | Grafana → Drilldown | [#166](https://github.com/benhastings/clickhouse-observability-stack/issues/166): proven against Cerberus |
 | A path for ML and AI over traces and logs | the baselines show the pattern: ClickHouse computes, writes series back, everything reads them | [Anomaly baselines](#anomaly-baselines-computed-by-clickhouse-read-as-series) | [#167](https://github.com/benhastings/clickhouse-observability-stack/issues/167): an analyst user, feature tables, docs |
 
@@ -626,6 +626,27 @@ resolved more than three times (flapping), as input for tuning thresholds. The s
 firing and resolved alerts as annotations. An environment that replaces Alertmanager's `route` or `receivers`
 keeps the history route first and the `history` receiver, or the history stops.
 
+### Stack health: the pipeline watching itself
+
+The collector's `prometheus/stack` receiver scrapes the stack's own telemetry every 30 seconds into the same
+tables, each job with a keep-list of the series a panel or rule reads:
+
+| job | target | kept |
+|---|---|---|
+| `otel-collector` | its own `:8888` | items accepted, refused and failed per receiver; sent and failed per exporter; queue size and capacity; `memory_limiter` refusals; process RSS and Go heap |
+| `clickhouse` | every ClickHouse pod's `:9363` (`config.d/prometheus.xml`), found through the Kubernetes API, labelled `k8s_pod_name` | inserts, inserted rows, failed inserts and selects, `MemoryTracking`, resident and cgroup memory, the most parts in one partition, running queries and merges, `MEMORY_LIMIT_EXCEEDED` and `TOO_MANY_PARTS` errors |
+| `cerberus` | `global.services.cerberus` | request latency per route (`http_server_request_duration_seconds`) and `cerberus_queries_total` |
+
+The **Stack health** dashboard (Dashboards → Cerberus) leads with the collector's memory: working set and RSS from
+`kubeletstats` and its Go heap, against the container limit. `memory_limiter` (`limit_percentage: 80`,
+`spike_limit_percentage: 25`) checks the Go heap: above its soft limit, 55% of the container limit, it refuses
+data, and above its hard limit, 80%, it also forces garbage collection. On kind the heap peaked at 110 MiB in
+an hour against a soft limit of 141 MiB. Below are items accepted, refused and failed per signal, and the export queue's fill. Then come
+ClickHouse's memory against its container (tracked, resident and cgroup), inserts, insert and query errors, and
+parts per partition, and Cerberus's latency per route and its requests by status.
+On kind with the demo load the three jobs add about 210 rows a minute (12,600 an hour): Cerberus 94, the
+collector 74 and ClickHouse 40, each counting its job's `up` and `scrape_*` series.
+
 ### Sync order
 
 Child apps carry sync waves:
@@ -1046,10 +1067,10 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 - **Network policies:** `global.networkPolicy.enabled: true` gives every app a policy that allows only its
   own traffic. Grafana is reachable from `global.networkPolicy.exposureNamespaces` (the ingress gateway or
   controller), queries only Cerberus and Alertmanager, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
-  answers only Grafana. The collector accepts OTLP from any namespace and reaches ClickHouse, the kubelets, and the API server (443 and 6443) for `k8sattributes` and `k8s_cluster`.
+  answers Grafana, and the collector's scrape. The collector accepts OTLP from any namespace and reaches ClickHouse (and its metrics port, 9363), Cerberus and Alertmanager for their metrics, the kubelets, and the API server (443 and 6443) for `k8sattributes` and `k8s_cluster`.
   vmalert reaches only garmr sql-adapter and Alertmanager; the adapter answers only vmalert and reaches only
   ClickHouse. Alertmanager accepts Grafana and vmalert, and reaches only the collector's history endpoint.
-  ClickHouse accepts the collector, Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
+  ClickHouse accepts the collector (also on 9363), Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 

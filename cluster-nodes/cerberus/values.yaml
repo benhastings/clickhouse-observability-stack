@@ -91,13 +91,16 @@ deployment:
         privileged: false
         readOnlyRootFilesystem: true
 
-# With global.networkPolicy.enabled: only Grafana queries Cerberus, and Cerberus reaches only ClickHouse.
+# With global.networkPolicy.enabled: only Grafana queries Cerberus, and the collector scrapes its metrics;
+# Cerberus reaches only ClickHouse.
 networkPolicy:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: grafana
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [grafana, otel-collector]
       ports:
         - port: 8080
           protocol: TCP

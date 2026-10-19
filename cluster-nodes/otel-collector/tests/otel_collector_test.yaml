@@ -652,3 +652,49 @@ tests:
       - matchRegex:
           path: data["relay.yaml"]
           pattern: "- servicegraph\\n\\s+- prometheus/alertmanager"
+
+  - it: scrapes its own telemetry, every ClickHouse replica and Cerberus into the metrics pipeline
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "targets: \\['\\$\\{env:MY_POD_IP\\}:8888'\\]"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "label: clickhouse.altinity.com/chi=otel\\n(.*\\n){2}\\s+replacement: \\$\\$1:9363"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "targets: \\['cerberus:8080'\\]"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "- prometheus/alertmanager\\n\\s+- prometheus/stack\\n"
+
+  - it: reaches ClickHouse's Prometheus port and Cerberus when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    clickhouse.altinity.com/chi: otel
+            ports:
+              - port: 9000
+                protocol: TCP
+              - port: 9363
+                protocol: TCP
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: cerberus
+            ports:
+              - port: 8080
+                protocol: TCP

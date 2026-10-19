@@ -799,6 +799,17 @@ spec:
           <session_log remove="1"/>
           <blob_storage_log remove="1"/>
         </clickhouse>
+      config.d/prometheus.xml: |
+        <clickhouse>
+          <prometheus>
+            <endpoint>/metrics</endpoint>
+            <port>9363</port>
+            <metrics>true</metrics>
+            <events>true</events>
+            <asynchronous_metrics>true</asynchronous_metrics>
+            <errors>true</errors>
+          </prometheus>
+        </clickhouse>
     profiles:
       analyst/constraints/max_concurrent_queries_for_user/max: 2
       analyst/constraints/max_execution_time/max: 60
