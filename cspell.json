@@ -59,6 +59,7 @@
     "ingressgateway",
     "interserver",
     "istiod",
+    "jemalloc",
     "kubeadm",
     "kubeconform",
     "kubelet",
