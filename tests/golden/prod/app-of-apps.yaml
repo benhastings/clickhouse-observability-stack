@@ -171,6 +171,14 @@ spec:
       releaseName: clickhouse
       valuesObject:
         clickhouse:
+          analyst:
+            maxConcurrentQueries: 2
+            maxExecutionTime: 300
+            maxMemoryUsage: 2147483648
+            maxRowsToRead: 10000000000
+            quota:
+              executionTime: 7200
+              readRows: 100000000000
           lowMemory: false
           resources:
             limits:

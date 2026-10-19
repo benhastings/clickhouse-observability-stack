@@ -280,7 +280,7 @@ poll "Metrics Drilldown: the label names of one metric, for its group-by" \
 # Each ClickHouse user can do its own job and nothing else: the collector's user inserts but cannot read,
 # Cerberus's reads but cannot write or change a table. The data checks above prove the allowed half.
 clickhouse_pod="$(kubectl -n observability get pods -l clickhouse.altinity.com/chi=otel -o name | head -1)"
-clickhouse_as() { # <admin|writer|reader> <query>
+clickhouse_as() { # <admin|writer|reader|analyst> <query>
   local password
   password="$(kubectl -n observability get secret "clickhouse-$1" -o go-template='{{.data.password | base64decode}}')"
   kubectl -n observability exec -i "$clickhouse_pod" -c clickhouse -- \
@@ -303,6 +303,31 @@ refused reader "INSERT INTO otel.otel_logs (Body) VALUES ('e2e')"
 refused reader "TRUNCATE TABLE otel.otel_logs"
 refused reader "CREATE TABLE otel.e2e (a UInt8) ENGINE = Memory"
 refused reader "INSERT INTO otel_baseline.baseline (Signal) VALUES ('e2e')"
+
+# otel_analyst, for notebooks and jobs: it reads the telemetry, can't write it, and its profile caps a
+# query's memory below what ingestion and Grafana need, a cap it can't raise.
+step "ClickHouse: otel_analyst reads traces under its own limits"
+analyst_traces="$(clickhouse_as analyst "SELECT count() FROM otel.otel_traces")"
+((analyst_traces > 0)) || { echo "  otel_analyst read no traces"; exit 1; }
+echo "  otel_analyst reads $analyst_traces spans"
+refused analyst "INSERT INTO otel.otel_traces (TraceId) VALUES ('e2e')"
+refused analyst "ALTER TABLE otel.otel_logs DROP COLUMN EventName"
+analyst_limited() { # <query> <error code name>
+  local out
+  if out="$(clickhouse_as analyst "$1" 2>&1)"; then
+    echo "  otel_analyst was allowed: $1"
+    exit 1
+  fi
+  [[ "$out" == *"$2"* ]] || { echo "  otel_analyst failed for another reason: $out"; exit 1; }
+  echo "  otel_analyst stopped ($2): $1"
+}
+analyst_limited "SELECT length(groupArray(randomString(1000))) FROM (SELECT 1 FROM otel.otel_traces LIMIT 1)
+  ARRAY JOIN range(1000000) AS r" MEMORY_LIMIT_EXCEEDED
+analyst_limited "SET max_memory_usage = 100000000000" SETTING_CONSTRAINT_VIOLATION
+analyst_limited "SET priority = 0" SETTING_CONSTRAINT_VIOLATION
+poll "PromQL: span metrics keep arriving after the analyst's refused query" \
+  '.data.result | length > 0' \
+  "$cerberus/api/v1/query" --data-urlencode 'query=sum(rate(traces_span_metrics_calls[1m]))'
 
 # The schema is files/schema.sql.tpl in the clickhouse node, not Cerberus's. Ask the Cerberus image this
 # stack runs which schema it expects, create that in a scratch database, and compare the two table by table.

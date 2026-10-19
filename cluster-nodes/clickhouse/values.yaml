@@ -7,6 +7,8 @@ serviceAccount:
 #   clickhouse-admin   otel_admin, every privilege; only the schema Job and the backup CronJob use it
 #   clickhouse-writer  otel_writer, INSERT on otel.*; the collector
 #   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus
+#   clickhouse-analyst otel_analyst, SELECT on otel.*, otel_baseline.*, otel_features.*, INSERT on otel_ml.*;
+#                      notebooks and jobs, under clickhouse.analyst's limits
 # With global.externalSecrets.enabled, each is synced from <remotePath>/<its name>.
 secrets:
   admin:
@@ -25,6 +27,12 @@ secrets:
     create: false
     stringData:
       username: otel_reader
+    external:
+      keys: [username, password]
+  analyst:
+    create: false
+    stringData:
+      username: otel_analyst
     external:
       keys: [username, password]
   # The backup CronJob's S3 credentials, keys access_key and secret_key. Never created here: an environment
@@ -51,6 +59,19 @@ clickhouse:
     limits:
       memory: 1Gi
   lowMemory: true
+  # otel_analyst's settings profile and hourly quota, so a notebook can't starve ingestion or Grafana. Each
+  # limit is also a constraint: the analyst may lower it for a session but not raise it. priority runs its
+  # queries after everyone else's (the other users are at 0, and a higher number runs later).
+  analyst:
+    maxMemoryUsage: 268435456
+    maxExecutionTime: 60
+    maxRowsToRead: 200000000
+    maxConcurrentQueries: 2
+    priority: 10
+    quota:
+      queries: 600
+      readRows: 2000000000
+      executionTime: 1800
   # The otel database's tables are files/schema.sql.tpl, applied as otel_admin by a Job that runs whenever
   # the rendered SQL changes. ttlDays is the retention per signal, in days. The Job connects to one server
   # through the clickhouse Service, so with more than one shard or replica the tables exist on one of them:

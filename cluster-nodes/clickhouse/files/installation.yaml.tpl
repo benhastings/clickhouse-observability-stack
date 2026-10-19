@@ -13,10 +13,15 @@ spec:
     # The users values.yaml describes under secrets. otel_admin has no grants list, so it has every
     # privilege; the others have only theirs. The schema's materialized views run as otel_admin, so an
     # insert as otel_writer needs no SELECT. otel_reader also reads the anomaly baselines and their
-    # refresh status, for vmalert's rules.
+    # refresh status, for vmalert's rules. otel_analyst reads the telemetry and the feature views and
+    # writes only to otel_ml, under its own profile and quota.
     users:
-      {{- $readerGrants := list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks" }}
-      {{- range $user, $grants := dict "admin" list "writer" (list "INSERT ON otel.*") "reader" $readerGrants }}
+      {{- $users := dict
+        "admin" (dict "grants" list "profile" "default")
+        "writer" (dict "grants" (list "INSERT ON otel.*") "profile" "default")
+        "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks") "profile" "default")
+        "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
+      {{- range $user, $u := $users }}
       otel_{{ $user }}/password:
         valueFrom:
           secretKeyRef:
@@ -25,19 +30,34 @@ spec:
       otel_{{ $user }}/networks/ip:
         - "0.0.0.0/0"
         - "::/0"
-      otel_{{ $user }}/profile: default
-      otel_{{ $user }}/quota: default
-      {{- with $grants }}
+      otel_{{ $user }}/profile: {{ $u.profile }}
+      otel_{{ $user }}/quota: {{ $u.profile }}
+      {{- with $u.grants }}
       otel_{{ $user }}/grants/query:
         {{- range . }}
         - GRANT {{ . }}
         {{- end }}
       {{- end }}
       {{- end }}
-    {{- if $ch.lowMemory }}
+    {{- $analyst := $ch.analyst }}
     profiles:
+      {{- if $ch.lowMemory }}
       default/max_threads: 2
       default/max_memory_usage: 536870912
+      {{- end }}
+      analyst/profile: default
+      {{- range $setting, $value := dict "max_memory_usage" $analyst.maxMemoryUsage "max_execution_time" $analyst.maxExecutionTime "max_rows_to_read" $analyst.maxRowsToRead "max_concurrent_queries_for_user" $analyst.maxConcurrentQueries }}
+      analyst/{{ $setting }}: {{ int64 $value }}
+      analyst/constraints/{{ $setting }}/max: {{ int64 $value }}
+      {{- end }}
+      analyst/priority: {{ int64 $analyst.priority }}
+      analyst/constraints/priority/min: {{ int64 $analyst.priority }}
+    quotas:
+      analyst/interval/duration: 3600
+      analyst/interval/queries: {{ int64 $analyst.quota.queries }}
+      analyst/interval/read_rows: {{ int64 $analyst.quota.readRows }}
+      analyst/interval/execution_time: {{ int64 $analyst.quota.executionTime }}
+    {{- if $ch.lowMemory }}
     files:
       config.d/low_memory.xml: |
         <clickhouse>
