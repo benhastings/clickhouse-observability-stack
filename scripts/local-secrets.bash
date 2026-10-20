@@ -19,7 +19,7 @@ ensure_secret() {
 create_local_secrets() {
   echo "==> Creating local credentials"
   local user
-  for user in admin writer reader analyst; do
+  for user in admin writer reader analyst garmr; do
     ensure_secret observability "clickhouse-$user" \
       --from-literal=username="otel_$user" --from-literal=password="$(random_password)"
   done

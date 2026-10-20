@@ -563,6 +563,25 @@ poll "LogQL: the resolved notification records how long $e2e_alert fired" \
   "$cerberus/loki/api/v1/query" \
   --data-urlencode 'query=quantile_over_time(0.5, {service_name="alertmanager"} | status="resolved" | unwrap duration_seconds [15m]) by (alertname)'
 
+# garmr serve gets every notification too, one incident per alert group: the firing notification opened one for
+# $e2e_alert's group, with its alert events, and the resolved one closed it into garmr.incidents.
+step "garmr: $e2e_alert opened an incident, and its resolution closed it into history"
+garmr_query="SELECT
+    (SELECT count() FROM garmr.alert_events WHERE alertname = '$e2e_alert' AND status = 'firing') > 0,
+    (SELECT count() FROM garmr.incident_events WHERE title = '$e2e_alert' AND event = 'opened'),
+    (SELECT count() FROM garmr.incidents WHERE title = '$e2e_alert' AND resolved_by = 'alertmanager'),
+    (SELECT count() FROM garmr.open_incidents WHERE title = '$e2e_alert')"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until garmr="$(clickhouse_as admin "$garmr_query")" && [[ "$garmr" == $'1\t1\t1\t0' ]]; do
+  if ((SECONDS > deadline)); then
+    echo "  want alert events, one opened, one resolved and none open; got: ${garmr:-nothing}"
+    kubectl -n observability logs deploy/garmr --tail=50 || true
+    exit 1
+  fi
+  sleep 10
+done
+echo "  ok"
+
 # vmalert evaluates every rule as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is health
 # "err" with ClickHouse's message, so every rule evaluated and healthy proves vmalert -> adapter -> ClickHouse.
 # The count comes from the rule files, so adding or removing a rule doesn't need an edit here.

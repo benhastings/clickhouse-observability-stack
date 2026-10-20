@@ -377,6 +377,15 @@
         }
       }
     },
+    "garmr": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
     "slack": {
       "type": "object",
       "additionalProperties": false,
@@ -513,6 +522,11 @@
               "type": "string",
               "description": "where vmalert sends its ClickHouse SQL rules",
               "x-default": "`http://garmr-sql-adapter:8080`"
+            },
+            "garmr": {
+              "type": "string",
+              "description": "where Alertmanager sends notifications to garmr serve",
+              "x-default": "`http://garmr:8080`"
             },
             "alertHistory": {
               "type": "string",

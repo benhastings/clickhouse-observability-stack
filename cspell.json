@@ -63,6 +63,8 @@
     "istiod",
     "itertuples",
     "jemalloc",
+    "keeper",
+    "KeeperMap",
     "kubeadm",
     "kubeconform",
     "kubelet",
@@ -119,6 +121,7 @@
     "virtualservices",
     "vmalert",
     "vmodule",
+    "xapp",
     "xoxb",
     "yannh",
     "zstd"

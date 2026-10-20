@@ -775,3 +775,9 @@ ARRAY JOIN
         availability_objective, latency_objective, 1 - availability_burn_rate, 1 - latency_burn_rate],
        [availability, availability_burn_rate, latency, latency_burn_rate]) AS value;
 {{- end }}{{ end }}
+{{- if .Values.clickhouse.garmr.enabled }}
+
+-- garmr's incident state and history: files/garmr.sql, copied verbatim from schema/garmr.sql in
+-- github.com/benhastings/garmr at the version the garmr node runs. Its KeeperMap table needs clickhouse.keeper.
+{{ .Files.Get "files/garmr.sql" }}
+{{- end }}

@@ -315,6 +315,14 @@ configMaps:
                     - source_labels: [__name__]
                       regex: http_server_request_duration_seconds_(bucket|count|sum)|cerberus_queries_total
                       action: keep
+                - job_name: garmr
+                  scrape_interval: 30s
+                  static_configs:
+                    - targets: ['{{ include "common.serviceAddress" (list $ "garmr") | trimPrefix "http://" | trimPrefix "https://" }}']
+                  metric_relabel_configs:
+                    - source_labels: [__name__]
+                      regex: garmr_.+
+                      action: keep
           # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
           webhook_event:
             endpoint: 0.0.0.0:8088
@@ -680,6 +688,13 @@ networkPolicy:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: cerberus
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: garmr
       ports:
         - port: 8080
           protocol: TCP

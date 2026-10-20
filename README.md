@@ -24,6 +24,9 @@ flowchart LR
     VMA -- firing alerts --> AM[Alertmanager]
     GF -- Grafana rules --> AM
     AM -- every notification, as a log --> COL
+    AM -- notifications --> GRM[garmr<br/>serve]
+    GRM -- incidents, history,<br/>enrichment queries --> CH
+    GRM -. one thread per incident .-> SL[Slack]
     CH -- refreshable views:<br/>hour-of-week baselines --> CH
 ```
 
@@ -38,6 +41,7 @@ flowchart LR
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
+| `garmr` | `ghcr.io/benhastings/garmr:v0.2.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
 | `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
 | `demo-load` | `ghcr.io/benhastings/correlated-telemetrygen:v0.2.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen) (the benhastings fork, which adds scheduled incidents): a browser front end, a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. Every hour, starting 15 minutes in, payments fails 90% of charges for 10 minutes. |
 
@@ -244,7 +248,7 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
 
 ### Before any install
 
-- **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`,
+- **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`,
   `grafana-admin` and `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
   [External Secrets operator](#secrets-kubernetes-or-vault) create them.
 - **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
@@ -357,6 +361,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
 | `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
 | `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_features.*` and `otel_slo.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
+| `otel_garmr` | `clickhouse-garmr` | `SELECT`, `INSERT`, `ALTER UPDATE` and `ALTER DELETE` on `garmr.*`; `SELECT` on `otel.*`, `otel_features.*` and `otel_baseline.*` | garmr serve |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
 The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`
@@ -609,6 +614,54 @@ cluster, create the Secret yourself and set `slack: {enabled: true, channel: ...
 Alertmanager's `AlertmanagerNotificationsFailing` for Slack (a revoked token, a channel the app isn't in) is routed
 to `route.receiver`, not back to Slack.
 
+### garmr: one incident per alert group, with a Slack thread each
+
+Alertmanager also sends every alert but the Watchdog to [garmr](https://github.com/benhastings/garmr) serve,
+grouped by `alertname` and `service_name`, every minute while something changes. garmr keeps each group as an
+incident from its first firing alert until none fire, all in ClickHouse:
+
+- `garmr.open_incidents` holds the open incidents. It's a KeeperMap table, so ClickHouse runs an embedded Keeper
+  (`clickhouse.keeper.embedded`), and opening an incident claims its group.
+- `garmr.alert_events`, `incident_events`, `incidents` (one row per resolved incident), `notifications` and
+  `enrichments` are the history, so time to acknowledge or resolve and which alerts nobody acknowledged are
+  queries:
+
+  ```sql
+  SELECT service_name, count() AS incidents,
+         quantile(0.5)(dateDiff('minute', opened_at, resolved_at)) AS p50_minutes_to_resolve,
+         countIf(acknowledged_at IS NULL) AS never_acknowledged
+  FROM garmr.incidents WHERE opened_at > now() - INTERVAL 7 DAY
+  GROUP BY service_name
+  ```
+
+The schema Job creates the tables from `cluster-nodes/clickhouse/files/garmr.sql`, which is a verbatim copy of
+garmr's `schema/garmr.sql` at the version the node runs (`clickhouse.garmr.enabled`). `garmr.enabled: false` on
+the `alertmanager` app stops sending to it.
+
+With `slack.enabled` on the `garmr` app, each incident is also one Slack thread:
+
+- The first message shows the incident as it is now (status, alerts, who acknowledged it), and garmr edits it on
+  every change.
+- Replies in the thread record each change. The first reply is what the telemetry says about the service: new
+  error-log templates, a failing trace, and its signals against their baseline.
+- **Acknowledge**, **Silence 1h** (an Alertmanager silence on the group's labels) and **Resolve** arrive over Slack's
+  Socket Mode, so nothing reaches into the cluster from Slack.
+
+It needs a Slack app with Socket Mode and Interactivity on, a bot token (`xoxb-...`, `chat:write`, invited to
+the channel) and an app-level token (`xapp-...`, `connections:write`). garmr's README has a manifest that creates
+one. To try it on kind, keep each token in a file and run:
+
+```bash
+make dev/up && make dev/load
+SLACK_BOT_TOKEN_FILE=~/.config/garmr/slack-bot-token SLACK_APP_TOKEN_FILE=~/.config/garmr/slack-app-token \
+  make dev/garmr-slack SLACK_CHANNEL=C0123456789
+```
+
+That creates the Secret `garmr-slack`, turns on garmr's Slack and turns off Alertmanager's own Slack threads (one
+thread per incident is enough). The demo load's hourly payments incident then opens a thread with its
+enrichment, which resolves on its own 10 minutes later. On an Argo CD cluster, create `garmr-slack` yourself and
+set `slack: {enabled: true, channel: <ID>}` under `applications.garmr.values`.
+
 ### The alerting pipeline watches itself
 
 - **Watchdog:** a vmalert rule that always fires. Alertmanager sends it every minute to the `heartbeat`
@@ -758,7 +811,7 @@ Child apps carry sync waves:
 |---|---|
 | 0 | operator |
 | 1 | ClickHouse |
-| 2 | Cerberus, garmr sql-adapter |
+| 2 | Cerberus, garmr sql-adapter, garmr |
 | 3 | collector, Grafana, Alertmanager, vmalert |
 | 4 | demo-load |
 
@@ -785,7 +838,7 @@ once, under `secretEnv` (Secret name and key), and `vault.enabled` picks how the
 
 Vault mode needs the injector running in the cluster and the secrets already stored in Vault. The
 ClickHouse server, its schema Job, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
-`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
+`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
 both modes, so with Vault you sync those from Vault; `global.externalSecrets` below does that. The same goes for
 the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
 
@@ -809,7 +862,7 @@ global:
     remotePath: observability     # each Secret is read from <remotePath>/<Secret name>
 ```
 
-`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader` and `clickhouse-analyst` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
+`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst` and `clickhouse-garmr` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
 and `grafana-admin` (`admin-user`, `admin-password`) are then each an `ExternalSecret` with the same name, so the
 pods read the same Secrets as before. The chart doesn't install the operator or a store, and
 `make cluster/preflight` fails when the operator's CRD is missing. A node declares another Secret for this by
@@ -904,7 +957,7 @@ Everything is sized for light local testing:
 
 | component | memory request | memory cap |
 |---|---|---|
-| ClickHouse | 256 Mi | 1.5 Gi |
+| ClickHouse | 256 Mi | 1.625 Gi (128 Mi of it for the embedded Keeper) |
 | Grafana | 96 Mi | 1 Gi (peaks near 700 Mi with the Drilldown apps in use) |
 | Cerberus | 64 Mi | 384 Mi |
 | Collector | 64 Mi | 256 Mi |
@@ -912,6 +965,7 @@ Everything is sized for light local testing:
 | Alertmanager | 32 Mi | 128 Mi |
 | vmalert | 32 Mi | 128 Mi |
 | garmr sql-adapter | 16 Mi | 64 Mi |
+| garmr | 24 Mi | 64 Mi |
 | Collector agent (off; per node when on) | 32 Mi | 128 Mi |
 
 The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
@@ -1023,11 +1077,12 @@ else in `observability`.
 | app | name | namespace | Service ports | Secrets it reads (keys) | wave |
 |---|---|---|---|---|---|
 | operator | `clickhouse-operator` | `clickhouse-operator` | none; the pod exposes `9999` (metrics) | `clickhouse-operator-credentials` (`username`, `password`) | 0 |
-| ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader`, `otel_analyst` when the Secret is created) | 1 |
+| ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader`, `otel_analyst`, `otel_garmr` when the Secret is created) | 1 |
 | Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http, `8088` Alertmanager history | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
 | Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
 | garmr sql-adapter | `garmr-sql-adapter` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
+| garmr | `garmr` | `observability` | `8080` http | `clickhouse-garmr` (`password`); `garmr-slack` (`bot-token`, `app-token`) only with `slack.enabled` | 2 |
 | Alertmanager | `alertmanager` | `observability` | `9093` http | none | 3 |
 | vmalert | `vmalert` | `observability` | `8880` http | none | 3 |
 | demo load | `demo-load` | `observability` | none; it only sends | none | 4 |
@@ -1055,6 +1110,8 @@ once, for example to the DNS form a split namespace needs (`clickhouse.observabi
   `-notifier.url`, Grafana's `stack-alertmanager` contact point and its Alertmanager datasource read.
 - **SQL adapter URL**: `global.services.sqlAdapter` (default `http://garmr-sql-adapter:8080`), which vmalert's
   `-datasource.url` reads. The adapter itself reads `global.services.clickhouse`.
+- **garmr URL**: `global.services.garmr` (default `http://garmr:8080`), where Alertmanager's `garmr` receiver posts
+  and the collector scrapes garmr's metrics. garmr reads `global.services.clickhouse` and `global.services.alertmanager`.
 - **ClickHouse Secrets**: the `secretKeyRef`s in the installation, the schema Job, Cerberus and the collector,
   plus the Secrets every environment pre-creates.
 - **Namespace**: the operator's `watch.namespaces.include` must list `observability`, where the installation
@@ -1228,12 +1285,13 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
   controller), queries only Cerberus and Alertmanager, and reaches out on 443 for the OAuth provider and its plugins. Cerberus
   answers Grafana, and the collector's scrape. The collector accepts OTLP from any namespace and reaches ClickHouse (and its metrics port, 9363), Cerberus and Alertmanager for their metrics, the kubelets, and the API server (443 and 6443) for `k8sattributes` and `k8s_cluster`.
   vmalert reaches only garmr sql-adapter and Alertmanager; the adapter answers only vmalert and reaches only
-  ClickHouse. Alertmanager accepts Grafana and vmalert, and reaches only the collector's history endpoint.
-  ClickHouse accepts the collector (also on 9363), Cerberus, garmr sql-adapter, the schema Job, the backup job and the operator. The operator reaches the
+  ClickHouse. Alertmanager accepts Grafana, vmalert and garmr, and reaches the collector's history endpoint and garmr.
+  garmr answers Alertmanager and the collector's scrape, and reaches ClickHouse, Alertmanager and, with `slack.enabled`,
+  Slack on 443. ClickHouse accepts the collector (also on 9363), Cerberus, garmr sql-adapter, garmr, the schema Job, the backup job and the operator. The operator reaches the
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 
-- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
+- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas. The gateway's `k8sattributes` watches every pod in the cluster, so its memory grows with the pod count; the agent watches only its own node's pods.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.

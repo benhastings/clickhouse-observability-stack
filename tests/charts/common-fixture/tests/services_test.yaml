@@ -14,6 +14,7 @@ tests:
           otlpGrpc: '{{ include "common.serviceAddress" (list $ "otlpGrpc") }}'
           alertmanager: '{{ include "common.serviceAddress" (list $ "alertmanager") }}'
           sqlAdapter: '{{ include "common.serviceAddress" (list $ "sqlAdapter") }}'
+          garmr: '{{ include "common.serviceAddress" (list $ "garmr") }}'
           alertHistory: '{{ include "common.serviceAddress" (list $ "alertHistory") }}'
     documentSelector:
       path: metadata.name
@@ -27,6 +28,7 @@ tests:
             otlpGrpc: otel-collector:4317
             alertmanager: http://alertmanager:9093
             sqlAdapter: http://garmr-sql-adapter:8080
+            garmr: http://garmr:8080
             alertHistory: http://otel-collector:8088/alertmanager
 
   - it: fails on a service name global.services does not have

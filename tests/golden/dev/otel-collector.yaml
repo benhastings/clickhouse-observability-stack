@@ -247,6 +247,14 @@ data:
                 - source_labels: [__name__]
                   regex: http_server_request_duration_seconds_(bucket|count|sum)|cerberus_queries_total
                   action: keep
+            - job_name: garmr
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['garmr:8080']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: garmr_.+
+                  action: keep
       # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
       webhook_event:
         endpoint: 0.0.0.0:8088
@@ -530,7 +538,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: c0d338fad0c5ce26172aaa2384778a3e10548b62a83c530244c433e6a4721c2a
+        checksum/config: 8e416ddd824f4b384529d5f4d65b5b1cf65f9b9fe49aaf6f519a93473dd09f94
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true

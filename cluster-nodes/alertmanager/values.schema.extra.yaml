@@ -20,6 +20,11 @@ properties:
       required: [name]
       properties:
         name: {type: string}
+  garmr:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
   slack:
     type: object
     additionalProperties: false

@@ -61,6 +61,7 @@ schema, and to the template in the same change.
 | `global.services.otlpGrpc` | `otel-collector:4317` | where the demo load sends OTLP over gRPC |
 | `global.services.alertmanager` | `http://alertmanager:9093` | where rule evaluators send alerts |
 | `global.services.sqlAdapter` | `http://garmr-sql-adapter:8080` | where vmalert sends its ClickHouse SQL rules |
+| `global.services.garmr` | `http://garmr:8080` | where Alertmanager sends notifications to garmr serve |
 | `global.services.alertHistory` | `http://otel-collector:8088/alertmanager` | where Alertmanager posts every notification so it is kept in otel_logs |
 | `global.externalSecrets.enabled` | `false` | render an `ExternalSecret` in place of every Secret in `secrets` that has `external.keys` |
 | `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |

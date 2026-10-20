@@ -41,6 +41,16 @@ properties:
           backoffLimit: {type: integer, minimum: 0}
           activeDeadlineSeconds: {type: integer, minimum: 1}
           resources: {type: object}
+      keeper:
+        type: object
+        additionalProperties: false
+        properties:
+          embedded: {type: boolean}
+      garmr:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
       baselines:
         type: object
         additionalProperties: false
