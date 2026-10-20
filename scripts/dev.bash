@@ -6,6 +6,8 @@
 #   dev.bash remove <app>   uninstall one app
 #   dev.bash dashboards     save every dashboard in Grafana to cluster-nodes/grafana/dashboards/
 #   dev.bash slack <channel>  send alerts to Slack: the token in SLACK_APP_TOKEN, then Alertmanager with slack on
+#   dev.bash garmr-slack <channel ID>  garmr's incidents to Slack: the tokens in SLACK_BOT_TOKEN_FILE and
+#                           SLACK_APP_TOKEN_FILE, then garmr with slack on and Alertmanager's own Slack off
 #
 # Each app gets the release, namespace and values Argo CD would give it in the
 # local environment (see apps.bash). Sync waves become install order: helm
@@ -130,8 +132,26 @@ MSG
     kubectl -n observability rollout restart deployment/alertmanager >/dev/null
     echo "Alerts now go to $channel, one thread per alert group. Undo with make dev/apply APP=alertmanager."
     ;;
+  garmr-slack)
+    # garmr's Slack app has a bot token (xoxb-..., chat:write, invited to the channel) and an app-level token
+    # (xapp-..., connections:write) for Socket Mode. They go from their files into the Secret garmr-slack and
+    # nowhere else; the channel ID is a value.
+    channel="${2:?usage: SLACK_BOT_TOKEN_FILE=... SLACK_APP_TOKEN_FILE=... dev.bash garmr-slack <channel ID>}"
+    : "${SLACK_BOT_TOKEN_FILE:?set SLACK_BOT_TOKEN_FILE to the file holding the bot token (xoxb-...)}"
+    : "${SLACK_APP_TOKEN_FILE:?set SLACK_APP_TOKEN_FILE to the file holding the app-level token (xapp-...)}"
+    use_cluster
+    kubectl -n observability create secret generic garmr-slack \
+      --from-file=bot-token="$SLACK_BOT_TOKEN_FILE" --from-file=app-token="$SLACK_APP_TOKEN_FILE" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    # One thread per incident from garmr, so Alertmanager's own Slack threads go off.
+    apply alertmanager --set slack.enabled=false
+    apply garmr --set slack.enabled=true --set-string slack.channel="$channel"
+    kubectl -n observability rollout restart deployment/garmr >/dev/null
+    kubectl -n observability rollout status deployment/garmr --timeout=2m >/dev/null
+    echo "garmr now posts each incident to $channel. Undo with make dev/apply APP=garmr."
+    ;;
   *)
-    sed -n '2,8p' "$0"
+    sed -n '2,10p' "$0"
     exit 1
     ;;
 esac

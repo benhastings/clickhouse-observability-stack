@@ -8,8 +8,8 @@ persistence:
   storageClassName: ""
 
 # Where alerts go, after the stack's own routes, which files/alertmanager.yml.tpl always puts first: history
-# (every notification kept in otel_logs), heartbeat (vmalert's Watchdog, for a dead man's switch) and, with
-# slack.enabled, Slack. Everything else goes to the default receiver, which has no integrations: it is grouped,
+# (every notification kept in otel_logs), heartbeat (vmalert's Watchdog, for a dead man's switch), garmr with
+# garmr.enabled and, with slack.enabled, Slack. Everything else goes to the default receiver, which has no integrations: it is grouped,
 # shown in the UI and API, and sent nowhere. An environment adds receivers under receivers and routes under
 # route.routes (lists replace whole); a receiver outside the cluster also needs an egress rule under
 # networkPolicy.egress when global.networkPolicy.enabled.
@@ -22,6 +22,11 @@ route:
   routes: []
 receivers:
   - name: default
+
+# Every alert but the Watchdog also goes to garmr serve (the garmr node), which keeps an incident per alert group in
+# ClickHouse and, with its own slack.enabled, a Slack thread each. Turn Alertmanager's slack off when garmr's is on.
+garmr:
+  enabled: true
 
 # One Slack thread per alert group: the first notification posts a message, later ones (more alerts firing,
 # resolved) reply in its thread, and the message itself is kept current. Needs a Slack app's bot token
@@ -146,8 +151,8 @@ deployment:
       {{- end }}
 
 # With global.networkPolicy.enabled: only the rule evaluators (Grafana and vmalert) and the collector, which
-# scrapes its metrics, reach Alertmanager. Alertmanager reaches the collector for the history receiver and,
-# with slack.enabled, Slack's API on 443; another receiver outside the cluster adds its own rule.
+# scrapes its metrics, reach Alertmanager, and garmr, for silences. Alertmanager reaches the collector for the
+# history receiver, garmr with garmr.enabled and, with slack.enabled, Slack's API on 443; another receiver outside the cluster adds its own rule.
 networkPolicy:
   ingress:
     - from:
@@ -155,7 +160,7 @@ networkPolicy:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [grafana, vmalert, otel-collector]
+                values: [grafana, vmalert, otel-collector, garmr]
       ports:
         - port: 9093
           protocol: TCP
@@ -167,6 +172,15 @@ networkPolicy:
       ports:
         - port: 8088
           protocol: TCP
+    {{- if .Values.garmr.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: garmr
+      ports:
+        - port: 8080
+          protocol: TCP
+    {{- end }}
     {{- if .Values.slack.enabled }}
     - ports:
         - port: 443

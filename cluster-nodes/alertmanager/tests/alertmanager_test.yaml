@@ -40,7 +40,7 @@ tests:
           pattern: "receiver: default"
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "receivers:\\n- name: history\\n(.*\\n)*- name: heartbeat\\n- name: default\\nroute:"
+          pattern: "receivers:\\n- name: history\\n(.*\\n)*- name: heartbeat\\n- name: garmr\\n(.*\\n)*- name: default\\nroute:"
 
   - it: sends vmalert's Watchdog to the heartbeat receiver every minute, for a dead man's switch
     documentSelector:
@@ -143,14 +143,14 @@ tests:
           path: kind
           value: PersistentVolumeClaim
 
-  - it: lets only the rule evaluators, Grafana and vmalert, and the collector reach it when network policies are on
+  - it: lets only the rule evaluators, Grafana and vmalert, the collector and garmr reach it when network policies are on
     set:
       global.networkPolicy.enabled: true
     template: templates/networkpolicy.yaml
     asserts:
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
-          value: [grafana, vmalert, otel-collector]
+          value: [grafana, vmalert, otel-collector, garmr]
       - equal:
           path: spec.ingress[0].ports[0].port
           value: 9093
@@ -169,10 +169,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "(?s)receiver: history.*receiver: heartbeat.*receiver: pager"
+          pattern: "(?s)receiver: history.*receiver: heartbeat.*receiver: garmr.*receiver: pager"
       - matchRegex:
           path: data["alertmanager.yml"]
-          pattern: "- name: heartbeat\\n- name: default\\n- name: pager"
+          pattern: "(?s)- name: heartbeat\\n- name: garmr\\n.*- name: default\\n- name: pager"
 
   - it: loads the message templates, as written, from the alertmanager-templates ConfigMap
     asserts:
@@ -265,3 +265,42 @@ tests:
       - matchRegex:
           path: data["alertmanager.yml"]
           pattern: "(?s)receiver: heartbeat\\n.*\\n  - receiver: default\\ntemplates:"
+
+  - it: sends every alert but the Watchdog to garmr serve, one group per incident, updated every minute
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "- name: garmr\\n  webhook_configs:\\n  - send_resolved: true\\n    url: http://garmr:8080/api/v1/alertmanager"
+      - matchRegex:
+          path: data["alertmanager.yml"]
+          pattern: "(?s)receiver: heartbeat.*- continue: true\\n    group_by:\\n    - alertname\\n    - service_name\\n    group_interval: 1m\\n    receiver: garmr"
+
+  - it: reaches garmr when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: garmr
+            ports:
+              - port: 8080
+                protocol: TCP
+
+  - it: sends nothing to garmr when garmr is disabled
+    set:
+      garmr.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-config
+    asserts:
+      - notMatchRegex:
+          path: data["alertmanager.yml"]
+          pattern: garmr

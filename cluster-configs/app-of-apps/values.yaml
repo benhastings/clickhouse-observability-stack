@@ -20,6 +20,7 @@ nodes:
   - clickhouse
   - clickhouse-operator
   - demo-load
+  - garmr
   - garmr-sql-adapter
   - grafana
   - otel-collector
@@ -48,6 +49,8 @@ applications:
   cerberus:
     syncWave: 2
   garmr-sql-adapter:
+    syncWave: 2
+  garmr:
     syncWave: 2
   otel-collector:
     syncWave: 3

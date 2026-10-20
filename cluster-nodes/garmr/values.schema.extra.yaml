@@ -1,0 +1,8 @@
+# This node's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
+properties:
+  slack:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
+      channel: {type: string}

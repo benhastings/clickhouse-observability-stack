@@ -9,6 +9,8 @@ serviceAccount:
 #   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus
 #   clickhouse-analyst otel_analyst, SELECT on otel.*, otel_baseline.*, otel_features.*, otel_slo.*, INSERT on otel_ml.*;
 #                      notebooks and jobs, under clickhouse.analyst's limits
+#   clickhouse-garmr   otel_garmr, with clickhouse.garmr: SELECT, INSERT, ALTER UPDATE and ALTER DELETE on
+#                      garmr.*, SELECT on otel.*, otel_features.*, otel_baseline.*; garmr serve
 # With global.externalSecrets.enabled, each is synced from <remotePath>/<its name>.
 secrets:
   admin:
@@ -35,6 +37,12 @@ secrets:
       username: otel_analyst
     external:
       keys: [username, password]
+  garmr:
+    create: false
+    stringData:
+      username: otel_garmr
+    external:
+      keys: [username, password]
   # The backup CronJob's S3 credentials, keys access_key and secret_key. Never created here: an environment
   # that turns on clickhouse.backup pre-creates clickhouse-backup or sets create: true with its own stringData.
   backup:
@@ -59,8 +67,9 @@ clickhouse:
     # ClickHouse checks its memory cap (90% of this, files/installation.yaml.tpl) against its resident memory,
     # which carries about 460 MiB of its own binary and what jemalloc keeps resident. 1 Gi left too little
     # room after a few hours of uptime (#206); the cgroup itself stays near 460 MiB.
+    # Plus 128 MiB for the embedded Keeper (clickhouse.keeper), which counts against the same cap.
     limits:
-      memory: 1536Mi
+      memory: 1664Mi
   lowMemory: true
   # otel_analyst's settings profile and hourly quota, so a notebook can't starve ingestion or Grafana. Each
   # limit is also a constraint: the analyst may lower it for a session but not raise it. priority runs its
@@ -92,6 +101,13 @@ clickhouse:
         memory: 64Mi
       limits:
         memory: 256Mi
+  # A Keeper inside the ClickHouse server, for KeeperMap tables. One server only: more shards or replicas fail the
+  # render, and need a ClickHouseKeeperInstallation.
+  keeper:
+    embedded: true
+  # garmr's tables (files/garmr.sql, the garmr node's schema) and its user otel_garmr. Needs keeper.
+  garmr:
+    enabled: true
   # Anomaly baselines, computed by refreshable views in the otel_baseline database (see files/schema.sql.tpl):
   # the hour-of-week median and MAD of each signal per service over the last weeks, written back as
   # baseline:<signal>:median, :mad and :samples gauge series. signals is the allowlist of what gets one.
@@ -181,7 +197,7 @@ configMaps:
       schema.sql: '{{ tpl (.Files.Get "files/schema.sql.tpl") . }}'
 
 # With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
-# operator's own label. The collector, Cerberus, garmr sql-adapter, the schema Job and the backup job reach the native and HTTP ports, the
+# operator's own label. The collector, Cerberus, garmr sql-adapter, garmr serve, the schema Job and the backup job reach the native and HTTP ports, the
 # operator reaches them from its namespace, the collector scrapes the Prometheus port, and replicas reach each
 # other on the interserver port.
 networkPolicy:
@@ -194,7 +210,7 @@ networkPolicy:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, clickhouse-schema, clickhouse-backup]
+                values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, clickhouse-schema, clickhouse-backup]
       ports:
         - port: 9000
           protocol: TCP

@@ -1,0 +1,158 @@
+suite: garmr
+release:
+  name: garmr
+  namespace: observability
+tests:
+  - it: serves Alertmanager's webhook on garmr:8080, where Alertmanager posts
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: garmr
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+
+  - it: runs the serve subcommand
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [serve]
+
+  - it: writes to clickhouse:9000 as otel_garmr, and silences through alertmanager:9093
+    documentSelector:
+      path: metadata.name
+      value: garmr-env
+    asserts:
+      - equal:
+          path: data.CLICKHOUSE_ADDR
+          value: clickhouse:9000
+      - equal:
+          path: data.CLICKHOUSE_USER
+          value: otel_garmr
+      - equal:
+          path: data.GARMR_DATABASE
+          value: garmr
+      - equal:
+          path: data.GARMR_ALERTMANAGER_URL
+          value: http://alertmanager:9093
+
+  - it: reads the ClickHouse password from clickhouse-garmr
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-garmr
+                key: password
+
+  - it: posts nothing to Slack, mounts no token and opens no egress, by default
+    set:
+      global.networkPolicy.enabled: true
+    asserts:
+      - equal:
+          path: data.SLACK_BOT_TOKEN_FILE
+          value: ""
+        documentSelector:
+          path: metadata.name
+          value: garmr-env
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: slack
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 443
+                protocol: TCP
+        template: templates/networkpolicy.yaml
+
+  - it: keeps a Slack thread per incident when slack is enabled, with the tokens from garmr-slack
+    set:
+      slack.enabled: true
+      slack.channel: C0DEMO
+      global.networkPolicy.enabled: true
+    asserts:
+      - equal:
+          path: data
+          value:
+            CLICKHOUSE_ADDR: clickhouse:9000
+            CLICKHOUSE_USER: otel_garmr
+            GARMR_DATABASE: garmr
+            GARMR_ALERTMANAGER_URL: http://alertmanager:9093
+            GARMR_TRACE_URL: ""
+            GARMR_LISTEN_ADDRESS: ":8080"
+            GARMR_LOG_FORMAT: json
+            SLACK_CHANNEL: C0DEMO
+            SLACK_BOT_TOKEN_FILE: /etc/garmr/slack/bot-token
+            SLACK_APP_TOKEN_FILE: /etc/garmr/slack/app-token
+        documentSelector:
+          path: metadata.name
+          value: garmr-env
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: slack
+            secret:
+              secretName: garmr-slack
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 443
+                protocol: TCP
+        template: templates/networkpolicy.yaml
+
+  - it: refuses Slack without a channel
+    set:
+      slack.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: slack.channel is required when slack.enabled
+
+  - it: answers only Alertmanager and the collector, and reaches ClickHouse and Alertmanager, when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
+          value: [alertmanager, otel-collector]
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    clickhouse.altinity.com/chi: otel
+            ports:
+              - port: 9000
+                protocol: TCP
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: alertmanager
+            ports:
+              - port: 9093
+                protocol: TCP

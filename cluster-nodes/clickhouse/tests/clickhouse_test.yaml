@@ -338,6 +338,8 @@ tests:
   - it: sets replicasCount from clickhouse.replicas alone
     set:
       clickhouse.replicas: 3
+      clickhouse.keeper.embedded: false
+      clickhouse.garmr.enabled: false
     documentSelector:
       path: kind
       value: ClickHouseInstallation
@@ -598,7 +600,7 @@ tests:
             name: vault-backend
     asserts:
       - hasDocuments:
-          count: 4
+          count: 5
         template: templates/externalsecret.yaml
       - equal:
           path: spec.target.name
@@ -652,7 +654,7 @@ tests:
             clickhouse.altinity.com/chi: otel
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].values
-          value: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, clickhouse-schema, clickhouse-backup]
+          value: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, clickhouse-schema, clickhouse-backup]
 
   - it: asks for the Istio sidecar on the operator-created ClickHouse pods when the mesh is istio
     documentSelector:
@@ -682,3 +684,71 @@ tests:
       - equal:
           path: spec.templates.podTemplates[0].metadata.annotations["traffic.sidecar.istio.io/excludeInboundPorts"]
           value: "8123"
+
+  - it: runs an embedded Keeper with the KeeperMap prefix, for garmr's state
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - matchRegex:
+          path: spec.configuration.files["config.d/keeper.xml"]
+          pattern: "(?s)<keeper_server>.*<log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>.*<keeper_map_path_prefix>/keeper_map_tables</keeper_map_path_prefix>"
+
+  - it: gives garmr a user that writes only garmr's tables and reads the telemetry, from clickhouse-garmr
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - equal:
+          path: spec.configuration.users["otel_garmr/grants/query"]
+          value: ["GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*", GRANT SELECT ON otel.*, GRANT SELECT ON otel_features.*, GRANT SELECT ON otel_baseline.*]
+      - equal:
+          path: spec.configuration.users["otel_garmr/password"].valueFrom.secretKeyRef
+          value:
+            name: clickhouse-garmr
+            key: password
+
+  - it: creates garmr's state and history tables in the schema
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "(?s)CREATE TABLE IF NOT EXISTS garmr.open_incidents.*ENGINE = KeeperMap\\('/garmr/open_incidents', 10000\\).*CREATE TABLE IF NOT EXISTS garmr.incidents"
+
+  - it: has no garmr user, tables or Keeper when both are off
+    set:
+      clickhouse.garmr.enabled: false
+      clickhouse.keeper.embedded: false
+    asserts:
+      - notExists:
+          path: spec.configuration.users["otel_garmr/grants/query"]
+        documentSelector:
+          path: kind
+          value: ClickHouseInstallation
+      - notExists:
+          path: spec.configuration.files["config.d/keeper.xml"]
+        documentSelector:
+          path: kind
+          value: ClickHouseInstallation
+      - notMatchRegex:
+          path: data["schema.sql"]
+          pattern: garmr
+        documentSelector:
+          path: kind
+          value: ConfigMap
+
+  - it: refuses garmr without a Keeper
+    set:
+      clickhouse.keeper.embedded: false
+    asserts:
+      - failedTemplate:
+          errorPattern: clickhouse.garmr.enabled needs clickhouse.keeper.embedded
+
+  - it: refuses the embedded Keeper on more than one server
+    set:
+      clickhouse.replicas: 2
+    asserts:
+      - failedTemplate:
+          errorPattern: clickhouse.keeper.embedded runs one Keeper inside one server

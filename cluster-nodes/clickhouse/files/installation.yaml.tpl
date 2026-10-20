@@ -1,4 +1,10 @@
 {{- $ch := .Values.clickhouse }}
+{{- if and $ch.garmr.enabled (not $ch.keeper.embedded) }}
+{{- fail "clickhouse.garmr.enabled needs clickhouse.keeper.embedded: garmr keeps its open incidents in a KeeperMap table" }}
+{{- end }}
+{{- if and $ch.keeper.embedded (gt (mul (int $ch.shards) (int $ch.replicas)) 1) }}
+{{- fail "clickhouse.keeper.embedded runs one Keeper inside one server; more shards or replicas need a ClickHouseKeeperInstallation" }}
+{{- end }}
 apiVersion: clickhouse.altinity.com/v1
 kind: ClickHouseInstallation
 metadata:
@@ -14,13 +20,18 @@ spec:
     # privilege; the others have only theirs. The schema's materialized views run as otel_admin, so an
     # insert as otel_writer needs no SELECT. otel_reader also reads the anomaly baselines, the SLO views and
     # the baselines' refresh status, for vmalert's rules. otel_analyst reads the telemetry, the feature views and the SLOs, and
-    # writes only to otel_ml, under its own profile and quota.
+    # writes only to otel_ml, under its own profile and quota. With clickhouse.garmr, otel_garmr writes garmr's
+    # own tables (ALTER UPDATE and DELETE for the state in garmr.open_incidents) and reads the telemetry it
+    # enriches incidents from.
     users:
       {{- $users := dict
         "admin" (dict "grants" list "profile" "default")
         "writer" (dict "grants" (list "INSERT ON otel.*") "profile" "default")
         "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_slo.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks") "profile" "default")
         "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "SELECT ON otel_slo.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
+      {{- if $ch.garmr.enabled }}
+      {{- $_ := set $users "garmr" (dict "grants" (list "SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*" "SELECT ON otel.*" "SELECT ON otel_features.*" "SELECT ON otel_baseline.*") "profile" "default") }}
+      {{- end }}
       {{- range $user, $u := $users }}
       otel_{{ $user }}/password:
         valueFrom:
@@ -72,6 +83,36 @@ spec:
             <errors>true</errors>
           </prometheus>
         </clickhouse>
+      {{- if $ch.keeper.embedded }}
+      # A Keeper inside this server, for KeeperMap tables (garmr's open incidents), with its log and snapshots
+      # on the data volume. It costs about 70 MiB of resident memory (benhastings/garmr#2).
+      config.d/keeper.xml: |
+        <clickhouse>
+          <keeper_server>
+            <tcp_port>9181</tcp_port>
+            <server_id>1</server_id>
+            <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+            <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+            <coordination_settings>
+              <session_timeout_ms>30000</session_timeout_ms>
+            </coordination_settings>
+            <raft_configuration>
+              <server>
+                <id>1</id>
+                <hostname>localhost</hostname>
+                <port>9234</port>
+              </server>
+            </raft_configuration>
+          </keeper_server>
+          <zookeeper>
+            <node>
+              <host>localhost</host>
+              <port>9181</port>
+            </node>
+          </zookeeper>
+          <keeper_map_path_prefix>/keeper_map_tables</keeper_map_path_prefix>
+        </clickhouse>
+      {{- end }}
       {{- if $ch.lowMemory }}
       # A fixed cap at 90% of the container: ClickHouse checks its resident memory against it, and that
       # includes about 460 MiB of the server binary's own code, so 75% left a 1 GiB container about 300 MiB

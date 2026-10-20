@@ -82,6 +82,7 @@ add a target. `make help` lists everything.
 | `make dev/load`, `dev/load/stop` | starts or stops the demo load in the `dev/up` cluster                    |
 | `make dev/dashboards`       | saves every dashboard in the `dev/up` Grafana to `cluster-nodes/grafana/dashboards/` |
 | `make dev/slack SLACK_CHANNEL=<channel>` | with `SLACK_APP_TOKEN` set: the `alertmanager-slack` Secret, then Alertmanager with Slack threads on |
+| `make dev/garmr-slack SLACK_CHANNEL=<ID>` | with `SLACK_BOT_TOKEN_FILE` and `SLACK_APP_TOKEN_FILE` set: the `garmr-slack` Secret, then garmr with Slack on and Alertmanager's off |
 | `make dev/port-forward`, `dev/down` | the `cluster/...` equivalents for the `dev/up` cluster                |
 
 GNU make is required. On macOS use `gmake`, which is what `git/hooks/pre-commit` does.
@@ -133,7 +134,7 @@ digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at 
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
 for both demo services, a payments error ratio near 25%, a checkout server error ratio under 5%, service-graph metrics, node
 CPU and memory and per-pod memory from `kubeletstats`, the demo load's available replicas, container restarts and node readiness from `k8s_cluster` (and the replica holding its Lease), the demo load's pod Scheduled and Started as Kubernetes event logs, checkout logs, failing payments traces, a log's `trace_id`
-opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboards (Span metrics, Alert hygiene, SLOs, Stack health and Kubernetes), the service dashboard's heatmap, error-log and service-graph queries, its Resources row and its Kubernetes events annotation, trace_id exemplars on the span metrics, the calls the Logs, Traces and Metrics Drilldown apps make on first load (log volume, patterns, detected fields and labels, TraceQL metrics, tag and label names), an alert posted to Alertmanager (listed through Grafana's Alertmanager datasource, and kept as a log by the history receiver: firing, then resolved with its duration), otel_analyst reading traces and the otel_features tables, and writing a score Cerberus serves as an ml: series, but refused a write to otel, a query over its memory cap and a raised limit, every vmalert rule evaluating through garmr sql-adapter, the Watchdog reaching the heartbeat receiver, Alertmanager's notification counters scraped into ClickHouse, and the collector's own telemetry, ClickHouse's and Cerberus's metrics scraped the same way, CollectorRefusingData's query counting two refused-items samples written an hour back, the anomaly baseline views refreshing into a series Cerberus serves, each demo service's SLIs and error budget read as otel_reader (payments burning its budget at 95%, checkout not, also as `slo:*` series through Cerberus), Grafana's error-ratio rule reaching Alertmanager, and the demo load's injected payments incident: no anomaly alert before it, ErrorRatioAnomaly firing during it (printing its baseline, and agreeing with the PromQL reference rule), and resolving after, and the SLO alerts: no page before the incident, the 6× availability page and the 1× ticket for payments during it with nothing for checkout. Argo CD pulls the
+opening its trace, a trace's ID finding its logs, healthy Grafana datasources, the provisioned dashboards (Span metrics, Alert hygiene, SLOs, Stack health and Kubernetes), the service dashboard's heatmap, error-log and service-graph queries, its Resources row and its Kubernetes events annotation, trace_id exemplars on the span metrics, the calls the Logs, Traces and Metrics Drilldown apps make on first load (log volume, patterns, detected fields and labels, TraceQL metrics, tag and label names), an alert posted to Alertmanager (listed through Grafana's Alertmanager datasource, and kept as a log by the history receiver: firing, then resolved with its duration, and opening a garmr incident that its resolution closes into `garmr.incidents`), otel_analyst reading traces and the otel_features tables, and writing a score Cerberus serves as an ml: series, but refused a write to otel, a query over its memory cap and a raised limit, every vmalert rule evaluating through garmr sql-adapter, the Watchdog reaching the heartbeat receiver, Alertmanager's notification counters scraped into ClickHouse, and the collector's own telemetry, ClickHouse's and Cerberus's metrics scraped the same way, CollectorRefusingData's query counting two refused-items samples written an hour back, the anomaly baseline views refreshing into a series Cerberus serves, each demo service's SLIs and error budget read as otel_reader (payments burning its budget at 95%, checkout not, also as `slo:*` series through Cerberus), Grafana's error-ratio rule reaching Alertmanager, and the demo load's injected payments incident: no anomaly alert before it, ErrorRatioAnomaly firing during it (printing its baseline, and agreeing with the PromQL reference rule), and resolving after, and the SLO alerts: no page before the incident, the 6× availability page and the 1× ticket for payments during it with nothing for checkout. Argo CD pulls the
 commit from GitHub, so e2e runs on pushed commits only.
 
 `scripts/e2e.bash` also runs against a cluster without Argo CD (`make helm/install`, `make dev/up`): it then waits
@@ -146,7 +147,7 @@ PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules,
 ### Cluster nodes
 
 `cluster-nodes/<app>/` is one Helm chart per app: `clickhouse-operator`, `clickhouse`, `cerberus`,
-`otel-collector`, `grafana`, `alertmanager`, `vmalert`, `garmr-sql-adapter` and `demo-load`. Each has the same shape:
+`otel-collector`, `grafana`, `alertmanager`, `vmalert`, `garmr-sql-adapter`, `garmr` and `demo-load`. Each has the same shape:
 
 ```text
 Chart.yaml               no dependencies; appVersion is the app's version
@@ -173,9 +174,9 @@ tests/*_test.yaml        helm-unittest suites
   operator means replacing them from the new release.
 - **Node tests pin the contracts between apps**: the Secret each app reads (`clickhouse-writer` for the
   collector, `clickhouse-reader` for Cerberus and garmr sql-adapter, `clickhouse-admin` for the schema Job and backups,
-  `clickhouse-analyst` for notebooks), the users and
-  their grants (`otel_writer` INSERT, `otel_reader` SELECT, both on `otel.*`; `otel_analyst` SELECT, INSERT only on `otel_ml.*`), the Service names and ports they
-  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`, `alertmanager:9093`, `garmr-sql-adapter:8080`), and the schema ownership rule
+  `clickhouse-analyst` for notebooks, `clickhouse-garmr` for garmr), the users and
+  their grants (`otel_writer` INSERT, `otel_reader` SELECT, both on `otel.*`; `otel_analyst` SELECT, INSERT only on `otel_ml.*`; `otel_garmr` writes only `garmr.*`), the Service names and ports they
+  dial (`clickhouse:9000`, `cerberus:8080`, `otel-collector:4317`, `alertmanager:9093`, `garmr-sql-adapter:8080`, `garmr:8080`), and the schema ownership rule
   (`create_schema: false`, `CERBERUS_AUTO_CREATE_SCHEMA: "false"`). Keep them when you change a node.
 
 ### Tests

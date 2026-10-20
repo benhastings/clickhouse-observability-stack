@@ -112,6 +112,11 @@ if app_enabled clickhouse; then
     fi
   done
 fi
+# garmr's ClickHouse user exists unless the environment turns clickhouse.garmr off.
+if app_enabled clickhouse && [[ "$(yq '.applications.clickhouse.values.clickhouse.garmr.enabled' "$values")" != false ]] &&
+  [[ "$(yq '.applications.clickhouse.values.secrets.garmr.create' "$values")" != true ]]; then
+  require_declared_secret "$default_namespace" clickhouse-garmr "clickhouse, garmr serve"
+fi
 if app_enabled grafana &&
   [[ "$(yq '.applications.grafana.values.secrets.admin.create' "$values")" != true ]]; then
   require_declared_secret "$default_namespace" grafana-admin "grafana"

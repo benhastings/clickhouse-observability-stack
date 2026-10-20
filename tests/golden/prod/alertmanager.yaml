@@ -38,6 +38,10 @@ data:
         send_resolved: true
         url: http://otel-collector:8088/alertmanager
     - name: heartbeat
+    - name: garmr
+      webhook_configs:
+      - send_resolved: true
+        url: http://garmr:8080/api/v1/alertmanager
     - name: default
     route:
       group_by:
@@ -63,6 +67,12 @@ data:
         - alertname="Watchdog"
         receiver: heartbeat
         repeat_interval: 1m
+      - continue: true
+        group_by:
+        - alertname
+        - service_name
+        group_interval: 1m
+        receiver: garmr
       - receiver: default
     templates:
     - /etc/alertmanager/templates/*.tmpl
@@ -155,7 +165,7 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/instance: alertmanager
       annotations:
-        checksum/config: 5c5d2855f853c4e629c30ec188d8b2eeb4f97745f045d3925306937cd2179fbb
+        checksum/config: d0d44813dc18fa758e9eff60dec1159d7e09e8a03972929886d9647eb01246b9
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false

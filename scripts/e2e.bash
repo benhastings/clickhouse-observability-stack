@@ -551,6 +551,26 @@ poll "LogQL: notifications count per alertname, as the alert hygiene dashboard r
   "[.data.result[].metric.alertname] | index(\"$e2e_alert\") != null" \
   "$cerberus/loki/api/v1/query" \
   --data-urlencode 'query=sum by (alertname) (count_over_time({service_name="alertmanager"} | status="firing" [15m]))'
+# garmr serve gets every notification too, one incident per alert group. garmr_until <want> <query> polls a
+# query as otel_admin until it prints want.
+garmr_until() {
+  local want=$1 query=$2 got deadline=$((SECONDS + DATA_TIMEOUT))
+  until got="$(clickhouse_as admin "$query")" && [[ "$got" == "$want" ]]; do
+    if ((SECONDS > deadline)); then
+      echo "  want $want, got: ${got:-nothing}"
+      kubectl -n observability logs deploy/garmr --tail=50 || true
+      exit 1
+    fi
+    sleep 10
+  done
+  echo "  ok"
+}
+# Its route waits group_wait before the first notification, and Alertmanager sends no resolved notification
+# for a group it never notified, so wait for the incident before resolving the alert.
+step "garmr: $e2e_alert opened an incident, with its alert events"
+garmr_until $'1\t1' "SELECT
+    (SELECT count() FROM garmr.open_incidents WHERE title = '$e2e_alert'),
+    (SELECT count() FROM garmr.alert_events WHERE alertname = '$e2e_alert' AND status = 'firing') > 0"
 # Resolve it the way an evaluator would, by posting it again with endsAt. The history log of the resolved
 # notification carries how long the alert fired, which the dashboard's time-to-resolve panel reads.
 curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
@@ -562,6 +582,11 @@ poll "LogQL: the resolved notification records how long $e2e_alert fired" \
   "[.data.result[] | select(.metric.alertname == \"$e2e_alert\") | .value[1] | tonumber] | length == 1 and .[0] >= 0" \
   "$cerberus/loki/api/v1/query" \
   --data-urlencode 'query=quantile_over_time(0.5, {service_name="alertmanager"} | status="resolved" | unwrap duration_seconds [15m]) by (alertname)'
+
+step "garmr: $e2e_alert's resolution closed its incident into history"
+garmr_until $'1\t0' "SELECT
+    (SELECT count() FROM garmr.incidents WHERE title = '$e2e_alert' AND resolved_by = 'alertmanager'),
+    (SELECT count() FROM garmr.open_incidents WHERE title = '$e2e_alert')"
 
 # vmalert evaluates every rule as ClickHouse SQL through garmr sql-adapter. A rule whose SQL fails is health
 # "err" with ClickHouse's message, so every rule evaluated and healthy proves vmalert -> adapter -> ClickHouse.
