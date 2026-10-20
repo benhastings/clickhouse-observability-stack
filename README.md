@@ -6,6 +6,11 @@ A GitOps deployment of an OpenTelemetry pipeline that stores **traces, logs and 
 
 One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared set of templates, `helm-templates/common`. It's sized for a laptop and verified end to end on a local kind cluster.
 
+**New here?** [docs/getting-started.md](docs/getting-started.md) walks through installing it on a real cluster
+step by step, with the Kubernetes and observability terms explained as they come up, and
+[docs/runbook.md](docs/runbook.md) covers checking it, smoke-testing it, what each alert means, and fixes by
+symptom.
+
 ```mermaid
 flowchart LR
     APP[Apps / demo-load] -- OTLP --> COL[OTel Collector<br/>contrib]
@@ -227,7 +232,8 @@ Export before the pod restarts (`make dev/apply APP=grafana` restarts it), or th
 
 ## Install
 
-The kind quick start above is for a laptop. On any other cluster, pick one of three paths. All of them deploy
+The kind quick start above is for a laptop. For a first install on a shared cluster, follow
+[docs/getting-started.md](docs/getting-started.md), which takes the Helm path below one step at a time. On any other cluster, pick one of three paths. All of them deploy
 the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make env/new NAME=<env>` writes one).
 
 | Path | You have | You run |
@@ -1133,7 +1139,8 @@ the network does: image pulls and the Argo CD chart.
 
 ## Troubleshooting
 
-These problems all came up while building this, and the fixes are already in the repo.
+[docs/runbook.md](docs/runbook.md) is the operator's view: daily checks, a smoke test, every alert, and fixes by
+symptom. The problems below all came up while building this, and the fixes are already in the repo.
 
 Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` checks the current context and prints what is missing; it installs nothing. It checks that the cluster is at least the Kubernetes version the manifests are rendered against, that each destination namespace exists or can be created, that the Secrets the environment doesn't create exist, that there is a StorageClass for the ClickHouse volume, that Istio's CRDs are installed when `global.mesh` is `istio` (the default), and that the Vault Agent Injector is installed when `vault.enabled` is true.
 
