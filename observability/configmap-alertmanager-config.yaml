@@ -21,6 +21,10 @@ data:
         send_resolved: true
         url: http://otel-collector:8088/alertmanager
     - name: heartbeat
+    - name: garmr
+      webhook_configs:
+      - send_resolved: true
+        url: http://garmr:8080/api/v1/alertmanager
     - name: default
     route:
       group_by:
@@ -46,6 +50,12 @@ data:
         - alertname="Watchdog"
         receiver: heartbeat
         repeat_interval: 1m
+      - continue: true
+        group_by:
+        - alertname
+        - service_name
+        group_interval: 1m
+        receiver: garmr
       - receiver: default
     templates:
     - /etc/alertmanager/templates/*.tmpl

@@ -20,6 +20,32 @@ spec:
           shardsCount: 1
         name: main
     files:
+      config.d/keeper.xml: |
+        <clickhouse>
+          <keeper_server>
+            <tcp_port>9181</tcp_port>
+            <server_id>1</server_id>
+            <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+            <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+            <coordination_settings>
+              <session_timeout_ms>30000</session_timeout_ms>
+            </coordination_settings>
+            <raft_configuration>
+              <server>
+                <id>1</id>
+                <hostname>localhost</hostname>
+                <port>9234</port>
+              </server>
+            </raft_configuration>
+          </keeper_server>
+          <zookeeper>
+            <node>
+              <host>localhost</host>
+              <port>9181</port>
+            </node>
+          </zookeeper>
+          <keeper_map_path_prefix>/keeper_map_tables</keeper_map_path_prefix>
+        </clickhouse>
       config.d/prometheus.xml: |
         <clickhouse>
           <prometheus>
@@ -74,6 +100,21 @@ spec:
             name: clickhouse-analyst
       otel_analyst/profile: analyst
       otel_analyst/quota: analyst
+      otel_garmr/grants/query:
+        - GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*
+        - GRANT SELECT ON otel.*
+        - GRANT SELECT ON otel_features.*
+        - GRANT SELECT ON otel_baseline.*
+      otel_garmr/networks/ip:
+        - 0.0.0.0/0
+        - ::/0
+      otel_garmr/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-garmr
+      otel_garmr/profile: default
+      otel_garmr/quota: default
       otel_reader/grants/query:
         - GRANT SELECT ON otel.*
         - GRANT SELECT ON otel_baseline.*

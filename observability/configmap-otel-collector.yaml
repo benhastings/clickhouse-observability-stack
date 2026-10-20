@@ -230,6 +230,14 @@ data:
                 - source_labels: [__name__]
                   regex: http_server_request_duration_seconds_(bucket|count|sum)|cerberus_queries_total
                   action: keep
+            - job_name: garmr
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['garmr:8080']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: garmr_.+
+                  action: keep
       # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
       webhook_event:
         endpoint: 0.0.0.0:8088

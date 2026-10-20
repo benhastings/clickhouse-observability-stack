@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/instance: alertmanager
       annotations:
-        checksum/config: bbbf6d05ca55b2e9d8fbd01cf7f95981c27ccf0a5a1bc61ad121f11ed76e6085
+        checksum/config: d3fae92063a4153f58b9ff98a710f709ba9ed62be728f0b0063043515cc360d2
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false
