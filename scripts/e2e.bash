@@ -304,6 +304,14 @@ memory_expr="$(panel_expr 'Memory working set')"
 poll "Dashboard: the Resources row draws the working set of payments' pod" \
   '[.data.result[] | select(.value[1] | tonumber > 0)] | length > 0' \
   "$cerberus/api/v1/query" --data-urlencode "query=${memory_expr//\$pod/$payments_pods}"
+# The Kubernetes events annotations read the same pods' events from kubernetes-events.
+events_expr="$(jq -r '.annotations.list[] | select(.name == "Kubernetes events") | .expr' \
+  cluster-nodes/grafana/dashboards/span-metrics.json)"
+poll "Dashboard: the Kubernetes events annotation shows payments' pod Started" \
+  '[.data.result[].stream.k8s_event_reason] | index("Started") != null' \
+  "$cerberus/loki/api/v1/query_range" --data-urlencode "query=${events_expr//\$pod/$payments_pods}" \
+  --data-urlencode "start=$(($(date +%s) - 3600))000000000" --data-urlencode "end=$(($(date +%s) + 60))000000000" \
+  --data-urlencode 'limit=50'
 # The Drilldown apps call more of each API than Explore does. These are the calls each one makes on first load,
 # through Grafana's datasource proxy as the apps send them.
 proxy="$grafana/api/datasources/proxy/uid"

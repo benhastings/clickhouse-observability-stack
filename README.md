@@ -96,6 +96,8 @@ Below those, the dashboard has a latency heatmap of payments' and checkout's ser
 
 At the bottom, **Resources** shows the pods that serve the selected services: CPU against requests, memory working set against requests and limits, and each container's restarts and last termination reason (`OOMKilled` when it hit its limit). It finds them by the `k8s.pod.name` the collector adds to their spans. On kind both payments and checkout come from the one `demo-load` pod, so both show it.
 
+The same pods' Kubernetes events are annotations on every chart: **Kubernetes warnings** in orange (probe failures, OOM kills, failed pulls) and **Kubernetes events** in blue (scheduling, pulls, starts, kills), titled by reason and object. A spike that starts as a pod restarts shows it, next to the red and green **Alerts firing** and **Alerts resolved** marks. Turn a layer off from the toggles at the top of the dashboard.
+
 A tour from a failing metric to its cause and back, on kind:
 
 1. On **Span metrics (RED)**, click payments' line on **Error rate**, then **Traces Drilldown: errors of payments**.
