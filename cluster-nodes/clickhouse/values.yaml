@@ -7,7 +7,7 @@ serviceAccount:
 #   clickhouse-admin   otel_admin, every privilege; only the schema Job and the backup CronJob use it
 #   clickhouse-writer  otel_writer, INSERT on otel.*; the collector
 #   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus
-#   clickhouse-analyst otel_analyst, SELECT on otel.*, otel_baseline.*, otel_features.*, INSERT on otel_ml.*;
+#   clickhouse-analyst otel_analyst, SELECT on otel.*, otel_baseline.*, otel_features.*, otel_slo.*, INSERT on otel_ml.*;
 #                      notebooks and jobs, under clickhouse.analyst's limits
 # With global.externalSecrets.enabled, each is synced from <remotePath>/<its name>.
 secrets:

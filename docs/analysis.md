@@ -17,12 +17,15 @@ reading it from Python and writing a model's scores back as series Grafana and v
 | `otel_features.trace_summary` | one trace | `TraceId`, `Start`, `DurationMs`, `RootService`, `RootOperation`, `RootRoute`, `Spans`, `Errors`, `Services` |
 | `otel_features.log_templates` | one message template of one service in one minute | `Minute`, `ServiceName`, `SeverityText`, `Template`, `TemplateHash`, `Count`, `Example` |
 | `otel_ml.scores` | one score a model wrote | `Time`, `Model`, `ServiceName`, `Signal`, `Value` |
+| `otel_slo.sli_1m` | one service's server spans in one minute | `Minute`, `ServiceName`, `Requests`, `Errors`, `Slow` (over the service's latency threshold) |
+| `otel_slo.sli(at = …, minutes = …)` | one service's SLIs over the window ending two minutes before `at` | `service_name`, `requests`, `availability`, `availability_objective`, `availability_burn_rate`, `latency`, `latency_objective`, `latency_threshold_ms`, `latency_burn_rate` |
+| `otel_slo.budget(at = …)` | one service's error budget over the SLO window | `service_name`, `availability`, `availability_budget_remaining`, `latency`, `latency_budget_remaining` (1 is untouched, below 0 is overspent) |
 
 OpenTelemetry attributes land in map columns by where they were set: resource attributes (`service.name`,
 `k8s.pod.name`, `deployment.environment.name`) in `ResourceAttributes`, a span's own in `SpanAttributes`, a log
 record's in `LogAttributes`, a metric point's in `Attributes`. Read one with `SpanAttributes['http.route']`.
-Cerberus shows the same attributes as labels with dots turned into underscores (`k8s_pod_name`). `otel_slo`
-(the SLO views) is read by vmalert and Grafana, not by `otel_analyst`.
+Cerberus shows the same attributes as labels with dots turned into underscores (`k8s_pod_name`). The SLO
+views are the ones vmalert's rules and the SLOs dashboard read, so a notebook's answer matches the alert's.
 
 ## Connecting
 
@@ -96,6 +99,19 @@ def show(parent, depth=0):
         show(span.SpanId, depth + 1)
 
 show("")
+```
+
+Each service's error budget, and how fast it burned over the last hour:
+
+```python
+slos = client.query_df("""
+    SELECT service_name, round(b.availability_budget_remaining, 2) AS budget_left,
+           round(s.availability_burn_rate, 2) AS burn_1h
+    FROM otel_slo.budget(at = now64(3)) AS b
+    INNER JOIN otel_slo.sli(at = now64(3), minutes = 60) AS s USING (service_name)
+    ORDER BY budget_left
+""")
+print(slos.to_string(index=False))
 ```
 
 ## Export

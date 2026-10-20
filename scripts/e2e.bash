@@ -509,6 +509,10 @@ poll "PromQL: the SLO series show payments' budget spent and checkout's not, thr
   '[.data.result[] | select((.metric.service_name == "payments" and (.value[1] | tonumber) < 1) or
     (.metric.service_name == "checkout" and (.value[1] | tonumber) > 0))] | length == 2' \
   "$cerberus/api/v1/query" --data-urlencode 'query=slo:availability:budget_remaining'
+# A notebook or an agent answers SLO questions from the same views, as otel_analyst.
+analyst_slo="$(clickhouse_as analyst "SELECT count() FROM otel_slo.budget(at = now64(3)) WHERE service_name IN ('checkout', 'payments')")"
+[[ "$analyst_slo" == 2 ]] || { echo "  otel_analyst read $analyst_slo of the demo services' error budgets, not 2"; exit 1; }
+echo "  otel_analyst reads both demo services' error budgets"
 
 # Every rule evaluator sends to Alertmanager's v2 API. Post an alert the way one would, and read it back.
 step "Alertmanager: an alert posted to the v2 API is grouped and listed"
