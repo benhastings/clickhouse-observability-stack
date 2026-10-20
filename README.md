@@ -348,7 +348,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
 | `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
-| `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*` and `otel_features.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
+| `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_features.*` and `otel_slo.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
 The trace-ID materialized view runs as `otel_admin` (`SQL SECURITY DEFINER`), so an insert into `otel_traces`

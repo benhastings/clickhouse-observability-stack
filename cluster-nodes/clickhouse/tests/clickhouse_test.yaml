@@ -375,7 +375,7 @@ tests:
     asserts:
       - equal:
           path: spec.configuration.users["otel_analyst/grants/query"]
-          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_features.*, GRANT INSERT ON otel_ml.*]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_features.*, GRANT SELECT ON otel_slo.*, GRANT INSERT ON otel_ml.*]
       - equal:
           path: spec.configuration.users["otel_analyst/password"].valueFrom.secretKeyRef
           value:

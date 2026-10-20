@@ -13,14 +13,14 @@ spec:
     # The users values.yaml describes under secrets. otel_admin has no grants list, so it has every
     # privilege; the others have only theirs. The schema's materialized views run as otel_admin, so an
     # insert as otel_writer needs no SELECT. otel_reader also reads the anomaly baselines, the SLO views and
-    # the baselines' refresh status, for vmalert's rules. otel_analyst reads the telemetry and the feature views and
+    # the baselines' refresh status, for vmalert's rules. otel_analyst reads the telemetry, the feature views and the SLOs, and
     # writes only to otel_ml, under its own profile and quota.
     users:
       {{- $users := dict
         "admin" (dict "grants" list "profile" "default")
         "writer" (dict "grants" (list "INSERT ON otel.*") "profile" "default")
         "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_slo.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks") "profile" "default")
-        "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
+        "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "SELECT ON otel_slo.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
       {{- range $user, $u := $users }}
       otel_{{ $user }}/password:
         valueFrom:

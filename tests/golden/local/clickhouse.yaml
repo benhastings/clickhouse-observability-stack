@@ -962,6 +962,7 @@ spec:
       - GRANT SELECT ON otel.*
       - GRANT SELECT ON otel_baseline.*
       - GRANT SELECT ON otel_features.*
+      - GRANT SELECT ON otel_slo.*
       - GRANT INSERT ON otel_ml.*
       otel_analyst/networks/ip:
       - 0.0.0.0/0
