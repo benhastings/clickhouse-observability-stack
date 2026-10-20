@@ -4078,6 +4078,34 @@ data:
             "textFormat": "{{alert_service_name}}",
             "tagKeys": "alertname,alert_service_name,severity",
             "instant": false
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "cerberus-loki"
+            },
+            "enable": true,
+            "hide": false,
+            "iconColor": "orange",
+            "name": "Kubernetes warnings",
+            "expr": "{service_name=\"kubernetes-events\"} | k8s_event_type=\"Warning\" | k8s_object_name=~\"$pod\"",
+            "titleFormat": "{{k8s_event_reason}}: {{k8s_object_kind}} {{k8s_object_name}}",
+            "tagKeys": "k8s_event_reason,k8s_object_kind,k8s_event_type",
+            "instant": false
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "cerberus-loki"
+            },
+            "enable": true,
+            "hide": false,
+            "iconColor": "blue",
+            "name": "Kubernetes events",
+            "expr": "{service_name=\"kubernetes-events\"} | k8s_event_type=\"Normal\" | k8s_object_name=~\"$pod\"",
+            "titleFormat": "{{k8s_event_reason}}: {{k8s_object_kind}} {{k8s_object_name}}",
+            "tagKeys": "k8s_event_reason,k8s_object_kind,k8s_event_type",
+            "instant": false
           }
         ]
       }
@@ -5189,7 +5217,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: ff7310569eb2c63e255e4bdb78dcda227d80b73a1e53520a74a778f5160cac2d
+        checksum/config: 543acbfb366aca5e333ab8ae0528f2c4ee773b2a619a41847834dfff135425bf
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
