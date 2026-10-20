@@ -212,8 +212,9 @@ Secrets first. Each ClickHouse user has its own, so a leaked password only reach
 |---|---|---|
 | `clickhouse-admin` | `observability` | the job that creates the tables; you, to change things |
 | `clickhouse-writer` | `observability` | the collector, which may only insert |
-| `clickhouse-reader` | `observability` | Cerberus and garmr, which may only read |
+| `clickhouse-reader` | `observability` | Cerberus and garmr's SQL adapter, which may only read |
 | `clickhouse-analyst` | `observability` | notebooks and ad hoc SQL, read-only with limits |
+| `clickhouse-garmr` | `observability` | garmr, which keeps incidents in its own tables and reads the telemetry |
 | `grafana-admin` | `observability` | your Grafana login |
 | `clickhouse-operator-credentials` | `clickhouse-operator` | the operator, to manage ClickHouse |
 
@@ -223,7 +224,7 @@ For a test cluster, random passwords are fine:
 pw() { openssl rand -hex 18; }
 kubectl create namespace observability
 kubectl create namespace clickhouse-operator
-for user in admin writer reader analyst; do
+for user in admin writer reader analyst garmr; do
   kubectl -n observability create secret generic "clickhouse-$user" \
     --from-literal=username="otel_$user" --from-literal=password="$(pw)"
 done
@@ -301,7 +302,7 @@ Things start in this order. The whole thing takes about 3 to 10 minutes, most of
 3. `clickhouse-schema-...` is a one-off job that creates the tables. It ends as `Completed`, which is good:
    a job that finished shows `Completed`, not `Running`.
 4. `cerberus-...` shows `0/1` until the tables exist, then `1/1`.
-5. `otel-collector`, `grafana`, `alertmanager`, `vmalert`, `garmr-sql-adapter` and `demo-load` each reach
+5. `otel-collector`, `grafana`, `alertmanager`, `vmalert`, `garmr-sql-adapter`, `garmr` and `demo-load` each reach
    `1/1 Running`.
 
 Done looks like this:
@@ -314,6 +315,7 @@ cerberus-...                         1/1     Running     0          6m
 chi-otel-main-0-0-0                  1/1     Running     0          5m
 clickhouse-schema-...                0/1     Completed   0          5m
 demo-load-...                        1/1     Running     0          6m
+garmr-...                            1/1     Running     0          6m
 garmr-sql-adapter-...                1/1     Running     0          6m
 grafana-...                          1/1     Running     0          6m
 otel-collector-...                   1/1     Running     0          6m
