@@ -732,6 +732,16 @@ parts per partition, and Cerberus's latency per route and its requests by status
 On kind with the demo load the three jobs add about 210 rows a minute (12,600 an hour): Cerberus 94, the
 collector 74 and ClickHouse 40, each counting its job's `up` and `scrape_*` series.
 
+### Drilldown apps: stock Grafana, current versions
+
+Cerberus's own Grafana image runs Grafana 12.2 with Metrics Drilldown 2.5.1 patched (it waits for a group-by
+selection before building a label-value query), Traces 2.1.0 and Logs 2.5.0. The stack runs stock Grafana 13.2.2
+with unpatched Metrics 2.5.1, Logs 2.6.0 and Traces 2.2.1 instead: no unsigned plugin, and a newer Grafana. The
+e2e test makes the calls each app makes on first load, and Metrics Drilldown's group-by was checked by hand in a
+browser, so the patch isn't needed for what the stack serves ([#185](https://github.com/benhastings/clickhouse-observability-stack/issues/185)).
+Bumping an app or Grafana is a version bump like any other (see **Coupled versions** in `AGENTS.md`); if the
+group-by breaks, Cerberus's pinned versions are the fallback.
+
 ### Sync order
 
 Child apps carry sync waves:
