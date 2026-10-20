@@ -3946,6 +3946,34 @@ data:
             "textFormat": "{{alert_service_name}}",
             "tagKeys": "alertname,alert_service_name,severity",
             "instant": false
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "cerberus-loki"
+            },
+            "enable": true,
+            "hide": false,
+            "iconColor": "orange",
+            "name": "Kubernetes warnings",
+            "expr": "{service_name=\"kubernetes-events\"} | k8s_event_type=\"Warning\" | k8s_object_name=~\"$pod\"",
+            "titleFormat": "{{k8s_event_reason}}: {{k8s_object_kind}} {{k8s_object_name}}",
+            "tagKeys": "k8s_event_reason,k8s_object_kind,k8s_event_type",
+            "instant": false
+          },
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "cerberus-loki"
+            },
+            "enable": true,
+            "hide": false,
+            "iconColor": "blue",
+            "name": "Kubernetes events",
+            "expr": "{service_name=\"kubernetes-events\"} | k8s_event_type=\"Normal\" | k8s_object_name=~\"$pod\"",
+            "titleFormat": "{{k8s_event_reason}}: {{k8s_object_kind}} {{k8s_object_name}}",
+            "tagKeys": "k8s_event_reason,k8s_object_kind,k8s_event_type",
+            "instant": false
           }
         ]
       }
