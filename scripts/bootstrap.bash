@@ -46,8 +46,21 @@ preload_kind_images() {
       sleep $((attempt * 10))
     done
     echo "==> Loading $image into kind"
-    kind load docker-image "$image" --name "$cluster" >/dev/null
+    kind load docker-image "$image" --name "$cluster" >/dev/null || load_kind_image_archive "$cluster" "$image"
   done <<<"$2"
+}
+
+# load_kind_image_archive <cluster> <image>: kind load's docker save exports a multi-platform image's whole
+# index from Docker's containerd image store, whose other platforms were never pulled, so the node's import
+# fails with "content digest ... not found". Saving only the daemon's own platform gives an archive it can import.
+load_kind_image_archive() {
+  local cluster=$1 image=$2 archive status=0
+  echo "==> Loading $image into kind as a single-platform archive" >&2
+  archive="$(mktemp)"
+  docker save --platform "linux/$(docker version -f '{{.Server.Arch}}')" -o "$archive" "$image" &&
+    kind load image-archive "$archive" --name "$cluster" >/dev/null || status=$?
+  rm -f "$archive"
+  return "$status"
 }
 
 ENV="$env" scripts/preflight.bash
