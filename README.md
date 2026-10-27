@@ -1237,7 +1237,17 @@ Create a client in the realm with these settings:
 | Valid redirect URIs | `https://<grafana host>/login/generic_oauth` |
 | Web origins | Grafana's root URL, `https://<grafana host>` |
 
-The client ID goes in `auth.genericOauth.clientId`, and `auth.genericOauth.rootUrl` must be the same `https://<grafana host>` the redirect URI uses. `rootUrl` is required once OAuth is enabled; the render fails without it. Set `authUrl`, `tokenUrl` and `apiUrl` to the realm's OpenID Connect endpoints; the commented Keycloak URLs in `cluster-nodes/grafana/values.yaml` show each one.
+The client ID goes in `auth.genericOauth.clientId`. Grafana's `root_url` must be the same `https://<grafana host>` the redirect URI uses. When `global.exposure` gives Grafana a host, as `prod` does, it is taken from there (`https` with `exposure.tls.credentialName`, `http` without), and the same host gets Grafana's Gateway and VirtualService. Otherwise set `auth.genericOauth.rootUrl`; the render fails without one. Set `authUrl`, `tokenUrl` and `apiUrl` to the realm's OpenID Connect endpoints; the commented Keycloak URLs in `cluster-nodes/grafana/values.yaml` show each one.
+
+The rest is optional:
+
+| Value | Default | Effect |
+|---|---|---|
+| `auth.genericOauth.autoLogin` | `false` | a signed-out user goes straight to Keycloak instead of Grafana's login page |
+| `auth.genericOauth.useRefreshToken` | `true` | Grafana renews the access token with the refresh token, so a session outlives one access token |
+| `auth.genericOauth.emailAttributePath` | `""` | a JMESPath to the user's email; empty reads the `email` claim |
+| `auth.genericOauth.groupsAttributePath` | `""` | a JMESPath to the user's groups, for example `groups` with Keycloak's group membership mapper |
+| `auth.loginMaximumLifetimeDuration` | `""` | how long a session lasts before signing in again, for example `7d`; empty keeps Grafana's 30 days |
 
 Create three realm roles and give them to users or groups:
 

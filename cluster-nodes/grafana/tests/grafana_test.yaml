@@ -255,6 +255,105 @@ tests:
       - failedTemplate:
           errorPattern: auth.disableLoginForm requires auth.genericOauth.enabled
 
+  - it: signs in automatically, refreshes tokens and reads email and groups when asked
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      auth.disableLoginForm: true
+      auth.loginMaximumLifetimeDuration: 7d
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+        emailAttributePath: upn
+        groupsAttributePath: groups
+        autoLogin: true
+        useRefreshToken: true
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[auth\]\ndisable_login_form = true\nlogin_maximum_lifetime_duration = 7d$'
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^email_attribute_path = upn\ngroups_attribute_path = groups\nauto_login = true\nuse_refresh_token = true$'
+
+  - it: leaves auto login off, refreshes tokens and sets no email, groups or lifetime by default
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^auto_login = false\nuse_refresh_token = true$'
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: email_attribute_path|groups_attribute_path|login_maximum_lifetime_duration|^\[auth\]$
+
+  - it: takes the root URL from the exposed Grafana host when rootUrl is empty
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    set:
+      global:
+        exposure:
+          enabled: true
+          hosts:
+            grafana: grafana.example
+          tls:
+            credentialName: observability-tls
+      auth.genericOauth:
+        enabled: true
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+    asserts:
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[server\]\nroot_url = https://grafana\.example/$'
+
+  - it: routes the grafana host to the Service through an Istio VirtualService
+    set:
+      global:
+        mesh: istio
+        exposure:
+          enabled: true
+          hosts:
+            grafana: grafana.example
+          gateway:
+            name: shared
+            namespace: istio-ingress
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/gateway.yaml
+      - equal:
+          path: spec
+          value:
+            hosts:
+              - grafana.example
+            gateways:
+              - istio-ingress/shared
+            http:
+              - route:
+                  - destination:
+                      host: grafana.observability.svc.cluster.local
+                      port:
+                        number: 80
+        template: templates/gateway.yaml
+
   - it: has no PersistentVolumeClaim and mounts an emptyDir at /var/lib/grafana by default
     asserts:
       - hasDocuments:
