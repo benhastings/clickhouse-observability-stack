@@ -32,12 +32,15 @@ secrets:
 #   authUrl:  https://keycloak.example.com/realms/<realm>/protocol/openid-connect/auth
 #   tokenUrl: https://keycloak.example.com/realms/<realm>/protocol/openid-connect/token
 #   apiUrl:   https://keycloak.example.com/realms/<realm>/protocol/openid-connect/userinfo
-# rootUrl is Grafana's public URL, which the redirect back from the provider must match. The client
+# rootUrl is Grafana's public URL, which the redirect back from the provider must match. Left empty, it is
+# the Grafana host under global.exposure (https with a TLS credential, http without). The client
 # secret is not set here and never goes in git; see secrets.oauth above.
 auth:
   # Hides the username and password form on the login page. Requires genericOauth.enabled, or the
   # render fails. The admin user and its secret are unchanged.
   disableLoginForm: false
+  # How long a session lasts before signing in again, for example 7d. Empty keeps Grafana's 30d.
+  loginMaximumLifetimeDuration: ""
   genericOauth:
     enabled: false
     rootUrl: ""
@@ -52,6 +55,16 @@ auth:
     roleAttributePath: "contains(realm_access.roles[*], 'grafana-admin') && 'Admin' || contains(realm_access.roles[*], 'grafana-editor') && 'Editor' || 'Viewer'"
     loginAttributePath: preferred_username
     nameAttributePath: name
+    # Empty uses the token's email claim, Grafana's default.
+    emailAttributePath: ""
+    # A JMESPath to the user's groups, for example groups with Keycloak's group membership mapper. Empty
+    # leaves groups unread; roleAttributePath can still test them.
+    groupsAttributePath: ""
+    # Sends a signed-out user straight to the provider instead of Grafana's login page.
+    autoLogin: false
+    # Renews the access token with the provider's refresh token, so a session outlives one access token.
+    # Some providers issue one only with offline_access in scopes; Keycloak issues one by default.
+    useRefreshToken: true
     # A ConfigMap with the CA that signed the provider's certificate, for a provider on a private CA. It is
     # mounted at /etc/grafana/oauth-ca and set as tls_client_ca. Certificate verification is never skipped.
     tlsCaConfigMap: ""
@@ -105,14 +118,26 @@ configMaps:
         disable_plugins = grafana-pyroscope-app,grafana-advisor-app
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
+        {{- if or .Values.auth.disableLoginForm .Values.auth.loginMaximumLifetimeDuration }}
+        [auth]
         {{- if .Values.auth.disableLoginForm }}
         {{- if not .Values.auth.genericOauth.enabled }}{{ fail "auth.disableLoginForm requires auth.genericOauth.enabled, or nobody can sign in" }}{{ end }}
-        [auth]
         disable_login_form = true
         {{- end }}
+        {{- with .Values.auth.loginMaximumLifetimeDuration }}
+        login_maximum_lifetime_duration = {{ . }}
+        {{- end }}
+        {{- end }}
         {{- with .Values.auth.genericOauth }}{{ if .enabled }}
+        {{- $x := (include "common.values" $ | fromYaml).global.exposure | default dict }}
+        {{- $rootUrl := .rootUrl }}
+        {{- if and (not $rootUrl) $x.enabled }}
+        {{- with index ($x.hosts | default dict) $.Values.exposure.host }}
+        {{- $rootUrl = printf "%s://%s/" (ternary "https" "http" (not (empty (dig "tls" "credentialName" "" $x)))) . }}
+        {{- end }}
+        {{- end }}
         [server]
-        root_url = {{ required "auth.genericOauth.rootUrl is required when auth.genericOauth.enabled" .rootUrl }}
+        root_url = {{ required "auth.genericOauth.rootUrl is required when auth.genericOauth.enabled and global.exposure gives Grafana no host" $rootUrl }}
         [auth.generic_oauth]
         enabled = true
         name = {{ required "auth.genericOauth.name is required when auth.genericOauth.enabled" .name }}
@@ -135,6 +160,14 @@ configMaps:
         role_attribute_path = {{ .roleAttributePath }}
         login_attribute_path = {{ .loginAttributePath }}
         name_attribute_path = {{ .nameAttributePath }}
+        {{- with .emailAttributePath }}
+        email_attribute_path = {{ . }}
+        {{- end }}
+        {{- with .groupsAttributePath }}
+        groups_attribute_path = {{ . }}
+        {{- end }}
+        auto_login = {{ .autoLogin }}
+        use_refresh_token = {{ .useRefreshToken }}
         tls_skip_verify_insecure = false
         {{- with .tlsCaConfigMap }}
         tls_client_ca = /etc/grafana/oauth-ca/{{ $.Values.auth.genericOauth.tlsCaKey }}

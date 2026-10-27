@@ -356,6 +356,9 @@
         "disableLoginForm": {
           "type": "boolean"
         },
+        "loginMaximumLifetimeDuration": {
+          "type": "string"
+        },
         "genericOauth": {
           "type": "object",
           "additionalProperties": false,
@@ -395,6 +398,18 @@
             },
             "nameAttributePath": {
               "type": "string"
+            },
+            "emailAttributePath": {
+              "type": "string"
+            },
+            "groupsAttributePath": {
+              "type": "string"
+            },
+            "autoLogin": {
+              "type": "boolean"
+            },
+            "useRefreshToken": {
+              "type": "boolean"
             },
             "tlsCaConfigMap": {
               "type": "string"

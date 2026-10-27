@@ -13,6 +13,7 @@ properties:
     additionalProperties: false
     properties:
       disableLoginForm: {type: boolean}
+      loginMaximumLifetimeDuration: {type: string}
       genericOauth:
         type: object
         additionalProperties: false
@@ -29,6 +30,10 @@ properties:
           roleAttributePath: {type: string}
           loginAttributePath: {type: string}
           nameAttributePath: {type: string}
+          emailAttributePath: {type: string}
+          groupsAttributePath: {type: string}
+          autoLogin: {type: boolean}
+          useRefreshToken: {type: boolean}
           tlsCaConfigMap: {type: string}
           tlsCaKey: {type: string}
   alerts:
