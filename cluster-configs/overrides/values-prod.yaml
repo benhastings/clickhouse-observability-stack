@@ -110,9 +110,35 @@ applications:
 
   grafana:
     values:
+      # Grafana reads its secrets from Vault: the Vault Agent Injector writes <vault.path>/grafana-admin and
+      # <vault.path>/grafana-oauth (key client-secret) into the pod, and the pod authenticates with Vault's
+      # Kubernetes auth role grafana, bound to its ServiceAccount. Neither is a Kubernetes Secret here.
+      vault:
+        enabled: true
+        role: grafana
+      # Sign-in through the platform's OpenID Connect provider, a Keycloak realm at a placeholder host here.
+      # root_url is https://grafana.example/ from global.exposure above, so the provider's client needs the
+      # redirect URI https://grafana.example/login/generic_oauth. Realm roles grafana-admin and grafana-editor
+      # map to Admin and Editor (the node's roleAttributePath); anyone else is a Viewer. A signed-out user goes
+      # straight to the provider; the login form stays for the admin user as a way in when the provider is down.
+      # A provider on a private CA also needs tlsCaConfigMap (README: Grafana sign-in with Keycloak).
+      auth:
+        loginMaximumLifetimeDuration: 7d
+        genericOauth:
+          enabled: true
+          clientId: grafana
+          authUrl: https://sso.example/realms/platform/protocol/openid-connect/auth
+          tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
+          apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
+          groupsAttributePath: groups
+          autoLogin: true
       deployment:
         containers:
           grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+                secret: grafana-oauth
+                key: client-secret
             env:
               GOMEMLIMIT: 921MiB
             resources:

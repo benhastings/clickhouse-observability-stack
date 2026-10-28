@@ -117,9 +117,16 @@ if app_enabled clickhouse && [[ "$(yq '.applications.clickhouse.values.clickhous
   [[ "$(yq '.applications.clickhouse.values.secrets.garmr.create' "$values")" != true ]]; then
   require_declared_secret "$default_namespace" clickhouse-garmr "clickhouse, garmr serve"
 fi
-if app_enabled grafana &&
+# With vault.enabled for Grafana (its own value, else the global one), its admin login and OAuth client
+# secret come from Vault, not from Secrets.
+grafana_vault="$(yq '[.global.vault.enabled, .applications.grafana.values.vault.enabled] | [false] + map(select(. != null)) | .[-1]' "$values")"
+grafana_oauth_secret="$(app_value grafana .deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET.secret)"
+if app_enabled grafana && [[ "$grafana_vault" != true ]] &&
   [[ "$(yq '.applications.grafana.values.secrets.admin.create' "$values")" != true ]]; then
   require_declared_secret "$default_namespace" grafana-admin "grafana"
+fi
+if app_enabled grafana && [[ "$grafana_vault" != true && -n "$grafana_oauth_secret" ]]; then
+  require_secret "$default_namespace" "$grafana_oauth_secret" "grafana, OAuth client secret"
 fi
 if app_enabled otel-collector &&
   [[ "$(yq '.applications.otel-collector.values.collector.auth.enabled' "$values")" == true ]] &&

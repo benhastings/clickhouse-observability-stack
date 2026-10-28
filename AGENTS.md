@@ -141,7 +141,7 @@ commit from GitHub, so e2e runs on pushed commits only.
 for the ClickHouse installation to complete and every Deployment to roll out instead of for Applications.
 
 `.github/workflows/e2e-mesh.yml` runs `make test/e2e MESH=istio` on pull requests labelled `mesh` and on demand: the
-same checks with Istio installed and `mesh: istio`, plus sidecars, the gateway routes, and `STRICT` mTLS. Label a
+same checks with Istio installed and `mesh: istio`, plus sidecars, the gateway routes, Grafana's OAuth redirect to a placeholder provider, and `STRICT` mTLS. Label a
 PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules, injection, NetworkPolicies).
 
 ### Cluster nodes
