@@ -4,13 +4,14 @@ cd "$(dirname "$0")/.."
 
 SYNC_TIMEOUT=${SYNC_TIMEOUT:-1200}
 DATA_TIMEOUT=${DATA_TIMEOUT:-300}
+ENV=${ENV:-local}
 
 step() { echo "==> $*"; }
 
 # On a cluster Argo CD deploys, wait for every Application. Without Argo CD (make helm/install, make dev/up),
 # wait for the workloads themselves: every Deployment rolled out and the ClickHouse installation Completed.
 if kubectl get crd applications.argoproj.io >/dev/null 2>&1 && kubectl get namespace argocd >/dev/null 2>&1; then
-  expected="$(helm template app-of-apps cluster-configs/app-of-apps -f cluster-configs/overrides/values-local.yaml |
+  expected="$(helm template app-of-apps cluster-configs/app-of-apps -f "cluster-configs/overrides/values-$ENV.yaml" |
     yq ea '[select(.kind == "Application")] | length')"
   expected=$((expected + 1))
 
@@ -92,6 +93,14 @@ poll() {
 now="$(date +%s)"
 start=$((now - 900))
 end=$((now + 900))
+
+# ENV=restricted has no demo load and no kubeletstats, so it runs its own smoke checks instead of the ones below.
+if [[ "$ENV" == restricted ]]; then
+  # shellcheck source=scripts/e2e-restricted.bash
+  source scripts/e2e-restricted.bash
+  echo "e2e: ok"
+  exit 0
+fi
 
 poll "PromQL: span metrics exist for checkout and payments" \
   '[.data.result[].metric.service_name] | contains(["checkout", "payments"])' \

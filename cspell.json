@@ -20,6 +20,7 @@
   "words": [
     "alsologtostderr",
     "altinity",
+    "appproject",
     "argjson",
     "automount",
     "benhastings",
@@ -44,6 +45,7 @@
     "datreeio",
     "distroless",
     "drilldown",
+    "endswith",
     "esac",
     "exploretraces",
     "externalsecret",
