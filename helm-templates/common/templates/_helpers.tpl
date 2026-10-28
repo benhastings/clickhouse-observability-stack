@@ -74,8 +74,10 @@ serviceAccount:
   automountToken: false
   annotations: {}
 rbac:
+  scope: cluster
   clusterRules: []
   rules: []
+  namespaceRules: []
 deployment:
   enabled: false
   reloader: false

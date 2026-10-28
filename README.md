@@ -898,6 +898,55 @@ and sends a span through the gateway, and repeats that with `PeerAuthentication`
 about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
 demand (`.github/workflows/e2e-mesh.yml`).
 
+### Collector RBAC: cluster-wide or one namespace
+
+The collector reads Kubernetes for four things: `k8sattributes` (the pod, workload and node on every span, log
+and metric), `k8s_cluster` (pod phase, restarts, replicas, node conditions), `k8sobjects` (events as logs) and
+`kubeletstats` (CPU, memory, filesystem, network and volumes from the kubelet). By default it does all four
+cluster-wide, through a ClusterRole and ClusterRoleBinding, and every environment here, `local` included, keeps
+that.
+
+A namespace that forbids cluster-scoped RBAC sets one key on the `otel-collector` app:
+
+```yaml
+applications:
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+```
+
+`rbac.scope` is a `common` key, so the RBAC and the collector's config follow the same switch:
+
+- **RBAC:** no ClusterRole or ClusterRoleBinding is rendered. The Role in the release namespace grants the
+  k8s_cluster Lease plus `rbac.namespaceRules`, the namespaced half of the cluster rules: pods, services,
+  replication controllers, resource quotas, the `apps`, `batch` and `autoscaling` workloads, and events.
+- **`k8sattributes`** sets `filter.namespace` to the release namespace, so it watches only that namespace's pods.
+- **`k8s_cluster`** sets `namespaces` to the release namespace, and stops reporting node conditions and
+  allocatable.
+- **`k8sobjects`** watches only the release namespace's events.
+- **`kubeletstats`** is off: the kubelet's `nodes/stats` is cluster-scoped, and no Role can grant it. The agent
+  DaemonSet runs only `kubeletstats`, so the render fails if `collector.agent.enabled` is set too.
+
+OTLP ingest, the span-metrics and service-graph connectors, the export to ClickHouse, Alertmanager's history,
+and the scrape of the collector, ClickHouse, Cerberus, garmr and Alertmanager all work as before. What is lost:
+
+| Signal or metadata | Cluster-wide | `scope: namespace` |
+| --- | --- | --- |
+| `k8s_node_*`, `k8s_pod_*`, `container_*` CPU, memory, filesystem and network, and pod volume usage (`kubeletstats`) | every node the gateway or agent reaches | none |
+| Kubernetes dashboard: the Nodes row, Top memory, Top CPU, memory by namespace, and the usage half of usage against requests | yes | empty |
+| The service dashboard's Resources row: CPU and memory usage | yes | empty; requests, limits and restarts remain for the release namespace's pods |
+| vmalert's `CollectorMemoryNearLimit` (reads the collector's working set from `kubeletstats`) | fires | never fires |
+| Node conditions and allocatable (`k8s_node_condition_*`, `k8s_node_allocatable_*`) | yes | none |
+| Pod phase, container restarts, requests and limits, workload replicas, HPAs, jobs, quotas (`k8s_cluster`) | every namespace | the release namespace |
+| Namespace phase (`k8s_namespace_phase`) | yes | none |
+| Kubernetes events as logs of `kubernetes-events`, and the service dashboard's events annotation | every namespace | the release namespace |
+| `k8s.pod.name`, `k8s.deployment.name` and the other pod attributes `k8sattributes` adds to OTLP | senders in any namespace | senders in the release namespace; others keep only what they set themselves |
+
+A sender outside the release namespace can still set its own `k8s.*` resource attributes, for example with the
+OpenTelemetry SDK's `OTEL_RESOURCE_ATTRIBUTES` and the downward API. `rbac.scope: namespace` changes only the
+collector; the ClickHouse operator's ClusterRole and CRDs are separate.
+
 ### Disk sizing
 
 Compressed bytes per row on disk, indexes and projections included, measured on kind (ClickHouse 26.9.5.2)
@@ -1304,6 +1353,9 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
 - **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas. The gateway's `k8sattributes` watches every pod in the cluster, so its memory grows with the pod count; the agent watches only its own node's pods.
+- **A namespace without cluster-scoped RBAC:** set `rbac.scope: namespace` on the `otel-collector` app. The
+  collector then gets only a Role, watches only its own namespace and drops `kubeletstats`; see **Collector RBAC:
+  cluster-wide or one namespace** for what that loses.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
 - **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default; `values-prod.yaml` keeps traces 21 days, logs 14 and metrics 30). Set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus to the metrics retention when it exceeds 14 days, as `prod` does.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.

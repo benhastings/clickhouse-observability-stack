@@ -131,7 +131,10 @@ tests:
               resources: [nodes/stats]
               verbs: [get]
             - apiGroups: [""]
-              resources: [nodes, pods, namespaces, services, replicationcontrollers, resourcequotas]
+              resources: [nodes, namespaces]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [pods, services, replicationcontrollers, resourcequotas]
               verbs: [get, list, watch]
             - apiGroups: [apps]
               resources: [replicasets, deployments, daemonsets, statefulsets]
@@ -145,6 +148,114 @@ tests:
             - apiGroups: [events.k8s.io]
               resources: [events]
               verbs: [list, watch]
+
+  - it: watches the whole cluster at the default cluster scope, with no namespace filter
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "filter:|namespaces: \\["
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "node_conditions_to_report: \\[Ready, MemoryPressure, DiskPressure, PIDPressure\\]"
+
+  - it: renders no cluster-scoped RBAC with rbac.scope namespace, only a Role and RoleBinding in its namespace
+    set:
+      rbac.scope: namespace
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - matchRegex:
+          path: kind
+          pattern: ^(Role|RoleBinding)$
+      - equal:
+          path: metadata.namespace
+          value: observability
+
+  - it: grants the Lease and, in its namespace only, what k8sattributes, k8s_cluster and k8sobjects read, with rbac.scope namespace
+    set:
+      rbac.scope: namespace
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [get, list, watch, create, update, patch]
+            - apiGroups: [""]
+              resources: [pods, services, replicationcontrollers, resourcequotas]
+              verbs: [get, list, watch]
+            - apiGroups: [apps]
+              resources: [replicasets, deployments, daemonsets, statefulsets]
+              verbs: [get, list, watch]
+            - apiGroups: [batch]
+              resources: [jobs, cronjobs]
+              verbs: [get, list, watch]
+            - apiGroups: [autoscaling]
+              resources: [horizontalpodautoscalers]
+              verbs: [get, list, watch]
+            - apiGroups: [events.k8s.io]
+              resources: [events]
+              verbs: [list, watch]
+
+  - it: limits k8sattributes, k8s_cluster and k8sobjects to its namespace, and drops kubeletstats, with rbac.scope namespace
+    set:
+      rbac.scope: namespace
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "k8sattributes:\\n\\s+auth_type: serviceAccount\\n\\s+filter:\\n\\s+namespace: observability\\n\\s+extract:"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "k8s_cluster:\\n(\\s+\\S.*\\n)*?\\s+namespaces: \\[observability\\]\\n\\s+resource_attributes:"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "- name: events\\n\\s+group: events.k8s.io\\n\\s+mode: watch\\n\\s+namespaces: \\[observability\\]\\n"
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "kubeletstats|node_conditions_to_report|allocatable_types_to_report"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "receivers:\\n\\s+- otlp\\n\\s+- k8s_cluster\\n\\s+- spanmetrics\\n\\s+- servicegraph"
+
+  - it: watches global.namespace, where the Role is, when one is set, with rbac.scope namespace
+    set:
+      rbac.scope: namespace
+      global.namespace: telemetry
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "filter:\\n\\s+namespace: telemetry\\n"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - equal:
+          path: metadata.namespace
+          value: telemetry
+        documentSelector:
+          path: kind
+          value: Role
+
+  - it: fails when the agent is on with rbac.scope namespace, since kubeletstats needs nodes/stats
+    set:
+      rbac.scope: namespace
+      collector:
+        agent:
+          enabled: true
+      daemonset:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "rbac.scope: namespace can't run the agent"
 
   - it: holds k8s_cluster's Lease in its own namespace, so one gateway replica reports the cluster
     asserts:

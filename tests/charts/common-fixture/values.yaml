@@ -12,6 +12,11 @@ rbac:
     - apiGroups: [""]
       resources: [configmaps]
       verbs: [get]
+  # Only with rbac.scope: namespace.
+  namespaceRules:
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get, list, watch]
 
 configMaps:
   main:

@@ -84,6 +84,8 @@ schema, and to the template in the same change.
 | `serviceAccount.annotations.<name>` | `{}` |  |
 | `rbac.clusterRules` | `[]` | when set, a ClusterRole and ClusterRoleBinding for the ServiceAccount |
 | `rbac.rules` | `[]` | when set, a Role and RoleBinding in the release namespace |
+| `rbac.scope` | `cluster` | `namespace` renders no ClusterRole or ClusterRoleBinding: `clusterRules` is ignored and `namespaceRules` joins `rules` in the Role, for a namespace that forbids cluster-scoped RBAC |
+| `rbac.namespaceRules` | `[]` | with `scope: namespace`, added to the Role in place of `clusterRules`: the namespaced part of what the app reads cluster-wide |
 | `deployment.enabled` | `false` | render a Deployment |
 | `deployment.reloader` | `false` | annotate the Deployment for Stakater Reloader, so a changed Secret or ConfigMap rolls it; see Rollouts |
 | `deployment.replicas` | `1` | omitted when `autoscaling.enabled`; see Disruption budget and autoscaling |
