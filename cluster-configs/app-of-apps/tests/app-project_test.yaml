@@ -104,6 +104,24 @@ tests:
             - server: https://kubernetes.default.svc
               namespace: observability
 
+  - it: allows no cluster-scoped kind at all in the restricted-namespace profile
+    template: templates/app-project.yaml
+    set:
+      clusterScoped: false
+      global.clickhouseOperator.shared: true
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - equal:
+          path: spec.clusterResourceWhitelist
+          value: []
+      - equal:
+          path: spec.destinations
+          value:
+            - server: https://kubernetes.default.svc
+              namespace: argocd
+            - server: https://kubernetes.default.svc
+              namespace: observability
+
   - it: renders before the wave 0 Applications
     template: templates/app-project.yaml
     asserts:

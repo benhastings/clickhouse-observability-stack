@@ -1,5 +1,6 @@
 {{- $env := required "environment is required" .Values.environment -}}
 {{- $repoURL := required "repoURL is required" .Values.repoURL -}}
+{{- $clusterScoped := include "app-of-apps.clusterScoped" . -}}
 {{- range $name, $app := .Values.applications }}
 {{- if include "app-of-apps.enabled" (list $ $name $app) }}
 {{- $_ := required (printf "applications.%s.syncWave is required" $name) $app.syncWave }}
@@ -46,9 +47,11 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
+      {{- if $clusterScoped }}
       - CreateNamespace=true
+      {{- end }}
       - ServerSideApply=true
-    {{- if eq (toString ($.Values.global.mesh | default "istio")) "istio" }}
+    {{- if and $clusterScoped (eq (toString ($.Values.global.mesh | default "istio")) "istio") }}
     # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
     # is rendered for it to fight with.
     managedNamespaceMetadata:

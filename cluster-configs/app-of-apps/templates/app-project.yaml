@@ -27,6 +27,10 @@ spec:
     - server: {{ $.Values.destinationServer }}
       namespace: {{ . }}
     {{- end }}
+  {{- if not (include "app-of-apps.clusterScoped" .) }}
+  # The restricted-namespace profile (clusterScoped: false): no cluster-scoped kind at all, not even a Namespace.
+  clusterResourceWhitelist: []
+  {{- else }}
   # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's CRDs from
   # its crds/ directory, and the operator's and the collector's ClusterRole and ClusterRoleBinding. With a
   # shared operator (global.clickhouseOperator.shared) nothing may install a CRD.
@@ -41,4 +45,5 @@ spec:
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
+  {{- end }}
 {{- end }}

@@ -1,0 +1,579 @@
+---
+# Source: otel-collector/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+automountServiceAccountToken: true
+---
+# Source: otel-collector/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+data:
+  relay.yaml: |-
+    connectors:
+      servicegraph:
+        latency_histogram_buckets:
+        - 10ms
+        - 50ms
+        - 100ms
+        - 250ms
+        - 500ms
+        - 1s
+        - 2.5s
+        - 5s
+        store:
+          max_items: 10000
+          ttl: 5s
+      spanmetrics:
+        aggregation_cardinality_limit: 5000
+        dimensions:
+        - name: http.request.method
+        - name: http.response.status_code
+        - name: http.route
+        exemplars:
+          enabled: true
+        histogram:
+          explicit:
+            buckets:
+            - 5ms
+            - 10ms
+            - 25ms
+            - 50ms
+            - 100ms
+            - 250ms
+            - 500ms
+            - 1s
+            - 2.5s
+            - 5s
+            - 10s
+          unit: ms
+        metrics_flush_interval: 15s
+    exporters:
+      clickhouse:
+        create_schema: false
+        database: otel
+        endpoint: tcp://clickhouse:9000?dial_timeout=10s
+        password: ${env:CLICKHOUSE_PASSWORD}
+        retry_on_failure:
+          enabled: true
+          max_elapsed_time: 5m
+        sending_queue:
+          enabled: true
+        timeout: 10s
+        username: otel_writer
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+      # Only the replica holding this Lease runs k8s_cluster, so prod's two gateways don't report the
+      # cluster twice.
+      k8s_leader_elector:
+        auth_type: serviceAccount
+        lease_name: otel-collector-k8s-cluster
+        lease_namespace: observability
+    processors:
+      batch: {}
+      # Kubernetes attributes on every span, log and metric, so a service's RED metrics join to its pods'
+      # resources. A sender is matched by the k8s.pod.uid or k8s.pod.ip it reports, else by the
+      # connection's source IP, which a sidecar hides (it presents 127.0.0.6), so under Istio a sender
+      # sets k8s.pod.uid. Runs before batch, which drops the connection.
+      k8sattributes:
+        auth_type: serviceAccount
+        filter:
+          namespace: observability
+        extract:
+          metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.node.name
+        pod_association:
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.uid
+        - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+        - sources:
+          - from: connection
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      # Each Kubernetes event as a log of service kubernetes-events: the note as the body, the object it is
+      # about and the reason as attributes for LogQL, and WARN for Warning events.
+      transform/kubernetes-events:
+        error_mode: ignore
+        log_statements:
+          - set(resource.attributes["service.name"], "kubernetes-events")
+          - set(log.cache["event"], log.body["object"])
+          - set(log.attributes["k8s.object.kind"], log.cache["event"]["regarding"]["kind"])
+          - set(log.attributes["k8s.object.name"], log.cache["event"]["regarding"]["name"])
+          - set(log.attributes["k8s.object.namespace"], log.cache["event"]["regarding"]["namespace"])
+          - set(log.attributes["k8s.event.reason"], log.cache["event"]["reason"])
+          - set(log.attributes["k8s.event.type"], log.cache["event"]["type"])
+          - set(log.attributes["k8s.event.controller"], log.cache["event"]["reportingController"])
+          - set(log.severity_text, "WARN") where log.cache["event"]["type"] == "Warning"
+          - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.cache["event"]["type"] == "Warning"
+          - set(log.severity_text, "INFO") where log.cache["event"]["type"] == "Normal"
+          - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["event"]["type"] == "Normal"
+          - set(log.body, log.cache["event"]["note"]) where log.cache["event"]["note"] != nil
+      # Alertmanager's webhook payload, one alert per notification (the history route groups by every
+      # label), as a log of service alertmanager with the alert's fields as attributes for LogQL.
+      transform/alertmanager:
+        error_mode: ignore
+        log_statements:
+          - set(resource.attributes["service.name"], "alertmanager")
+          - set(log.time, log.observed_time)
+          - merge_maps(log.cache, ParseJSON(log.body), "upsert")
+          - set(log.cache["alert"], log.cache["alerts"][0])
+          - set(log.attributes["status"], log.cache["status"])
+          - set(log.attributes["receiver"], log.cache["receiver"])
+          - set(log.attributes["alertname"], log.cache["alert"]["labels"]["alertname"])
+          - set(log.attributes["severity"], log.cache["alert"]["labels"]["severity"])
+          - set(log.attributes["alert_service_name"], log.cache["alert"]["labels"]["service_name"])
+          - set(log.attributes["fingerprint"], log.cache["alert"]["fingerprint"])
+          - set(log.attributes["starts_at"], log.cache["alert"]["startsAt"])
+          - set(log.severity_text, "WARN") where log.cache["status"] == "firing"
+          - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.cache["status"] == "firing"
+          - set(log.severity_text, "INFO") where log.cache["status"] == "resolved"
+          - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.cache["status"] == "resolved"
+          - set(log.attributes["ends_at"], log.cache["alert"]["endsAt"]) where log.cache["status"] == "resolved"
+          - >-
+            set(log.attributes["duration_seconds"],
+            UnixSeconds(Time(log.cache["alert"]["endsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")) -
+            UnixSeconds(Time(log.cache["alert"]["startsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")))
+            where log.cache["status"] == "resolved"
+    receivers:
+      # Cluster state from the API server, kube-state-metrics' half: pod phase, container restarts and
+      # readiness, workload desired and available replicas, node conditions and allocatable, and every
+      # container's requests and limits. Always in the gateway, agent or not.
+      k8s_cluster:
+        auth_type: serviceAccount
+        collection_interval: 30s
+        k8s_leader_elector: k8s_leader_elector
+        namespaces: [observability]
+        resource_attributes:
+          k8s.container.status.last_terminated_reason:
+            enabled: true
+      # Kubernetes events (scheduling, pulls, OOMKills, probe failures, rollouts), watched as they happen.
+      # Like k8s_cluster, only the replica holding the Lease watches, so each event is written once.
+      k8sobjects:
+        auth_type: serviceAccount
+        k8s_leader_elector: k8s_leader_elector
+        objects:
+          - name: events
+            group: events.k8s.io
+            mode: watch
+            namespaces: [observability]
+      # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
+      # fails to deliver. Only these two series are kept.
+      prometheus/alertmanager:
+        config:
+          scrape_configs:
+            - job_name: alertmanager
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['alertmanager:9093']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: alertmanager_notifications(_failed)?_total
+                  action: keep
+      # The pipeline's own health, for the Stack health dashboard and vmalert's pipeline rules: this
+      # collector's telemetry, every ClickHouse replica's Prometheus endpoint, and Cerberus. Each job keeps
+      # only the series a panel or rule reads.
+      prometheus/stack:
+        config:
+          scrape_configs:
+            - job_name: otel-collector
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['${env:MY_POD_IP}:8888']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: otelcol_(receiver_(accepted|refused|failed)_.*|exporter_(sent|send_failed|enqueue_failed)_.*|exporter_queue_(size|capacity)|processor_memory_limiter_refused_.*|process_memory_rss|process_runtime_heap_alloc_bytes)
+                  action: keep
+            - job_name: clickhouse
+              scrape_interval: 30s
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names: ['observability']
+                  selectors:
+                    - role: pod
+                      label: clickhouse.altinity.com/chi=otel
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_ip]
+                  replacement: $$1:9363
+                  target_label: __address__
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: k8s_pod_name
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: ClickHouse(ProfileEvents_(InsertQuery|FailedInsertQuery|InsertedRows|InsertedBytes|SelectQuery|FailedSelectQuery)|Metrics_(MemoryTracking|Query|BackgroundMergesAndMutationsPoolTask)|AsyncMetrics_(MaxPartCountForPartition|MemoryResident|CGroupMemoryUsed|CGroupMemoryTotal)|ErrorMetric_(MEMORY_LIMIT_EXCEEDED|TOO_MANY_PARTS))
+                  action: keep
+            - job_name: cerberus
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['cerberus:8080']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: http_server_request_duration_seconds_(bucket|count|sum)|cerberus_queries_total
+                  action: keep
+            - job_name: garmr
+              scrape_interval: 30s
+              static_configs:
+                - targets: ['garmr:8080']
+              metric_relabel_configs:
+                - source_labels: [__name__]
+                  regex: garmr_.+
+                  action: keep
+      # Alertmanager's history receiver posts every notification here (global.services.alertHistory).
+      webhook_event:
+        endpoint: 0.0.0.0:8088
+        path: /alertmanager
+      # OTLP listens on every interface in the pod, not just the pod IP, because
+      # kubectl port-forward (make cluster/port-forward) connects to localhost inside the pod.
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    service:
+      extensions:
+      - health_check
+      - k8s_leader_elector
+      pipelines:
+        logs:
+          exporters:
+          - clickhouse
+          processors:
+          - memory_limiter
+          - k8sattributes
+          - batch
+          receivers:
+          - otlp
+        logs/alertmanager:
+          exporters:
+          - clickhouse
+          processors:
+          - memory_limiter
+          - transform/alertmanager
+          - batch
+          receivers:
+          - webhook_event
+        logs/kubernetes-events:
+          exporters:
+          - clickhouse
+          processors:
+          - memory_limiter
+          - transform/kubernetes-events
+          - batch
+          receivers:
+          - k8sobjects
+        metrics:
+          exporters:
+          - clickhouse
+          processors:
+          - memory_limiter
+          - k8sattributes
+          - batch
+          receivers:
+          - otlp
+          - k8s_cluster
+          - spanmetrics
+          - servicegraph
+          - prometheus/alertmanager
+          - prometheus/stack
+        traces:
+          exporters:
+          - clickhouse
+          - spanmetrics
+          - servicegraph
+          processors:
+          - memory_limiter
+          - k8sattributes
+          - batch
+          receivers:
+          - otlp
+      telemetry:
+        metrics:
+          readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: ${env:MY_POD_IP}
+                  port: 8888
+---
+# Source: otel-collector/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+rules:
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - update
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    - services
+    - replicationcontrollers
+    - resourcequotas
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - apps
+    resources:
+    - replicasets
+    - deployments
+    - daemonsets
+    - statefulsets
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - batch
+    resources:
+    - jobs
+    - cronjobs
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - autoscaling
+    resources:
+    - horizontalpodautoscalers
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - events.k8s.io
+    resources:
+    - events
+    verbs:
+    - list
+    - watch
+---
+# Source: otel-collector/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: observability
+---
+# Source: otel-collector/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+  ports:
+    - name: alertmanager
+      port: 8088
+      targetPort: alertmanager
+      protocol: TCP
+      appProtocol: http
+    - name: otlp
+      port: 4317
+      targetPort: otlp
+      protocol: TCP
+      appProtocol: grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+---
+# Source: otel-collector/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+      app.kubernetes.io/instance: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+        app.kubernetes.io/instance: otel-collector
+      annotations:
+        checksum/config: e6b6b05e48833ac966410f27ef03d7b5d837ffaff24e52c91a0c4abd32cb196e
+    spec:
+      serviceAccountName: otel-collector
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: otel-collector
+          image: "otel/opentelemetry-collector-contrib:0.161.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config=/conf/relay.yaml
+          ports:
+            - name: alertmanager
+              containerPort: 8088
+              protocol: TCP
+            - name: otlp
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: clickhouse-writer
+            - name: GOMEMLIMIT
+              value: "204MiB"
+            - name: K8S_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 25m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /conf
+              name: config
+      volumes:
+        - name: config
+          configMap:
+            name: 'otel-collector'
+---
+# Source: otel-collector/templates/destinationrule.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/instance: otel-collector
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: otel-collector-0.1.0
+    app.kubernetes.io/version: "0.161.0"
+    environment: restricted
+spec:
+  host: otel-collector.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

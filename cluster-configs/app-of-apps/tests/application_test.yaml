@@ -310,3 +310,62 @@ tests:
     asserts:
       - notExists:
           path: spec.syncPolicy.managedNamespaceMetadata
+
+  - it: creates each destination namespace by default
+    asserts:
+      - contains:
+          path: spec.syncPolicy.syncOptions
+          content: CreateNamespace=true
+
+  - it: neither creates nor labels a namespace in the restricted-namespace profile, even under Istio
+    set:
+      clusterScoped: false
+      global.mesh: istio
+      global.clickhouseOperator.shared: true
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - hasDocuments:
+          count: 9
+      - equal:
+          path: spec.syncPolicy.syncOptions
+          value:
+            - ServerSideApply=true
+      - notExists:
+          path: spec.syncPolicy.managedNamespaceMetadata
+
+  - it: fails the restricted-namespace profile without a shared ClickHouse operator
+    set:
+      clusterScoped: false
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - failedTemplate:
+          errorPattern: "clusterScoped is false but global.clickhouseOperator.shared is not true"
+
+  - it: fails the restricted-namespace profile with a cluster-wide collector
+    set:
+      clusterScoped: false
+      global.clickhouseOperator.shared: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "clusterScoped is false but applications.otel-collector.values.rbac.scope is not namespace"
+
+  - it: fails the restricted-namespace profile with a cluster-wide collector added under another name
+    set:
+      clusterScoped: false
+      global.clickhouseOperator.shared: true
+      applications.otel-collector.values.rbac.scope: namespace
+      applications.otel-collector-edge:
+        syncWave: 3
+        path: cluster-nodes/otel-collector
+    asserts:
+      - failedTemplate:
+          errorPattern: "applications.otel-collector-edge.values.rbac.scope is not namespace"
+
+  - it: accepts the restricted-namespace profile with the collector turned off
+    set:
+      clusterScoped: false
+      global.clickhouseOperator.shared: true
+      applications.otel-collector.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 8

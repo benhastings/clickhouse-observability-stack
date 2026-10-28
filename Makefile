@@ -13,6 +13,8 @@ KUBE_VERSION := 1.37.0
 KIND_VERSION := v0.33.0
 KUBECTL_VERSION := v1.37.1
 GOLDEN := tests/golden
+# The environments make check/restricted always checks, besides any that set clusterScoped: false.
+RESTRICTED_ENVS := restricted
 
 HELM_OUT := dist/helm
 
@@ -73,7 +75,7 @@ setup/hooks: ## Point git at git/hooks so the pre-commit check runs
 ##@ Checks
 
 .PHONY: check
-check: check/lint check/schema check/golden check/manifests check/credentials ## The whole gate CI runs
+check: check/lint check/schema check/golden check/manifests check/restricted check/credentials ## The whole gate CI runs
 
 .PHONY: check/lint
 check/lint: check/yaml check/shell check/structure check/workflows check/spelling ## Offline checks, what the pre-commit hook runs
@@ -119,6 +121,10 @@ check/spelling: ## cspell against cspell.json (American and British English)
 .PHONY: check/manifests
 check/manifests: ## kubeconform tests/golden against pinned schemas; require memory limits and pinned images
 	KUBE_VERSION=$(KUBE_VERSION) scripts/check-manifests.bash
+
+.PHONY: check/restricted
+check/restricted: ## Fail when the restricted profile's golden render has a cluster-scoped kind, a Gateway, CreateNamespace or another namespace's Service
+	scripts/check-restricted.bash $(RESTRICTED_ENVS)
 
 .PHONY: check/credentials
 check/credentials: ## Fail when tests/golden renders a Secret value or a literal password, token or client secret

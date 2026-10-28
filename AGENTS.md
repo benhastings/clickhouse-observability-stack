@@ -56,12 +56,13 @@ add a target. `make help` lists everything.
 | --------------------------- | ---------------------------------------------------------------------------- |
 | `make setup`                | installs every check tool (Go, Python 3 and Node required) and the git hooks    |
 | `make setup/tools/cluster`  | kind and kubectl at pinned versions, for `cluster/...`, `dev/...` and `test/e2e` |
-| `make check`                | the whole gate CI runs: `check/lint`, `check/golden`, `check/manifests`        |
+| `make check`                | the whole gate CI runs: `check/lint`, `check/golden`, `check/manifests`, `check/restricted` |
 | `make check/lint`           | yamllint, shellcheck, `check/structure`, actionlint, cspell                   |
 | `make check/structure`      | the cluster-configs and cluster-nodes layout rules below                      |
 | `make check/schema`         | fails when a `values.schema.json` is stale, or when the schema accepts `deployment.replica` |
 | `make check/golden`         | fails when `tests/golden` differs from a fresh render                         |
 | `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits and pinned images         |
+| `make check/restricted`     | fails when the `restricted` profile's golden render has anything cluster-scoped, a Gateway, `CreateNamespace` or another namespace's Service |
 | `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
@@ -117,6 +118,11 @@ A change tried with `dev/...` still needs the e2e run before it is done.
   error, not a skip.
 - **Container policy** — every container in a Deployment or ClickHouseInstallation has a memory limit and an
   image with a pinned tag other than `latest`.
+- **Restricted profile** — `scripts/check-restricted.bash` holds `tests/golden/restricted` (and any environment
+  with `clusterScoped: false`) to namespaced kinds only: no Gateway, Namespace, CRD or cluster RBAC, no
+  `CreateNamespace` or `managedNamespaceMetadata`, an AppProject that allows no cluster-scoped kind, and no
+  object or `<svc>.<ns>.svc` address outside the app's namespace. A kind it does not know fails until it is
+  added to the script's namespaced list.
 - **Workflows** — actionlint on `.github/workflows/`.
 - **Spelling** — `make check/spelling` runs cspell over every tracked file against `cspell.json`. American and
   British spellings are both accepted. A new proper noun (a chart, a vendor, a tool, a metric name) fails the
@@ -197,7 +203,7 @@ tests/*_test.yaml        helm-unittest suites
 - **The application list lives in `cluster-configs/app-of-apps/values.yaml`**, one entry per
   `cluster-nodes/<app>` with an integer `syncWave` and, when not `observability`, a `namespace`. It is the
   supported set, and `nodes` there lists the charts under `cluster-nodes/` (`check/structure` keeps it exact).
-  `local`, `prod` and `dev` only disable an app with `enabled: false` or change one under `values:`. A site's
+  `local`, `prod`, `dev` and `restricted` only disable an app with `enabled: false` or change one under `values:`. A site's
   environment file may also add an application; it needs a `syncWave`, and a `path`, `chart` or `repoURL`
   unless it reuses a node, and the render fails on a name that is neither.
 - **Child Applications are generated.** Their finalizer, automated prune and self-heal, `CreateNamespace` and
@@ -205,7 +211,8 @@ tests/*_test.yaml        helm-unittest suites
   `cluster-configs/app-of-apps/tests/`.
 - `local` is the kind cluster and the only environment that is actually deployed and tested. `prod` is a
   worked example of production overrides: no demo load, no laptop tuning, larger resources, and every Secret
-  pre-created.
+  pre-created. `restricted` is the supported profile for a tenant namespace with nothing cluster-scoped
+  (`clusterScoped: false`, a shared operator, a namespace-scoped collector); keep it passing `check/restricted`.
 
 Argo CD deploys from `main` on GitHub, never from your working tree, so a change is not live on a cluster until
 it is merged (or until you point `targetRevision` at your branch in a throwaway cluster — never commit that).

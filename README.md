@@ -254,6 +254,8 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
   [a shared ClickHouse operator](#a-shared-clickhouse-operator), `clickhouse-operator-credentials` is the platform's.
 - **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
   [Service mesh](#service-mesh-istio-or-plain-kubernetes).
+- **Cluster-scoped objects.** By default the stack creates its namespaces, the operator's CRDs and two
+  ClusterRoles. In a namespace that allows none of that, use [a restricted namespace](#a-restricted-namespace).
 - **Preflight.** `make cluster/preflight ENV=<env>` checks the context for all of it and installs nothing. The
   Argo CD and Helm paths run it first and stop on a failure.
 
@@ -357,6 +359,65 @@ error naming `ClickHouseInstallation`, and an installation no operator picks up 
 message saying so, from the health check in `cluster-configs/argocd/values.yaml`, which holds back every later
 wave. A platform's own Argo CD needs that health check (and the child-Application one, see
 [Sync order](#sync-order)) for the waves to mean anything.
+
+### A restricted namespace
+
+Some platforms give a team one namespace and nothing outside it: no CRDs, no ClusterRoles, no Namespaces, and
+no say over the namespace's labels. The `restricted` environment
+([`values-restricted.yaml`](cluster-configs/overrides/values-restricted.yaml)) is the supported profile for that.
+Copy it for a site of your own (`make env/new NAME=<env>`, then its keys). It turns on three switches, and the
+render fails if the first is set without the other two:
+
+```yaml
+clusterScoped: false            # no CreateNamespace or managedNamespaceMetadata; an AppProject with no cluster-scoped kind
+global:
+  clickhouseOperator:
+    shared: true                # the platform's operator, CRDs and cluster RBAC
+applications:
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace        # a Role, not a ClusterRole; no kubeletstats
+```
+
+What it renders, all in the stack's namespace: the ClickHouseInstallation with its schema Job and ConfigMaps,
+the Deployments, Services, ServiceAccounts and ConfigMaps of Cerberus, garmr sql-adapter, garmr, the collector,
+Grafana, Alertmanager and vmalert, an Istio DestinationRule for each Service, the collector's Role and RoleBinding,
+and one VirtualService that binds Grafana to a Gateway the platform already runs (`global.exposure.gateway`).
+In `argocd` it renders the child Applications, without `CreateNamespace=true` or `managedNamespaceMetadata`, and
+an AppProject whose `clusterResourceWhitelist` is empty, so Argo CD refuses any cluster-scoped object outright.
+Every address between the apps is a Service in the same namespace. The demo load is off, as in `prod`.
+
+What it gives up:
+
+- **The operator is the platform's.** Everything in [A shared ClickHouse operator](#a-shared-clickhouse-operator)
+  applies: it has to watch this namespace and accept this stack's installation.
+- **The collector sees only its own namespace.** No `kubeletstats`, so no CPU, memory, filesystem or network usage
+  from the kubelet, no node conditions, and Kubernetes state, events and pod attributes for this namespace only.
+  The table under [Collector RBAC](#collector-rbac-cluster-wide-or-one-namespace) lists each signal and panel.
+  The collector agent DaemonSet can't run, since it exists only for `kubeletstats`.
+- **The platform owns the namespace.** It creates it before the first sync and, under Istio, labels it
+  `istio-injection: enabled`; nothing in the stack does either.
+- **The platform owns the way in.** The Gateway, its TLS certificate and DNS for the Grafana host are the
+  platform's. The profile names a placeholder Gateway (`istio-ingress/shared-gateway`) and host; set yours.
+  OTLP stays inside the cluster. Exposing it too takes a `hosts.otlp` entry and collector auth, as in `prod`.
+  Grafana's OAuth settings from `prod` ([Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)) work
+  the same here.
+
+To install it, the platform team creates the namespace (labelled for Istio injection), runs the operator, and
+creates the AppProject from the environment's render (or gives the project the same destinations and no
+cluster-scoped kinds, with `projectCreate: false`). The team then creates the Secrets listed in
+[Before any install](#before-any-install), except `clickhouse-operator-credentials`, and either applies
+`app-of-apps-<env>.yaml` or runs `make helm/install ENV=<env>` as the tenant. On the Helm path nothing creates or
+labels a namespace. `make cluster/preflight ENV=<env>` works with only the tenant's Role. It fails when the
+namespace is missing, or is readable and lacks the injection label. Where a tenant can't read the namespace, the
+operator's pods or StorageClasses, it warns and leaves that check to the platform team.
+
+`make check/restricted` (part of `make check`) holds the profile to this. It fails when the `restricted`
+golden render, or any environment with `clusterScoped: false`, contains a kind not known to be namespaced (so any
+cluster-scoped one), a Gateway, `CreateNamespace=true` or `managedNamespaceMetadata`, an AppProject that allows a
+cluster-scoped kind, an object or RoleBinding subject outside its Application's namespace, or a
+`<service>.<namespace>.svc` address in another namespace.
 
 ## Design decisions
 
@@ -926,7 +987,8 @@ secret rotated in Vault, roll the app with `make cluster/restart APP=<app>`.
 explicitly; `local` sets `kubernetes`, because kind runs no mesh.
 
 - **`istio`**: every destination namespace is labelled `istio-injection: enabled` (the generated Applications
-  set it through Argo CD's `managedNamespaceMetadata`; `make helm/install` labels the namespaces itself), the
+  set it through Argo CD's `managedNamespaceMetadata`; `make helm/install` labels the namespaces itself; in
+  [a restricted namespace](#a-restricted-namespace) the platform team does), the
   operator-created ClickHouse pods ask for a sidecar too, and each app's Service gets a DestinationRule with
   `ISTIO_MUTUAL`. PeerAuthentication stays at the mesh default, so plaintext is still accepted; the stack also
   works with `STRICT`, which the Istio profile below checks. One connection stays outside the mesh: the operator
@@ -1143,7 +1205,8 @@ of the container alone. `helm-templates/common/README.md` documents every key.
 `local` is what `scripts/kind-up.sh` deploys. `prod` is a worked example: no demo load, no low-memory tuning,
 larger resources, Secrets you create yourself (`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`
 and `clickhouse-operator-credentials`), and Grafana signing in through OAuth with its secrets in Vault (see
-[Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+[Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)). `restricted` is the profile for a tenant
+namespace with nothing cluster-scoped (see [A restricted namespace](#a-restricted-namespace)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. Every application starts from its node defaults; add only what differs.
 
@@ -1283,7 +1346,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 |---|---|---|
 | helm-unittest | a template or value that renders the wrong object; the contracts between apps (Secret names, Service ports, schema ownership) | `make test`, offline |
 | Golden renders | any change to what lands in a cluster, per environment, shown as a diff in the PR | `make check`, offline |
-| kubeconform + policy | invalid objects, missing memory limits, unpinned images | `make check`, pinned schemas |
+| kubeconform + policy | invalid objects, missing memory limits, unpinned images; anything cluster-scoped or in another namespace in the `restricted` profile | `make check`, pinned schemas |
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
 
 Everything that could drift is pinned: tool versions in the `Makefile`, Kubernetes `1.37.0` for rendering,
@@ -1436,7 +1499,8 @@ on the target cluster after the first sync, in this order:
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas. The gateway's `k8sattributes` watches every pod in the cluster, so its memory grows with the pod count; the agent watches only its own node's pods.
 - **A namespace without cluster-scoped RBAC:** set `rbac.scope: namespace` on the `otel-collector` app. The
   collector then gets only a Role, watches only its own namespace and drops `kubeletstats`; see **Collector RBAC:
-  cluster-wide or one namespace** for what that loses.
+  cluster-wide or one namespace** for what that loses. For a namespace with nothing cluster-scoped at all, start
+  from the `restricted` environment (**A restricted namespace**).
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
 - **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default; `values-prod.yaml` keeps traces 21 days, logs 14 and metrics 30). Set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus to the metrics retention when it exceeds 14 days, as `prod` does.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
