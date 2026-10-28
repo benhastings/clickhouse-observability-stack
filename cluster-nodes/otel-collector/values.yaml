@@ -77,7 +77,8 @@ secrets:
 
 # The kubeletstats receiver reads CPU, memory, filesystem and network for the node, every pod and
 # every container from this node's kubelet, plus each pod volume's capacity and free space (the volume
-# group, which kubeletstats leaves off by default), so ClickHouse's disk can be watched. The gateway runs it only while the agent is off.
+# group, which kubeletstats leaves off by default), so ClickHouse's disk can be watched. The gateway runs it only while the agent is off
+# and rbac.scope is cluster.
 configMaps:
   main:
     data:
@@ -89,6 +90,12 @@ configMaps:
         {{- if ne $agent (dig "daemonset" "enabled" false .Values.AsMap) }}
         {{- fail "collector.agent.enabled and daemonset.enabled must be set together" }}
         {{- end }}
+        {{- $namespaced := eq (dig "rbac" "scope" "cluster" .Values.AsMap) "namespace" }}
+        {{- $namespace := include "common.namespace" $ }}
+        {{- if and $namespaced $agent }}
+        {{- fail "rbac.scope: namespace can't run the agent: kubeletstats reads nodes/stats, which only a ClusterRole grants" }}
+        {{- end }}
+        {{- $kubelet := not (or $agent $namespaced) }}
         {{- $exposed := and (dig "global" "exposure" "enabled" false .Values.AsMap) (dig "exposure" "host" "" .Values.AsMap) }}
         {{- if and $exposed (not $auth) (not (dig "auth" "allowUnauthenticatedExposure" false $collector)) }}
         {{- fail "global.exposure.enabled puts the collector outside the cluster: set collector.auth.enabled, or collector.auth.allowUnauthenticatedExposure for a private network" }}
@@ -165,6 +172,10 @@ configMaps:
           # sets k8s.pod.uid. Runs before batch, which drops the connection.
           k8sattributes:
             auth_type: serviceAccount
+            {{- if $namespaced }}
+            filter:
+              namespace: {{ $namespace }}
+            {{- end }}
             extract:
               metadata:
               - k8s.namespace.name
@@ -232,7 +243,7 @@ configMaps:
                 UnixSeconds(Time(log.cache["alert"]["startsAt"], "%Y-%m-%dT%H:%M:%S.%fZ")))
                 where log.cache["status"] == "resolved"
         receivers:
-          {{- if not $agent }}
+          {{- if $kubelet }}
           kubeletstats:
             auth_type: serviceAccount
             collection_interval: 30s
@@ -247,8 +258,12 @@ configMaps:
             auth_type: serviceAccount
             collection_interval: 30s
             k8s_leader_elector: k8s_leader_elector
+            {{- if $namespaced }}
+            namespaces: [{{ $namespace }}]
+            {{- else }}
             node_conditions_to_report: [Ready, MemoryPressure, DiskPressure, PIDPressure]
             allocatable_types_to_report: [cpu, memory, ephemeral-storage, pods]
+            {{- end }}
             resource_attributes:
               k8s.container.status.last_terminated_reason:
                 enabled: true
@@ -261,6 +276,9 @@ configMaps:
               - name: events
                 group: events.k8s.io
                 mode: watch
+                {{- if $namespaced }}
+                namespaces: [{{ $namespace }}]
+                {{- end }}
           # Alertmanager's own notification counters, per integration, so vmalert can alert when a receiver
           # fails to deliver. Only these two series are kept.
           prometheus/alertmanager:
@@ -405,7 +423,7 @@ configMaps:
               {{- end }}
               receivers:
               - otlp
-              {{- if not $agent }}
+              {{- if $kubelet }}
               - kubeletstats
               {{- end }}
               - k8s_cluster
@@ -448,29 +466,51 @@ configMaps:
 # kubeletstats authenticates to the kubelet with this ServiceAccount's token, in the gateway or the agent,
 # and k8sattributes to the API server, where it watches pods, namespaces and (for deployment names)
 # replicasets. k8s_cluster lists and watches the workload kinds it reports, and holds its Lease here.
+#
+# rbac.scope: namespace is for a namespace that forbids cluster-scoped RBAC. No ClusterRole or
+# ClusterRoleBinding is rendered; the Role grants namespaceRules, the namespaced part of clusterRules, in
+# the release namespace only. relay.yaml follows the same key: k8sattributes, k8s_cluster and k8sobjects
+# watch only the release namespace, and kubeletstats is off, because the kubelet's nodes/stats is
+# cluster-scoped. The agent needs nodes/stats too, so the render fails if it is on. The README's
+# "Collector RBAC: cluster-wide or one namespace" lists what is lost.
 serviceAccount:
   automountToken: true
 
 rbac:
+  scope: cluster
   clusterRules:
     - apiGroups: [""]
       resources: [nodes/stats]
       verbs: [get]
     - apiGroups: [""]
-      resources: [nodes, pods, namespaces, services, replicationcontrollers, resourcequotas]
+      resources: [nodes, namespaces]
       verbs: [get, list, watch]
-    - apiGroups: [apps]
+    - &coreRule
+      apiGroups: [""]
+      resources: [pods, services, replicationcontrollers, resourcequotas]
+      verbs: [get, list, watch]
+    - &appsRule
+      apiGroups: [apps]
       resources: [replicasets, deployments, daemonsets, statefulsets]
       verbs: [get, list, watch]
-    - apiGroups: [batch]
+    - &batchRule
+      apiGroups: [batch]
       resources: [jobs, cronjobs]
       verbs: [get, list, watch]
-    - apiGroups: [autoscaling]
+    - &autoscalingRule
+      apiGroups: [autoscaling]
       resources: [horizontalpodautoscalers]
       verbs: [get, list, watch]
-    - apiGroups: [events.k8s.io]
+    - &eventsRule
+      apiGroups: [events.k8s.io]
       resources: [events]
       verbs: [list, watch]
+  namespaceRules:
+    - *coreRule
+    - *appsRule
+    - *batchRule
+    - *autoscalingRule
+    - *eventsRule
   rules:
     - apiGroups: [coordination.k8s.io]
       resources: [leases]

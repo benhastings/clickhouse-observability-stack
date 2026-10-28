@@ -358,8 +358,15 @@ rules:
     - ""
     resources:
     - nodes
-    - pods
     - namespaces
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - pods
     - services
     - replicationcontrollers
     - resourcequotas

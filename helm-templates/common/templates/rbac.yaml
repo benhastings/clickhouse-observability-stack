@@ -1,6 +1,10 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $name := include "common.fullname" . -}}
-{{- with $v.rbac.clusterRules }}
+{{- if not (has $v.rbac.scope (list "cluster" "namespace")) }}
+{{- fail (printf "rbac.scope must be cluster or namespace, not %v" $v.rbac.scope) }}
+{{- end }}
+{{- $namespaced := eq $v.rbac.scope "namespace" }}
+{{- with and (not $namespaced) $v.rbac.clusterRules }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -22,7 +26,11 @@ subjects:
     name: {{ include "common.serviceAccountName" $ }}
     namespace: {{ include "common.namespace" $ }}
 {{- end }}
-{{- with $v.rbac.rules }}
+{{- $rules := $v.rbac.rules | default list }}
+{{- if $namespaced }}
+{{- $rules = concat $rules ($v.rbac.namespaceRules | default list) }}
+{{- end }}
+{{- with $rules }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

@@ -28,6 +28,8 @@ properties:
     properties:
       clusterRules: {type: array, items: {type: object}, description: 'when set, a ClusterRole and ClusterRoleBinding for the ServiceAccount', x-default: '`[]`'}
       rules: {type: array, items: {type: object}, description: 'when set, a Role and RoleBinding in the release namespace', x-default: '`[]`'}
+      scope: {type: string, enum: [cluster, namespace], description: '`namespace` renders no ClusterRole or ClusterRoleBinding: `clusterRules` is ignored and `namespaceRules` joins `rules` in the Role, for a namespace that forbids cluster-scoped RBAC', x-default: '`cluster`'}
+      namespaceRules: {type: array, items: {type: object}, description: 'with `scope: namespace`, added to the Role in place of `clusterRules`: the namespaced part of what the app reads cluster-wide', x-default: '`[]`'}
   deployment: {$ref: "#/definitions/workload"}
   daemonset:
     $ref: "#/definitions/workload"
