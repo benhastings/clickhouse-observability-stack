@@ -745,10 +745,40 @@ if [[ "${MESH:-kubernetes}" == istio ]]; then
   sleep 3
   gateway=http://localhost:18088
 
+  # redirects <description> <regex> <curl args...>: until the response's Location header matches the regex.
+  redirects() {
+    local description=$1 pattern=$2
+    shift 2
+    local deadline=$((SECONDS + DATA_TIMEOUT)) location
+    step "$description"
+    while :; do
+      location="$(curl -sS -o /dev/null -D - "$@" 2>/dev/null | tr -d '\r' |
+        awk 'tolower($1) == "location:" { print $2 }' || true)"
+      if [[ "$location" =~ $pattern ]]; then
+        echo "  ok: ${location%%\?*}"
+        return 0
+      fi
+      if ((SECONDS > deadline)); then
+        echo "  last Location: ${location:-none}"
+        echo "  not matched within ${DATA_TIMEOUT}s: $pattern"
+        exit 1
+      fi
+      sleep 10
+    done
+  }
+
   mesh_routes() { # <label>
     poll "Istio ($1): Grafana answers through the gateway" \
       '.database == "ok"' \
       -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/api/health"
+    # tests/mesh/local-istio.values.yaml turns on generic OAuth with auto login and a placeholder provider.
+    redirects "Istio ($1): a signed-out visitor to Grafana is sent to its login page" \
+      '(^|/)login$' -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/"
+    redirects "Istio ($1): Grafana's login page signs in automatically through OAuth" \
+      '(^|/)login/generic_oauth$' -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/login"
+    redirects "Istio ($1): OAuth sends the visitor to the provider, to come back to the exposed host" \
+      '^https://sso\.example/realms/platform/protocol/openid-connect/auth\?.*client_id=grafana&.*redirect_uri=http%3A%2F%2Fgrafana\.127\.0\.0\.1\.sslip\.io%2Flogin%2Fgeneric_oauth&' \
+      -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/login/generic_oauth"
     local trace span
     trace="$(openssl rand -hex 16)"
     span="$(openssl rand -hex 8)"

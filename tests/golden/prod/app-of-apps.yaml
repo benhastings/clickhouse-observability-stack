@@ -402,6 +402,16 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
+        auth:
+          genericOauth:
+            apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
+            authUrl: https://sso.example/realms/platform/protocol/openid-connect/auth
+            autoLogin: true
+            clientId: grafana
+            enabled: true
+            groupsAttributePath: groups
+            tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
+          loginMaximumLifetimeDuration: 7d
         deployment:
           containers:
             grafana:
@@ -413,6 +423,10 @@ spec:
                 requests:
                   cpu: 100m
                   memory: 256Mi
+              secretEnv:
+                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+                  key: client-secret
+                  secret: grafana-oauth
         global:
           exposure:
             enabled: true
@@ -424,6 +438,9 @@ spec:
           labels:
             environment: prod
           mesh: istio
+        vault:
+          enabled: true
+          role: grafana
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

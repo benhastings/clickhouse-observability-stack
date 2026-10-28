@@ -634,6 +634,85 @@ tests:
           path: kind
           value: Deployment
 
+  # The production shape together: Vault for the client secret, the provider's private CA, and the
+  # VirtualService on a shared Gateway whose host is also the root URL the provider redirects back to.
+  - it: renders Vault-on OAuth with a private CA behind a VirtualService on the same host
+    set:
+      vault.enabled: true
+      global:
+        mesh: istio
+        exposure:
+          enabled: true
+          hosts:
+            grafana: grafana.example
+          gateway:
+            name: shared
+            namespace: istio-ingress
+          tls:
+            credentialName: observability-tls
+      auth.genericOauth:
+        enabled: true
+        clientId: grafana
+        authUrl: https://sso.example/realms/platform/protocol/openid-connect/auth
+        tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
+        apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
+        autoLogin: true
+        tlsCaConfigMap: platform-ca
+      deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+        secret: grafana-oauth
+        key: client-secret
+    asserts:
+      - equal:
+          path: spec.hosts
+          value: [grafana.example]
+        template: templates/gateway.yaml
+      - equal:
+          path: spec.gateways
+          value: [istio-ingress/shared]
+        template: templates/gateway.yaml
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^\[server\]\nroot_url = https://grafana\.example/\n\[auth\.generic_oauth\]\nenabled = true$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^client_secret = \$__file\{/vault/secrets/grafana-oauth-client-secret\}$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: '(?m)^auto_login = true\nuse_refresh_token = true\ntls_skip_verify_insecure = false\ntls_client_ca = /etc/grafana/oauth-ca/ca.crt$'
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-grafana-oauth-client-secret"]
+          value: secret/data/grafana-oauth
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].env[*].name
+          pattern: ^GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET$
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: oauth-ca
+            configMap:
+              name: platform-ca
+        documentSelector:
+          path: kind
+          value: Deployment
+      - hasDocuments:
+          count: 0
+        template: templates/secret.yaml
+
   - it: trusts the OAuth provider's CA from a ConfigMap and never skips verification
     set:
       auth.genericOauth:

@@ -893,8 +893,10 @@ explicitly; `local` sets `kubernetes`, because kind runs no mesh.
 To try the mesh on kind, add `MESH=istio` to `make cluster/up` or `make test/e2e`. It installs Istio 1.30.5 (istiod
 and an ingress gateway) first, then deploys `local` with `tests/mesh/local-istio.values.yaml` merged over its
 values: `mesh: istio`, and Grafana and OTLP exposed through the gateway at `grafana.127.0.0.1.sslip.io` and
-`otlp.127.0.0.1.sslip.io` over plain HTTP. The e2e run then checks that the apps have sidecars, reaches Grafana
-and sends a span through the gateway, and repeats that with `PeerAuthentication` `STRICT`. The kind node needs
+`otlp.127.0.0.1.sslip.io` over plain HTTP, with Grafana's generic OAuth on and pointed at a placeholder provider.
+The e2e run then checks that the apps have sidecars, reaches Grafana, follows a signed-out visitor through the
+gateway to the provider's sign-in URL, sends a span through the gateway, and repeats that with
+`PeerAuthentication` `STRICT`. The kind node needs
 about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
 demand (`.github/workflows/e2e-mesh.yml`).
 
@@ -1043,8 +1045,9 @@ Containers, ports, env vars and volumes are maps keyed by name, so this changes 
 of the container alone. `helm-templates/common/README.md` documents every key.
 
 `local` is what `scripts/kind-up.sh` deploys. `prod` is a worked example: no demo load, no low-memory tuning,
-larger resources, and Secrets you create yourself (`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`,
-`grafana-admin` and `clickhouse-operator-credentials`). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+larger resources, Secrets you create yourself (`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`
+and `clickhouse-operator-credentials`), and Grafana signing in through OAuth with its secrets in Vault (see
+[Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. Every application starts from its node defaults; add only what differs.
 
@@ -1286,7 +1289,38 @@ in Vault at `<vault.path>/grafana-oauth` instead; the agent writes it to a file 
 
 If Keycloak's certificate comes from a private CA, put the CA in a ConfigMap in the observability namespace and
 name it in `auth.genericOauth.tlsCaConfigMap` (the key defaults to `ca.crt`, set by `tlsCaKey`). Grafana mounts it
-and sets `tls_client_ca`. Certificate verification stays on; there is no option to skip it.
+and sets `tls_client_ca`. Certificate verification stays on; there is no option to skip it. A CA certificate is
+public, so a ConfigMap is enough; the client secret is the only credential.
+
+`values-prod.yaml` puts this together: OAuth on with placeholder `sso.example` endpoints, auto login, groups read
+from the `groups` claim, sessions of at most seven days, the root URL `https://grafana.example/` from its exposure,
+and Grafana's secrets (`grafana-admin` and `grafana-oauth`) from Vault through the role `grafana`. A site copies
+that block into its own environment file with its provider's URLs, client ID and host.
+
+### What is tested, and what only the site can check
+
+`make test/unit` renders Grafana with Vault, OAuth, a private CA and a VirtualService on a shared Gateway together,
+and checks the root URL, the `$__file` client secret, the Vault annotation and that no Secret is rendered.
+`tests/golden/prod/grafana.yaml` is the same for `prod`. `make test/e2e MESH=istio` turns OAuth on against a
+provider nobody runs and checks, through the Istio gateway, that a signed-out visitor goes to `/login`, then
+straight to `/login/generic_oauth`, then to the provider with `client_id` and a `redirect_uri` on the exposed
+host. Nothing here runs an identity provider, so a real sign-in, the role mapping and the approved URL are checked
+on the target cluster after the first sync, in this order:
+
+1. `make cluster/preflight ENV=<env>` passes, and Argo CD shows `grafana` Synced and Healthy. The pod has a
+   `vault-agent` container, and `kubectl -n observability logs deploy/grafana -c grafana | grep -i secret` shows
+   no client secret.
+2. `curl -sI https://<grafana host>/login/generic_oauth` answers `302` with a `Location` on the provider's
+   `authUrl` whose `redirect_uri` is `https://<grafana host>/login/generic_oauth`. A certificate error here means
+   the gateway's TLS Secret, not Grafana.
+3. In a private browser window, open `https://<grafana host>/`. With `autoLogin` you land on the provider's sign-in
+   page, without it on Grafana's, with a **Sign in with Keycloak** button.
+4. Sign in as a user with `grafana-admin`, one with `grafana-editor` and one with neither. Each comes back to
+   Grafana signed in, and **Administration > Users** lists them as Admin, Editor and Viewer.
+5. If sign-in fails after the provider, `kubectl -n observability logs deploy/grafana -c grafana | grep -i oauth`
+   names the cause: `x509: certificate signed by unknown authority` needs `tlsCaConfigMap`, `invalid_client` a
+   wrong client secret in Vault (roll Grafana after fixing it, `make cluster/restart APP=grafana`), and a role of
+   Viewer for everyone a `roleAttributePath` that doesn't match the token's claims.
 
 ## Before using this beyond a laptop
 
@@ -1301,7 +1335,7 @@ and sets `tls_client_ca`. Certificate verification stays on; there is no option 
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 
-- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `grafana-admin` and `clickhouse-operator-credentials` to exist, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
+- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr` and `clickhouse-operator-credentials` to exist, and Grafana's `grafana-admin` and `grafana-oauth` in Vault, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas. The gateway's `k8sattributes` watches every pod in the cluster, so its memory grows with the pod count; the agent watches only its own node's pods.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.

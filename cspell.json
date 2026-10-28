@@ -112,6 +112,7 @@
     "templatesd",
     "tmpl",
     "tokenbf",
+    "tolower",
     "tonumber",
     "topk",
     "traceql",

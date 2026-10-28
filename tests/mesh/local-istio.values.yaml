@@ -1,6 +1,6 @@
 # Merged over values-local.yaml when make cluster/up or make test/e2e runs with MESH=istio (kind only; never
 # an environment of its own). Istio, Grafana and OTLP exposed through the gateway on sslip.io hosts over
-# plain HTTP, and the collector declared private, since this kind cluster is.
+# plain HTTP, the collector declared private, since this kind cluster is, and Grafana signing in through OAuth.
 global:
   mesh: istio
   exposure:
@@ -14,3 +14,17 @@ applications:
       collector:
         auth:
           allowUnauthenticatedExposure: true
+  # Grafana's generic OAuth, pointed at a placeholder provider no one runs: e2e checks that a signed-out
+  # visitor through the gateway is sent to it with the redirect URI built from the exposed host. Grafana never
+  # calls the provider before a user comes back from it, so no client secret and no provider are needed. The
+  # admin user still signs in with its password, as the rest of e2e does through the API.
+  grafana:
+    values:
+      auth:
+        genericOauth:
+          enabled: true
+          clientId: grafana
+          authUrl: https://sso.example/realms/platform/protocol/openid-connect/auth
+          tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
+          apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
+          autoLogin: true
