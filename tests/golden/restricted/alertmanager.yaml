@@ -1,0 +1,260 @@
+---
+# Source: alertmanager/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: restricted
+automountServiceAccountToken: false
+---
+# Source: alertmanager/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: restricted
+data:
+  alertmanager.yml: |-
+    receivers:
+    - name: history
+      webhook_configs:
+      - max_alerts: 1
+        send_resolved: true
+        url: http://otel-collector:8088/alertmanager
+    - name: heartbeat
+    - name: garmr
+      webhook_configs:
+      - send_resolved: true
+        url: http://garmr:8080/api/v1/alertmanager
+    - name: default
+    route:
+      group_by:
+      - alertname
+      - service_name
+      group_interval: 5m
+      group_wait: 30s
+      receiver: default
+      repeat_interval: 4h
+      routes:
+      - continue: true
+        group_by:
+        - '...'
+        group_interval: 1m
+        group_wait: 0s
+        receiver: history
+        repeat_interval: 168h
+      - group_by:
+        - alertname
+        group_interval: 1m
+        group_wait: 0s
+        matchers:
+        - alertname="Watchdog"
+        receiver: heartbeat
+        repeat_interval: 1m
+      - continue: true
+        group_by:
+        - alertname
+        - service_name
+        group_interval: 1m
+        receiver: garmr
+      - receiver: default
+    templates:
+    - /etc/alertmanager/templates/*.tmpl
+---
+# Source: alertmanager/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: restricted
+data:
+  stack.tmpl: |
+    {{/*
+    The Slack message for an alert group. Alertmanager uses these names for any slack_configs entry that
+    doesn't set title or text, so the stack's slack receiver needs no templates in alertmanager.yml. With
+    post_updates_to_thread, the first message is the group's, and each later notification (more alerts,
+    resolved) is a reply in its thread, while update_message keeps the first message's status current.
+    */}}
+    {{ define "slack.default.title" -}}
+    [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}{{ with .CommonLabels.service_name }} · {{ . }}{{ end }}
+    {{- end }}
+  
+    {{ define "slack.default.text" -}}
+    {{ range .Alerts -}}
+    {{ if eq .Status "resolved" }}:white_check_mark:{{ else if eq .Labels.severity "critical" }}:red_circle:{{ else }}:large_orange_circle:{{ end }} *{{ .Annotations.summary }}*
+    {{ with .Annotations.description }}{{ . }}
+    {{ end -}}
+    {{ end -}}
+    {{- end }}
+---
+# Source: alertmanager/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: restricted
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+---
+# Source: alertmanager/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: restricted
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/instance: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/instance: alertmanager
+      annotations:
+        checksum/config: bc866d8a2f2893bb7edad3c11d074a74ad60e0d6d9a9cd42c086b4f47f5445b8
+    spec:
+      serviceAccountName: alertmanager
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: alertmanager
+          image: "quay.io/prometheus/alertmanager:v0.34.1"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --cluster.listen-address=
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/alertmanager
+              name: config
+              readOnly: true
+            - mountPath: /alertmanager
+              name: data
+            - mountPath: /etc/alertmanager/templates
+              name: templates
+              readOnly: true
+            - mountPath: /etc/alertmanager/slack
+              name: slack
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: 'alertmanager-config'
+        - name: data
+          emptyDir: {}
+        - name: slack
+          emptyDir: {}
+        - name: templates
+          configMap:
+            name: 'alertmanager-templates'
+---
+# Source: alertmanager/templates/destinationrule.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: alertmanager
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: alertmanager-0.1.0
+    app.kubernetes.io/version: "0.34.1"
+    environment: restricted
+spec:
+  host: alertmanager.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

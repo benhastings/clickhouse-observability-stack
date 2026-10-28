@@ -10,7 +10,9 @@
 # CRDs and namespaces in place.
 #
 # With global.clickhouseOperator.shared a platform team runs the operator: install skips steps 1 and 2 (preflight
-# has already checked the CRD and the operator) and uninstall leaves the operator alone.
+# has already checked the CRD and the operator) and uninstall leaves the operator alone. With clusterScoped: false
+# (the restricted-namespace profile) it neither creates nor labels a namespace: preflight has checked that the
+# platform team made it.
 #
 # Helm installs a chart's crds/ on the first install only and never upgrades them. After an operator bump,
 # apply the new release's CRDs yourself: kubectl apply -f cluster-nodes/clickhouse-operator/crds/
@@ -25,6 +27,8 @@ operator_ns="$(yq '.applications.clickhouse-operator.namespace' "$apps")"
 stack_ns="$(yq '.namespace' "$apps")"
 crd=clickhouseinstallations.clickhouse.altinity.com
 shared="$(yq '.global.clickhouseOperator.shared // false' "cluster-configs/overrides/values-$env.yaml" 2>/dev/null || echo false)"
+create_ns=(--create-namespace)
+[[ "$(yq '.clusterScoped' "cluster-configs/overrides/values-$env.yaml" 2>/dev/null || true)" == false ]] && create_ns=()
 
 case "$action" in
   install)
@@ -32,7 +36,7 @@ case "$action" in
     scripts/values-for-helm.bash "$env" "$out"
     # Under Istio the namespaces need the injection label before any pod starts; Argo CD sets it through
     # managedNamespaceMetadata, so the Helm path sets it here.
-    if [[ "$(yq '.global.mesh // "istio"' "cluster-configs/overrides/values-$env.yaml")" == istio ]]; then
+    if [[ ${#create_ns[@]} -gt 0 && "$(yq '.global.mesh // "istio"' "cluster-configs/overrides/values-$env.yaml")" == istio ]]; then
       namespaces=("$stack_ns")
       [[ "$shared" == true ]] || namespaces+=("$operator_ns")
       for ns in "${namespaces[@]}"; do
@@ -51,7 +55,7 @@ case "$action" in
     fi
     echo "==> Installing stack into $stack_ns"
     helm upgrade --install stack cluster-configs/stack \
-      --namespace "$stack_ns" --create-namespace -f "$out/stack.yaml" --timeout 10m
+      --namespace "$stack_ns" "${create_ns[@]}" -f "$out/stack.yaml" --timeout 10m
     echo "Installed. ClickHouse starts once the operator reconciles the installation:"
     echo "  kubectl -n $stack_ns get chi,pods"
     ;;

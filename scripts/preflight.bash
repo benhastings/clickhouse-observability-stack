@@ -3,10 +3,10 @@
 # Usage: ENV=<env> [KUBE_VERSION=<x.y.z>] scripts/preflight.bash   (or make cluster/preflight ENV=<env>)
 #
 # It checks the Kubernetes version against KUBE_VERSION (the version the golden files render against),
-# each destination namespace, the Secrets the environment does not create, a StorageClass for ClickHouse,
-# the Istio CRDs when global.mesh is istio, the Vault injector when vault.enabled is true, and, with
-# global.clickhouseOperator.shared, the platform's ClickHouse operator: its CRD, the right to create an
-# installation, and a Ready operator pod.
+# each destination namespace (and, with clusterScoped: false, that it exists with its Istio injection label),
+# the Secrets the environment does not create, a StorageClass for ClickHouse, Istio's API when global.mesh is
+# istio, the Vault injector when vault.enabled is true, and, with global.clickhouseOperator.shared, the
+# platform's ClickHouse operator: its CRD, the right to create an installation, and a Ready operator pod.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -65,23 +65,43 @@ if [[ -n "$min_version" ]] && [[ "$(printf '%s\n%s\n' "$min_version" "$server_ve
   fail "Kubernetes $server_version is older than $min_version, the version the manifests are rendered against"
 fi
 
+mesh="$(yq '.global.mesh // "istio"' "$values")"
+# clusterScoped: false is the restricted-namespace profile: nothing creates or labels a namespace, so each one
+# has to exist already, labelled for Istio injection when the mesh is istio. A tenant often may not read
+# Namespace objects, so a namespace it cannot read is found through its default ServiceAccount instead, and its
+# labels are then for the platform team to confirm.
+restricted=false
+[[ "$(yq '.clusterScoped' "$values")" == false ]] && restricted=true
+
 # Each enabled app's destination namespace exists, or the caller may create it (CreateNamespace=true does).
 apps=cluster-configs/app-of-apps/values.yaml
 can_create_ns="$(kubectl auth can-i create namespaces 2>/dev/null || true)"
-for app in $(yq '.applications | keys | .[]' "$apps"); do
-  app_enabled "$app" || continue
-  ns="$(yq ".applications.\"$app\".namespace // .namespace" "$apps")"
-  if ! kubectl get namespace "$ns" >/dev/null 2>&1 && [[ "$can_create_ns" != yes ]]; then
-    fail "namespace $ns ($app) does not exist and this context cannot create namespaces"
+for ns in $(for app in $(yq '.applications | keys | .[]' "$apps"); do
+  app_enabled "$app" && yq ".applications.\"$app\".namespace // .namespace" "$apps"
+done | sort -u); do
+  if [[ "$restricted" != true ]]; then
+    if ! kubectl get namespace "$ns" >/dev/null 2>&1 && [[ "$can_create_ns" != yes ]]; then
+      fail "namespace $ns does not exist and this context cannot create namespaces"
+    fi
+  elif namespace_json="$(kubectl get namespace "$ns" -o json 2>/dev/null)"; then
+    if [[ "$mesh" == istio && "$(yq -p json '.metadata.labels."istio-injection" // ""' <<<"$namespace_json")" != enabled ]]; then
+      fail "namespace $ns is not labelled istio-injection=enabled; with clusterScoped: false the stack does not label it, so ask the platform team to"
+    fi
+  elif kubectl -n "$ns" get serviceaccount default >/dev/null 2>&1; then
+    [[ "$mesh" != istio ]] ||
+      echo "WARN: cannot read namespace $ns to see its labels; confirm with the platform team that it is labelled istio-injection=enabled" >&2
+  else
+    fail "namespace $ns does not exist, or this context cannot use it; with clusterScoped: false the platform team creates it"
   fi
 done
 
-# global.mesh defaults to istio, so an environment that does not set it needs Istio's CRDs.
-mesh="$(yq '.global.mesh // "istio"' "$values")"
+# global.mesh defaults to istio, so an environment that does not set it needs Istio's API (checked through
+# discovery, which needs no cluster-wide read of CRDs).
 if [[ "$mesh" == istio ]]; then
-  for crd in gateways.networking.istio.io virtualservices.networking.istio.io; do
-    kubectl get crd "$crd" >/dev/null 2>&1 ||
-      fail "global.mesh is istio but CRD $crd is not installed; install Istio or set global.mesh: kubernetes"
+  istio_api="$(kubectl get --raw /apis/networking.istio.io/v1 2>/dev/null || echo '{}')"
+  for resource in gateways virtualservices; do
+    yq -p json -e ".resources[] | select(.name == \"$resource\")" <<<"$istio_api" >/dev/null 2>&1 ||
+      fail "global.mesh is istio but the cluster does not serve $resource.networking.istio.io/v1; install Istio or set global.mesh: kubernetes"
   done
 fi
 
@@ -162,13 +182,16 @@ if [[ "$operator_shared" == true ]] && app_enabled clickhouse; then
   fi
 fi
 
-# An empty storageClassName means the cluster's default StorageClass, so one has to exist.
+# An empty storageClassName means the cluster's default StorageClass, so one has to exist. StorageClasses are
+# cluster-scoped, so a tenant that may not read them gets a warning instead.
 if app_enabled clickhouse; then
   storage_class="$(app_value clickhouse .clickhouse.storageClassName)"
   if [[ -z "$storage_class" ]]; then
     storage_class="$(yq '.clickhouse.storageClassName // ""' cluster-nodes/clickhouse/values.yaml)"
   fi
-  if [[ -z "$storage_class" ]]; then
+  if [[ "$(kubectl auth can-i get storageclasses 2>/dev/null || true)" != yes ]]; then
+    echo "WARN: this context cannot read StorageClasses; confirm with the platform team that ${storage_class:-a default StorageClass} exists for the ClickHouse volume" >&2
+  elif [[ -z "$storage_class" ]]; then
     if [[ -z "$(kubectl get sc -o name 2>/dev/null)" ]]; then
       fail "no StorageClass is visible and clickhouse.storageClassName is empty, so the ClickHouse volume would stay Pending"
     fi

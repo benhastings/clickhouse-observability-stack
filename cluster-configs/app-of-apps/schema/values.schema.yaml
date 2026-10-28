@@ -13,6 +13,7 @@ properties:
   projectCreate: {type: boolean}
   destinationServer: {type: string}
   namespace: {type: string}
+  clusterScoped: {type: boolean}
   global: {type: object}
   nodes: {type: array, items: {type: string}}
   applications:

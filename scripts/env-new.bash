@@ -44,6 +44,9 @@ targetRevision: main
 # The cluster the child Applications deploy into.
 destinationServer: https://kubernetes.default.svc
 
+# For a tenant namespace that may not create cluster-scoped objects or manage Namespace metadata, start from
+# values-restricted.yaml instead (README: A restricted namespace); it sets clusterScoped: false.
+
 # Applied to every application's values. Uncomment and edit as needed.
 # global:
 #   labels:

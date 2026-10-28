@@ -1,0 +1,1227 @@
+---
+# Source: clickhouse/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-schema
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/instance: clickhouse
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: clickhouse-0.1.0
+    app.kubernetes.io/version: "26.9.5.2"
+    environment: restricted
+data:
+  schema.sql: |-
+    -- The otel database, applied by the clickhouse-schema Job as otel_admin. The collector inserts as
+    -- otel_writer and Cerberus reads as otel_reader; neither can change a table.
+    --
+    -- These are the OpenTelemetry ClickHouse exporter's tables (v0.152 layout) with the additions Cerberus
+    -- 1.22.0 makes when it creates the schema itself: projections and a temporality index on the metric
+    -- tables, materialized Kubernetes columns and a body token index on otel_logs, and the trace-ID lookup
+    -- table and its materialized view. `cerberus migrate schema` prints what Cerberus expects, and
+    -- scripts/e2e.bash compares it with what this file creates, ignoring TTLs and the view's definer.
+    --
+    -- Every statement is idempotent: the Job runs again whenever this file's rendered text changes. A
+    -- CREATE TABLE IF NOT EXISTS never changes an existing table, so a change to a table already deployed
+    -- is an ALTER ... IF [NOT] EXISTS added below its CREATE, and the CREATE edited to match.
+    --
+    -- Retention is clickhouse.schema.ttlDays per signal. The MODIFY TTL statements at the end make a change
+    -- apply to existing tables; materialize_ttl_after_modify = 0 makes them metadata-only, so parts written
+    -- before the change expire on their old TTL.
+    
+    SET materialize_ttl_after_modify = 0;
+    
+    CREATE DATABASE IF NOT EXISTS otel;
+    
+    -- Traces
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_traces
+    (
+        `Timestamp` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TraceId` String CODEC(ZSTD(1)),
+        `SpanId` String CODEC(ZSTD(1)),
+        `ParentSpanId` String CODEC(ZSTD(1)),
+        `TraceState` String CODEC(ZSTD(1)),
+        `SpanName` LowCardinality(String) CODEC(ZSTD(1)),
+        `SpanKind` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` String CODEC(ZSTD(1)),
+        `SpanAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `Duration` UInt64 CODEC(GCD, ZSTD(1)),
+        `StatusCode` LowCardinality(String) CODEC(ZSTD(1)),
+        `StatusMessage` String CODEC(ZSTD(1)),
+        `Events` Nested(
+            Timestamp DateTime64(9),
+            Name LowCardinality(String),
+            Attributes Map(LowCardinality(String), String)
+        ) CODEC(ZSTD(1)),
+        `Links` Nested(
+            TraceId String,
+            SpanId String,
+            TraceState String,
+            Attributes Map(LowCardinality(String), String)
+        ) CODEC(ZSTD(1)),
+        INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_span_attr_key mapKeys(SpanAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_span_attr_value mapValues(SpanAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_duration Duration TYPE minmax GRANULARITY 1
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(Timestamp)
+    ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
+    TTL toDateTime(Timestamp) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    -- The first and last span time of each trace, so a lookup by trace ID reads one small table instead of
+    -- every partition of otel_traces.
+    CREATE TABLE IF NOT EXISTS otel.otel_traces_trace_id_ts
+    (
+        `TraceId` String CODEC(ZSTD(1)),
+        `Start` DateTime CODEC(Delta(4), ZSTD(1)),
+        `End` DateTime CODEC(Delta(4), ZSTD(1)),
+        INDEX idx_trace_id TraceId TYPE bloom_filter(0.01) GRANULARITY 1
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(Start)
+    ORDER BY (TraceId, Start)
+    TTL toDateTime(Start) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel.otel_traces_trace_id_ts_mv TO otel.otel_traces_trace_id_ts
+    AS SELECT
+        TraceId,
+        min(Timestamp) AS Start,
+        max(Timestamp) AS End
+    FROM otel.otel_traces
+    WHERE TraceId != ''
+    GROUP BY TraceId;
+    
+    -- An insert into otel_traces runs this view. Without a definer it runs as the inserting user, and
+    -- otel_writer would need SELECT on otel_traces; as otel_admin, the writer needs only INSERT. An ALTER
+    -- rather than part of the CREATE, so it also applies to a view Cerberus created before this file did.
+    ALTER TABLE otel.otel_traces_trace_id_ts_mv MODIFY SQL SECURITY DEFINER DEFINER = otel_admin;
+    
+    -- Logs
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_logs
+    (
+        `Timestamp` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TraceId` String CODEC(ZSTD(1)),
+        `SpanId` String CODEC(ZSTD(1)),
+        `TraceFlags` UInt8,
+        `SeverityText` LowCardinality(String) CODEC(ZSTD(1)),
+        `SeverityNumber` UInt8,
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Body` String CODEC(ZSTD(3)),
+        `ResourceSchemaUrl` LowCardinality(String) CODEC(ZSTD(1)),
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeSchemaUrl` LowCardinality(String) CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` LowCardinality(String) CODEC(ZSTD(1)),
+        `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `LogAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `EventName` String CODEC(ZSTD(1)),
+        -- Columns Cerberus filters on directly, instead of reading the ResourceAttributes map.
+        `__otel_materialized_k8s.cluster.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.cluster.name'] CODEC(ZSTD(1)),
+        `__otel_materialized_k8s.container.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.container.name'] CODEC(ZSTD(1)),
+        `__otel_materialized_k8s.deployment.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.deployment.name'] CODEC(ZSTD(1)),
+        `__otel_materialized_k8s.namespace.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.namespace.name'] CODEC(ZSTD(1)),
+        `__otel_materialized_k8s.node.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.node.name'] CODEC(ZSTD(1)),
+        `__otel_materialized_k8s.pod.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.pod.name'] CODEC(ZSTD(1)),
+        `__otel_materialized_k8s.pod.uid` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.pod.uid'] CODEC(ZSTD(1)),
+        `__otel_materialized_deployment.environment.name` LowCardinality(String) MATERIALIZED ResourceAttributes['deployment.environment.name'] CODEC(ZSTD(1)),
+        INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_log_attr_key mapKeys(LogAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_log_attr_value mapValues(LogAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        -- LogQL line filters (|= "error") lowered to a token search over the lower-cased body.
+        INDEX idx_lower_body lower(Body) TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 8
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(Timestamp)
+    ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
+    TTL toDateTime(Timestamp) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    -- Metrics: one table per OTLP point type. Every table but summary and exponential histogram carries two
+    -- projections Cerberus reads for series and metric-name lookups, so those don't scan the points.
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_metrics_gauge
+    (
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ResourceSchemaUrl` String CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` String CODEC(ZSTD(1)),
+        `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeDroppedAttrCount` UInt32 CODEC(ZSTD(1)),
+        `ScopeSchemaUrl` String CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `MetricName` String CODEC(ZSTD(1)),
+        `MetricDescription` String CODEC(ZSTD(1)),
+        `MetricUnit` String CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `StartTimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `Value` Float64 CODEC(ZSTD(1)),
+        `Flags` UInt32 CODEC(ZSTD(1)),
+        `Exemplars` Nested(
+            FilteredAttributes Map(LowCardinality(String), String),
+            TimeUnix DateTime64(9),
+            Value Float64,
+            SpanId String,
+            TraceId String
+        ) CODEC(ZSTD(1)),
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_key mapKeys(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_value mapValues(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        PROJECTION proj_series (SELECT MetricName, Attributes, max(TimeUnix) GROUP BY MetricName, Attributes),
+        PROJECTION proj_metric_metadata (SELECT MetricName, any(MetricDescription), any(MetricUnit), max(TimeUnix) GROUP BY MetricName)
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(TimeUnix)
+    ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
+    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_metrics_sum
+    (
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ResourceSchemaUrl` String CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` String CODEC(ZSTD(1)),
+        `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeDroppedAttrCount` UInt32 CODEC(ZSTD(1)),
+        `ScopeSchemaUrl` String CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `MetricName` String CODEC(ZSTD(1)),
+        `MetricDescription` String CODEC(ZSTD(1)),
+        `MetricUnit` String CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `StartTimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `Value` Float64 CODEC(ZSTD(1)),
+        `Flags` UInt32 CODEC(ZSTD(1)),
+        `Exemplars` Nested(
+            FilteredAttributes Map(LowCardinality(String), String),
+            TimeUnix DateTime64(9),
+            Value Float64,
+            SpanId String,
+            TraceId String
+        ) CODEC(ZSTD(1)),
+        `AggregationTemporality` Int32 CODEC(ZSTD(1)),
+        `IsMonotonic` Bool CODEC(Delta(1), ZSTD(1)),
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_key mapKeys(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_value mapValues(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_agg_temporality AggregationTemporality TYPE minmax GRANULARITY 1,
+        PROJECTION proj_series (SELECT MetricName, Attributes, max(TimeUnix) GROUP BY MetricName, Attributes),
+        PROJECTION proj_metric_metadata (SELECT MetricName, any(MetricDescription), any(MetricUnit), max(TimeUnix), any(IsMonotonic) GROUP BY MetricName)
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(TimeUnix)
+    ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
+    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_metrics_histogram
+    (
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ResourceSchemaUrl` String CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` String CODEC(ZSTD(1)),
+        `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeDroppedAttrCount` UInt32 CODEC(ZSTD(1)),
+        `ScopeSchemaUrl` String CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `MetricName` String CODEC(ZSTD(1)),
+        `MetricDescription` String CODEC(ZSTD(1)),
+        `MetricUnit` String CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `StartTimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `Count` UInt64 CODEC(Delta(8), ZSTD(1)),
+        `Sum` Float64 CODEC(ZSTD(1)),
+        `BucketCounts` Array(UInt64) CODEC(ZSTD(1)),
+        `ExplicitBounds` Array(Float64) CODEC(ZSTD(1)),
+        `Exemplars` Nested(
+            FilteredAttributes Map(LowCardinality(String), String),
+            TimeUnix DateTime64(9),
+            Value Float64,
+            SpanId String,
+            TraceId String
+        ) CODEC(ZSTD(1)),
+        `Flags` UInt32 CODEC(ZSTD(1)),
+        `Min` Float64 CODEC(ZSTD(1)),
+        `Max` Float64 CODEC(ZSTD(1)),
+        `AggregationTemporality` Int32 CODEC(ZSTD(1)),
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_key mapKeys(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_value mapValues(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_agg_temporality AggregationTemporality TYPE minmax GRANULARITY 1,
+        PROJECTION proj_series (SELECT MetricName, Attributes, max(TimeUnix) GROUP BY MetricName, Attributes),
+        PROJECTION proj_metric_metadata (SELECT MetricName, any(MetricDescription), any(MetricUnit), max(TimeUnix) GROUP BY MetricName)
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(TimeUnix)
+    ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
+    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_metrics_exponential_histogram
+    (
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ResourceSchemaUrl` String CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` String CODEC(ZSTD(1)),
+        `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeDroppedAttrCount` UInt32 CODEC(ZSTD(1)),
+        `ScopeSchemaUrl` String CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `MetricName` String CODEC(ZSTD(1)),
+        `MetricDescription` String CODEC(ZSTD(1)),
+        `MetricUnit` String CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `StartTimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `Count` UInt64 CODEC(Delta(8), ZSTD(1)),
+        `Sum` Float64 CODEC(ZSTD(1)),
+        `Scale` Int32 CODEC(ZSTD(1)),
+        `ZeroCount` UInt64 CODEC(ZSTD(1)),
+        `PositiveOffset` Int32 CODEC(ZSTD(1)),
+        `PositiveBucketCounts` Array(UInt64) CODEC(ZSTD(1)),
+        `NegativeOffset` Int32 CODEC(ZSTD(1)),
+        `NegativeBucketCounts` Array(UInt64) CODEC(ZSTD(1)),
+        `Exemplars` Nested(
+            FilteredAttributes Map(LowCardinality(String), String),
+            TimeUnix DateTime64(9),
+            Value Float64,
+            SpanId String,
+            TraceId String
+        ) CODEC(ZSTD(1)),
+        `Flags` UInt32 CODEC(ZSTD(1)),
+        `Min` Float64 CODEC(ZSTD(1)),
+        `Max` Float64 CODEC(ZSTD(1)),
+        `AggregationTemporality` Int32 CODEC(ZSTD(1)),
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_key mapKeys(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_value mapValues(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(TimeUnix)
+    ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
+    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    CREATE TABLE IF NOT EXISTS otel.otel_metrics_summary
+    (
+        `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ResourceSchemaUrl` String CODEC(ZSTD(1)),
+        `ScopeName` String CODEC(ZSTD(1)),
+        `ScopeVersion` String CODEC(ZSTD(1)),
+        `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `ScopeDroppedAttrCount` UInt32 CODEC(ZSTD(1)),
+        `ScopeSchemaUrl` String CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `MetricName` String CODEC(ZSTD(1)),
+        `MetricDescription` String CODEC(ZSTD(1)),
+        `MetricUnit` String CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `StartTimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `TimeUnix` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `Count` UInt64 CODEC(Delta(8), ZSTD(1)),
+        `Sum` Float64 CODEC(ZSTD(1)),
+        `ValueAtQuantiles` Nested(
+            Quantile Float64,
+            Value Float64
+        ) CODEC(ZSTD(1)),
+        `Flags` UInt32 CODEC(ZSTD(1)),
+        INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_scope_attr_value mapValues(ScopeAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_key mapKeys(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+        INDEX idx_attr_value mapValues(Attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(TimeUnix)
+    ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
+    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+    
+    -- Retention
+    
+    ALTER TABLE otel.otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalDay(7);
+    ALTER TABLE otel.otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalDay(7);
+    ALTER TABLE otel.otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalDay(7);
+    ALTER TABLE otel.otel_metrics_gauge MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    -- Feature tables for models and notebooks (otel_analyst reads them), in their own database so the Cerberus
+    -- schema comparison is unaffected. TTLs follow the signal each is built from.
+    --   trace_summary  one row per trace, written five minutes after its root span starts so the trace can finish
+    --   log_templates  per service and minute, each log message with numbers, UUIDs, IPs and hex IDs replaced, its
+    --                  hash and count: a first step towards log pattern anomaly detection
+    -- The anomaly baselines' signal_1m (below, when they're on) is the per-service-minute feature table: requests,
+    -- error ratio, p95 latency and error logs per minute.
+    CREATE DATABASE IF NOT EXISTS otel_features;
+    
+    CREATE TABLE IF NOT EXISTS otel_features.trace_summary
+    (
+        `TraceId` String CODEC(ZSTD(1)),
+        `Start` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+        `DurationMs` Float64 CODEC(ZSTD(1)),
+        `RootService` LowCardinality(String) CODEC(ZSTD(1)),
+        `RootOperation` LowCardinality(String) CODEC(ZSTD(1)),
+        `RootRoute` LowCardinality(String) CODEC(ZSTD(1)),
+        `Spans` UInt32 CODEC(ZSTD(1)),
+        `Errors` UInt32 CODEC(ZSTD(1)),
+        `Services` Array(LowCardinality(String)) CODEC(ZSTD(1))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Start)
+    ORDER BY (RootService, Start, TraceId)
+    TTL toDateTime(Start) + toIntervalDay(7)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_features.trace_summary MODIFY TTL toDateTime(Start) + toIntervalDay(7);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.trace_summary_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_features.trace_summary
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 5 MINUTE AS m
+    SELECT r.TraceId AS TraceId, r.Timestamp AS Start, r.Duration / 1e6 AS DurationMs,
+           r.ServiceName AS RootService, r.SpanName AS RootOperation, r.SpanAttributes['http.route'] AS RootRoute,
+           s.Spans AS Spans, s.Errors AS Errors, s.Services AS Services
+    FROM
+    (
+        SELECT TraceId, Timestamp, Duration, ServiceName, SpanName, SpanAttributes
+        FROM otel.otel_traces
+        WHERE ParentSpanId = '' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+    ) AS r
+    INNER JOIN
+    (
+        SELECT TraceId, toUInt32(count()) AS Spans, toUInt32(countIf(StatusCode = 'Error')) AS Errors,
+               arraySort(groupUniqArray(ServiceName)) AS Services
+        FROM otel.otel_traces
+        WHERE Timestamp >= m AND Timestamp < m + INTERVAL 6 MINUTE
+          AND TraceId IN (SELECT TraceId FROM otel.otel_traces
+                          WHERE ParentSpanId = '' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE)
+        GROUP BY TraceId
+    ) AS s USING (TraceId);
+    
+    CREATE TABLE IF NOT EXISTS otel_features.log_templates
+    (
+        `Minute` DateTime CODEC(Delta(4), ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `SeverityText` LowCardinality(String) CODEC(ZSTD(1)),
+        `TemplateHash` UInt64 CODEC(ZSTD(1)),
+        `Template` String CODEC(ZSTD(3)),
+        `Count` UInt64 CODEC(ZSTD(1)),
+        `Example` String CODEC(ZSTD(3))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Minute)
+    ORDER BY (ServiceName, Minute, SeverityText, TemplateHash)
+    TTL Minute + toIntervalDay(7)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_features.log_templates MODIFY TTL Minute + toIntervalDay(7);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.log_templates_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_features.log_templates
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 2 MINUTE AS m
+    SELECT m AS Minute, ServiceName, SeverityText, cityHash64(Template) AS TemplateHash, Template,
+           count() AS Count, any(Body) AS Example
+    FROM
+    (
+        SELECT ServiceName, SeverityText, Body,
+               replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(Body,
+                   '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<uuid>'),
+                   '\\b\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?\\b', '<ip>'),
+                   '\\b[0-9a-fA-F]*[0-9][0-9a-fA-F]*[a-fA-F][0-9a-fA-F]*\\b|\\b[0-9a-fA-F]*[a-fA-F][0-9a-fA-F]*[0-9][0-9a-fA-F]*\\b', '<hex>'),
+                   '\\d+(\\.\\d+)?', '<num>') AS Template
+        FROM otel.otel_logs
+        WHERE Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE AND Body != ''
+    )
+    GROUP BY ServiceName, SeverityText, Template;
+    -- Scores a model writes back as otel_analyst (INSERT on otel_ml.* only): each row becomes a gauge sample
+    -- ml:<Model>:<Signal> for its service, so Grafana draws it and a vmalert rule can alert on it, like the baselines.
+    CREATE DATABASE IF NOT EXISTS otel_ml;
+    
+    CREATE TABLE IF NOT EXISTS otel_ml.scores
+    (
+        `Time` DateTime64(3, 'UTC') DEFAULT now64(3) CODEC(Delta(8), ZSTD(1)),
+        `Model` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Signal` LowCardinality(String) CODEC(ZSTD(1)),
+        `Value` Float64 CODEC(ZSTD(1))
+    )
+    ENGINE = MergeTree
+    PARTITION BY toDate(Time)
+    ORDER BY (Model, ServiceName, Signal, Time)
+    TTL toDateTime(Time) + toIntervalDay(7)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_ml.scores MODIFY TTL toDateTime(Time) + toIntervalDay(7);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_ml.scores_series_mv TO otel.otel_metrics_gauge
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT map('service.name', ServiceName) AS ResourceAttributes,
+           ServiceName,
+           'ml:' || Model || ':' || Signal AS MetricName,
+           Time AS StartTimeUnix,
+           Time AS TimeUnix,
+           Value
+    FROM otel_ml.scores;
+    
+    -- Anomaly baselines, in their own database so the otel database stays exactly what Cerberus expects.
+    -- Three refreshable views, each running as otel_admin:
+    --   signal_1m_mv        every minute, appends each service's signals for the minute before last to signal_1m
+    --   baseline_mv         every hour, replaces baseline with the median and MAD (median absolute deviation) of
+    --                       each signal, service and hour of the week, over the last 4 weeks
+    --   baseline_series_mv  after baseline_mv, appends this hour's baseline to otel.otel_metrics_gauge as one sample
+    --                       a minute, named baseline:<signal>:median, :mad and :samples, so Cerberus, dashboards
+    --                       and rules see it as a series. It skips samples already written, so a forced refresh
+    --                       adds nothing twice.
+    -- A view's query only changes with ALTER TABLE ... MODIFY QUERY: CREATE ... IF NOT EXISTS leaves it as it is.
+    
+    CREATE DATABASE IF NOT EXISTS otel_baseline;
+    
+    CREATE TABLE IF NOT EXISTS otel_baseline.signal_1m
+    (
+        `Minute` DateTime CODEC(Delta(4), ZSTD(1)),
+        `Signal` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Value` Float64 CODEC(ZSTD(1))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Minute)
+    ORDER BY (Signal, ServiceName, Minute)
+    TTL Minute + toIntervalWeek(5)
+    SETTINGS ttl_only_drop_parts = 1;
+    
+    CREATE TABLE IF NOT EXISTS otel_baseline.baseline
+    (
+        `Signal` LowCardinality(String),
+        `ServiceName` LowCardinality(String),
+        `HourOfWeek` UInt8,
+        `Median` Float64,
+        `MAD` Float64,
+        `Samples` UInt32
+    )
+    ENGINE = MergeTree
+    ORDER BY (Signal, ServiceName, HourOfWeek);
+    
+    -- requests_per_minute, error_ratio and latency_p95_ms are a service's server spans; error_logs_per_minute is
+    -- its logs at ERROR or above, zero for a service that logged but had no errors.
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.signal_1m_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_baseline.signal_1m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 2 MINUTE AS m
+    SELECT m AS Minute, Signal, ServiceName, Value
+    FROM
+    (
+        SELECT ServiceName,
+               ['requests_per_minute', 'error_ratio', 'latency_p95_ms'] AS signals,
+               [toFloat64(count()), countIf(StatusCode = 'Error') / count(), quantile(0.95)(Duration) / 1e6] AS values
+        FROM otel.otel_traces
+        WHERE SpanKind = 'Server' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+        GROUP BY ServiceName
+        UNION ALL
+        SELECT ServiceName, ['error_logs_per_minute'], [toFloat64(countIf(SeverityNumber >= 17))]
+        FROM otel.otel_logs
+        WHERE Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+        GROUP BY ServiceName
+    )
+    ARRAY JOIN signals AS Signal, values AS Value
+    WHERE Signal IN ('requests_per_minute', 'error_ratio', 'latency_p95_ms', 'error_logs_per_minute');
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.baseline_mv
+    REFRESH EVERY 1 HOUR TO otel_baseline.baseline
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT Signal, ServiceName, HourOfWeek, Median,
+           arrayReduce('quantileExact(0.5)', arrayMap(v -> abs(v - Median), vs)) AS MAD,
+           length(vs) AS Samples
+    FROM
+    (
+        SELECT Signal, ServiceName,
+               toUInt8((toDayOfWeek(Minute) - 1) * 24 + toHour(Minute)) AS HourOfWeek,
+               groupArray(Value) AS vs,
+               quantileExact(0.5)(Value) AS Median
+        FROM otel_baseline.signal_1m FINAL
+        WHERE Minute >= now() - toIntervalWeek(4)
+        GROUP BY Signal, ServiceName, HourOfWeek
+    );
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_baseline.baseline_series_mv
+    REFRESH EVERY 1 HOUR DEPENDS ON otel_baseline.baseline_mv APPEND TO otel.otel_metrics_gauge
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfHour(now()) AS hour
+    SELECT map('service.name', b.ServiceName) AS ResourceAttributes,
+           b.ServiceName AS ServiceName,
+           'baseline:' || b.Signal || ':' || stat AS MetricName,
+           hour AS StartTimeUnix,
+           hour + toIntervalMinute(m.minute) AS TimeUnix,
+           value AS Value
+    FROM otel_baseline.baseline AS b
+    ARRAY JOIN ['median', 'mad', 'samples'] AS stat, [b.Median, b.MAD, toFloat64(b.Samples)] AS value
+    CROSS JOIN (SELECT number AS minute FROM numbers(60)) AS m
+    WHERE b.HourOfWeek = toUInt8((toDayOfWeek(hour) - 1) * 24 + toHour(hour))
+      AND (MetricName, ServiceName, TimeUnix) NOT IN (
+          SELECT MetricName, ServiceName, TimeUnix FROM otel.otel_metrics_gauge
+          WHERE MetricName LIKE 'baseline:%' AND TimeUnix >= hour);
+    
+    -- What vmalert's anomaly rules read, as parameterized views taking the evaluation time (at):
+    --   current   each service's signals over the 5 minutes to at, from the raw tables, with its request count
+    --   expected  each service's normal for at: the hour-of-week baseline once it has two weeks of samples
+    --             (source hour_of_week), otherwise the median and MAD of the hour before the last 5 minutes
+    --             (source last_hour), so a new install or a new service gets a baseline within minutes
+    --   anomaly   the two joined, with z, the robust z-score: (observed - median) / (1.4826 × MAD), the
+    --             denominator floored so a perfectly steady signal doesn't make every wobble infinite
+    -- They run as otel_admin, so otel_reader needs only SELECT on otel_baseline.
+    
+    CREATE VIEW IF NOT EXISTS otel_baseline.current
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH {at:DateTime64(3, 'UTC')} AS t
+    SELECT service_name, Signal AS signal, Value AS value, requests
+    FROM
+    (
+        SELECT ServiceName AS service_name, count() AS requests,
+               ['requests_per_minute', 'error_ratio', 'latency_p95_ms'] AS signals,
+               [count() / 5, countIf(StatusCode = 'Error') / count(), quantile(0.95)(Duration) / 1e6] AS values
+        FROM otel.otel_traces
+        WHERE SpanKind = 'Server' AND Timestamp > t - INTERVAL 5 MINUTE AND Timestamp <= t
+        GROUP BY service_name
+        UNION ALL
+        SELECT ServiceName, count(), ['error_logs_per_minute'], [countIf(SeverityNumber >= 17) / 5]
+        FROM otel.otel_logs
+        WHERE Timestamp > t - INTERVAL 5 MINUTE AND Timestamp <= t
+        GROUP BY ServiceName
+    )
+    ARRAY JOIN signals AS Signal, values AS Value;
+    
+    CREATE VIEW IF NOT EXISTS otel_baseline.expected
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH {at:DateTime64(3, 'UTC')} AS t,
+         toUInt8((toDayOfWeek(t) - 1) * 24 + toHour(t)) AS how
+    SELECT r.service_name AS service_name, r.signal AS signal,
+           if(s.Samples >= 120, s.Median, r.median) AS median,
+           if(s.Samples >= 120, s.MAD, r.mad) AS mad,
+           if(s.Samples >= 120, toUInt32(s.Samples), toUInt32(r.samples)) AS samples,
+           if(s.Samples >= 120, 'hour_of_week', 'last_hour') AS source
+    FROM
+    (
+        SELECT ServiceName AS service_name, Signal AS signal, median,
+               arrayReduce('quantileExact(0.5)', arrayMap(v -> abs(v - median), vs)) AS mad,
+               length(vs) AS samples
+        FROM
+        (
+            SELECT ServiceName, Signal, groupArray(Value) AS vs, quantileExact(0.5)(Value) AS median
+            FROM otel_baseline.signal_1m FINAL
+            WHERE Minute >= t - INTERVAL 65 MINUTE AND Minute < t - INTERVAL 5 MINUTE
+            GROUP BY ServiceName, Signal
+        )
+    ) AS r
+    LEFT JOIN
+    (
+        SELECT ServiceName, Signal, Median, MAD, Samples FROM otel_baseline.baseline WHERE HourOfWeek = how
+    ) AS s ON s.ServiceName = r.service_name AND s.Signal = r.signal;
+    
+    CREATE VIEW IF NOT EXISTS otel_baseline.anomaly
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT c.service_name AS service_name, c.signal AS signal, c.value AS observed, c.requests AS requests,
+           e.median AS median, e.mad AS mad, e.samples AS samples, e.source AS source,
+           (c.value - e.median) / multiIf(
+               c.signal = 'error_ratio', greatest(1.4826 * e.mad, 0.02),
+               c.signal = 'error_logs_per_minute', greatest(1.4826 * e.mad, 0.2 * e.median, 1),
+               greatest(1.4826 * e.mad, 0.1 * e.median, 1)) AS z
+    FROM otel_baseline.current(at = {at:DateTime64(3, 'UTC')}) AS c
+    INNER JOIN otel_baseline.expected(at = {at:DateTime64(3, 'UTC')}) AS e
+        ON e.service_name = c.service_name AND e.signal = c.signal;
+    
+    -- Service level objectives, in their own database like the baselines, from each service's server spans:
+    --   objectives  clickhouse.slo: one row per service under services, and '' for the default every other gets
+    --   sli_1m_mv   every minute, appends each service's requests, errors and spans slower than its latency
+    --               threshold, for the minute before last, to sli_1m
+    --   sli         each service's SLIs over a window ending two minutes before at (sli_1m's lag), with its
+    --               objectives and burn rates: 1 spends exactly the budget over the window, 14.4 a 28-day
+    --               budget's 2% in an hour
+    --   budget      the error budget left over the last 28 days: 1 untouched, 0 spent, below 0 overspent
+    --   series_mv   every minute, after sli_1m_mv, appends sli and budget to otel.otel_metrics_gauge as slo:* series
+    -- Alert rules read sli and budget, and dashboards the series written from them, so they agree. A threshold change counts from the next
+    -- minute sli_1m_mv writes; minutes already written keep the threshold they were counted against.
+    
+    CREATE DATABASE IF NOT EXISTS otel_slo;
+    CREATE OR REPLACE VIEW otel_slo.objectives
+    AS
+    SELECT *
+    FROM values('ServiceName String, Availability Float64, LatencyThresholdMs Float64, LatencyObjective Float64',
+        ('', 0.95, 1000, 0.95));
+    
+    CREATE TABLE IF NOT EXISTS otel_slo.sli_1m
+    (
+        `Minute` DateTime CODEC(Delta(4), ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Requests` UInt64 CODEC(ZSTD(1)),
+        `Errors` UInt64 CODEC(ZSTD(1)),
+        `Slow` UInt64 CODEC(ZSTD(1))
+    )
+    ENGINE = ReplacingMergeTree
+    PARTITION BY toDate(Minute)
+    ORDER BY (ServiceName, Minute)
+    TTL Minute + toIntervalDay(35)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_slo.sli_1m MODIFY TTL Minute + toIntervalDay(35);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_slo.sli_1m_mv
+    REFRESH EVERY 1 MINUTE APPEND TO otel_slo.sli_1m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) - INTERVAL 2 MINUTE AS m,
+         (SELECT mapFromArrays(groupArray(ServiceName), groupArray(LatencyThresholdMs * 1e6)) FROM otel_slo.objectives)
+             AS threshold_ns
+    SELECT m AS Minute, ServiceName, count() AS Requests, countIf(StatusCode = 'Error') AS Errors,
+           countIf(Duration > if(mapContains(threshold_ns, ServiceName), threshold_ns[ServiceName], threshold_ns[''])) AS Slow
+    FROM otel.otel_traces
+    WHERE SpanKind = 'Server' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE
+    GROUP BY ServiceName;
+    
+    CREATE OR REPLACE VIEW otel_slo.sli
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute({at:DateTime64(3, 'UTC')}) - INTERVAL 2 MINUTE AS e
+    SELECT s.ServiceName AS service_name, s.requests AS requests, s.errors AS errors, s.slow AS slow,
+           1 - s.errors / s.requests AS availability,
+           1 - s.slow / s.requests AS latency,
+           if(o.ServiceName = '', d.Availability, o.Availability) AS availability_objective,
+           if(o.ServiceName = '', d.LatencyObjective, o.LatencyObjective) AS latency_objective,
+           if(o.ServiceName = '', d.LatencyThresholdMs, o.LatencyThresholdMs) AS latency_threshold_ms,
+           (s.errors / s.requests) / (1 - availability_objective) AS availability_burn_rate,
+           (s.slow / s.requests) / (1 - latency_objective) AS latency_burn_rate
+    FROM
+    (
+        SELECT ServiceName, sum(Requests) AS requests, sum(Errors) AS errors, sum(Slow) AS slow
+        FROM otel_slo.sli_1m FINAL
+        WHERE Minute >= e - toIntervalMinute({minutes:UInt32}) AND Minute < e
+        GROUP BY ServiceName
+        HAVING requests > 0
+    ) AS s
+    LEFT JOIN (SELECT * FROM otel_slo.objectives WHERE ServiceName != '') AS o ON o.ServiceName = s.ServiceName
+    CROSS JOIN (SELECT * FROM otel_slo.objectives WHERE ServiceName = '') AS d;
+    
+    CREATE OR REPLACE VIEW otel_slo.budget
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT service_name, requests,
+           availability, availability_objective, 1 - availability_burn_rate AS availability_budget_remaining,
+           latency, latency_objective, latency_threshold_ms, 1 - latency_burn_rate AS latency_budget_remaining
+    FROM otel_slo.sli(at = {at:DateTime64(3, 'UTC')}, minutes = 40320);
+    
+    -- The series, as the baselines are written back, so Cerberus serves them with no new datasource:
+    -- slo:availability and slo:latency (the SLI) and their :burn_rate, each with a window label (5m, the alert
+    -- windows and 28d), and :objective and :budget_remaining with none.
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_slo.series_mv
+    REFRESH EVERY 1 MINUTE DEPENDS ON otel_slo.sli_1m_mv APPEND TO otel.otel_metrics_gauge
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH toStartOfMinute(now()) AS t
+    SELECT map('service.name', service_name) AS ResourceAttributes,
+           service_name AS ServiceName,
+           'slo:' || name AS MetricName,
+           if(name LIKE '%:objective' OR name LIKE '%:budget_remaining', map(), map('window', w)) AS Attributes,
+           t AS StartTimeUnix,
+           t AS TimeUnix,
+           value AS Value
+    FROM
+    (
+        SELECT '5m' AS w, * FROM otel_slo.sli(at = now(), minutes = 5)
+        UNION ALL SELECT '1h', * FROM otel_slo.sli(at = now(), minutes = 60)
+        UNION ALL SELECT '6h', * FROM otel_slo.sli(at = now(), minutes = 360)
+        UNION ALL SELECT '3d', * FROM otel_slo.sli(at = now(), minutes = 4320)
+        UNION ALL SELECT '28d', * FROM otel_slo.sli(at = now(), minutes = 40320)
+    )
+    ARRAY JOIN
+        if(w = '28d',
+           ['availability', 'availability:burn_rate', 'latency', 'latency:burn_rate',
+            'availability:objective', 'latency:objective', 'availability:budget_remaining', 'latency:budget_remaining'],
+           ['availability', 'availability:burn_rate', 'latency', 'latency:burn_rate']) AS name,
+        if(w = '28d',
+           [availability, availability_burn_rate, latency, latency_burn_rate,
+            availability_objective, latency_objective, 1 - availability_burn_rate, 1 - latency_burn_rate],
+           [availability, availability_burn_rate, latency, latency_burn_rate]) AS value;
+    
+    -- garmr's incident state and history: files/garmr.sql, copied verbatim from schema/garmr.sql in
+    -- github.com/benhastings/garmr at the version the garmr node runs. Its KeeperMap table needs clickhouse.keeper.
+    -- garmr's tables. garmr never creates them: clickhouse-observability-stack's schema Job applies this file as
+    -- otel_admin, and garmr's integration tests apply it to a throwaway server. Every statement is idempotent.
+    --
+    -- State lives in KeeperMap (the server needs a Keeper and keeper_map_path_prefix), which garmr writes in strict
+    -- mode: an INSERT of a key that exists is refused, and every update is a compare-and-set on version. History is
+    -- append-only MergeTree.
+    --
+    -- garmr's user needs SELECT, INSERT, ALTER UPDATE and ALTER DELETE on garmr.*.
+    
+    CREATE DATABASE IF NOT EXISTS garmr;
+    
+    -- One row per open incident, keyed by its Alertmanager group. Deleted when the incident resolves, after its
+    -- final row is written to garmr.incidents.
+    CREATE TABLE IF NOT EXISTS garmr.open_incidents
+    (
+        `group_key` String,
+        `incident_id` UUID,
+        `status` LowCardinality(String),
+        `title` String,
+        `service_name` String,
+        `receiver` String,
+        `group_labels` Map(String, String),
+        `common_labels` Map(String, String),
+        -- The firing alerts, as JSON, for the Slack message.
+        `alerts` String,
+        `firing` UInt32,
+        `opened_at` DateTime64(3, 'UTC'),
+        `updated_at` DateTime64(3, 'UTC'),
+        `acknowledged_by` String,
+        `acknowledged_at` DateTime64(3, 'UTC'),
+        `silenced_until` DateTime64(3, 'UTC'),
+        `slack_channel` String,
+        `slack_ts` String,
+        `version` UInt64,
+        -- The ID of the write that set version, so a compare-and-set can tell whether it won.
+        `op` String
+    )
+    ENGINE = KeeperMap('/garmr/open_incidents', 10000)
+    PRIMARY KEY group_key;
+    
+    -- Every alert in every notification garmr receives.
+    CREATE TABLE IF NOT EXISTS garmr.alert_events
+    (
+        `received_at` DateTime64(3, 'UTC') CODEC(Delta(8), ZSTD(1)),
+        `incident_id` UUID,
+        `group_key` String CODEC(ZSTD(1)),
+        `receiver` LowCardinality(String),
+        `status` LowCardinality(String),
+        `alertname` LowCardinality(String),
+        `service_name` LowCardinality(String),
+        `fingerprint` String CODEC(ZSTD(1)),
+        `labels` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `annotations` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `starts_at` DateTime64(3, 'UTC'),
+        `ends_at` DateTime64(3, 'UTC'),
+        `generator_url` String CODEC(ZSTD(1))
+    )
+    ENGINE = MergeTree
+    PARTITION BY toYYYYMM(received_at)
+    ORDER BY (alertname, received_at);
+    
+    -- Every change to an incident: opened, updated, acknowledged, silenced, resolved.
+    CREATE TABLE IF NOT EXISTS garmr.incident_events
+    (
+        `at` DateTime64(3, 'UTC') CODEC(Delta(8), ZSTD(1)),
+        `incident_id` UUID,
+        `group_key` String CODEC(ZSTD(1)),
+        `event` LowCardinality(String),
+        `status` LowCardinality(String),
+        -- Who caused it: alertmanager, or slack:<user ID>.
+        `actor` String,
+        `title` String CODEC(ZSTD(1)),
+        `service_name` LowCardinality(String),
+        `firing` UInt32,
+        `detail` String CODEC(ZSTD(1))
+    )
+    ENGINE = MergeTree
+    PARTITION BY toYYYYMM(at)
+    ORDER BY (incident_id, at);
+    
+    -- One row per resolved incident, for time to acknowledge and time to resolve.
+    CREATE TABLE IF NOT EXISTS garmr.incidents
+    (
+        `incident_id` UUID,
+        `group_key` String CODEC(ZSTD(1)),
+        `title` String CODEC(ZSTD(1)),
+        `service_name` LowCardinality(String),
+        `receiver` LowCardinality(String),
+        `group_labels` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `opened_at` DateTime64(3, 'UTC'),
+        `acknowledged_at` Nullable(DateTime64(3, 'UTC')),
+        `acknowledged_by` String,
+        `resolved_at` DateTime64(3, 'UTC'),
+        -- alertmanager when its alerts resolved, slack:<user ID> when someone resolved it.
+        `resolved_by` String,
+        `max_firing` UInt32,
+        `slack_channel` String,
+        `slack_ts` String
+    )
+    ENGINE = MergeTree
+    PARTITION BY toYYYYMM(opened_at)
+    ORDER BY (service_name, opened_at);
+    
+    -- Every Slack API call garmr makes.
+    CREATE TABLE IF NOT EXISTS garmr.notifications
+    (
+        `at` DateTime64(3, 'UTC') CODEC(Delta(8), ZSTD(1)),
+        `incident_id` UUID,
+        `integration` LowCardinality(String),
+        `method` LowCardinality(String),
+        `channel` String,
+        `ts` String,
+        `ok` Bool,
+        `error` String,
+        `duration_ms` UInt32
+    )
+    ENGINE = MergeTree
+    PARTITION BY toYYYYMM(at)
+    ORDER BY (incident_id, at);
+    
+    -- Every enrichment query garmr runs for an incident, and what it found.
+    CREATE TABLE IF NOT EXISTS garmr.enrichments
+    (
+        `at` DateTime64(3, 'UTC') CODEC(Delta(8), ZSTD(1)),
+        `incident_id` UUID,
+        `service_name` LowCardinality(String),
+        `name` LowCardinality(String),
+        `ok` Bool,
+        `error` String,
+        `duration_ms` UInt32,
+        -- The rows it found, as JSON.
+        `result` String CODEC(ZSTD(3))
+    )
+    ENGINE = MergeTree
+    PARTITION BY toYYYYMM(at)
+    ORDER BY (incident_id, at);
+---
+# Source: clickhouse/templates/objects.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/instance: clickhouse
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: clickhouse-schema
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/version: 26.9.5.2
+    environment: restricted
+    helm.sh/chart: clickhouse-0.1.0
+  name: clickhouse-schema-a99a883f
+  namespace: observability
+spec:
+  activeDeadlineSeconds: 900
+  backoffLimit: 3
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/nativeSidecar: "true"
+      labels:
+        app.kubernetes.io/name: clickhouse-schema
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - |
+          until clickhouse-client --query 'SELECT 1' >/dev/null; do
+            echo "waiting for ClickHouse at $CLICKHOUSE_HOST:$CLICKHOUSE_PORT"
+            sleep 5
+          done
+          exec clickhouse-client --multiquery --queries-file /schema/schema.sql
+        env:
+        - name: CLICKHOUSE_HOST
+          value: clickhouse
+        - name: CLICKHOUSE_PORT
+          value: "9000"
+        - name: CLICKHOUSE_USER
+          value: otel_admin
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: clickhouse-admin
+        - name: HOME
+          value: /tmp
+        image: clickhouse/clickhouse-server:26.9.5.2
+        name: clickhouse-schema
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /schema
+          name: schema
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
+      restartPolicy: Never
+      securityContext:
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - configMap:
+          name: clickhouse-schema
+        name: schema
+      - emptyDir: {}
+        name: tmp
+---
+# Source: clickhouse/templates/objects.yaml
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  labels:
+    app.kubernetes.io/instance: clickhouse
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/version: 26.9.5.2
+    environment: restricted
+    helm.sh/chart: clickhouse-0.1.0
+  name: otel
+  namespace: observability
+spec:
+  configuration:
+    clusters:
+    - layout:
+        replicasCount: 1
+        shardsCount: 1
+      name: main
+    files:
+      config.d/keeper.xml: |
+        <clickhouse>
+          <keeper_server>
+            <tcp_port>9181</tcp_port>
+            <server_id>1</server_id>
+            <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+            <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+            <coordination_settings>
+              <session_timeout_ms>30000</session_timeout_ms>
+            </coordination_settings>
+            <raft_configuration>
+              <server>
+                <id>1</id>
+                <hostname>localhost</hostname>
+                <port>9234</port>
+              </server>
+            </raft_configuration>
+          </keeper_server>
+          <zookeeper>
+            <node>
+              <host>localhost</host>
+              <port>9181</port>
+            </node>
+          </zookeeper>
+          <keeper_map_path_prefix>/keeper_map_tables</keeper_map_path_prefix>
+        </clickhouse>
+      config.d/low_memory.xml: |
+        <clickhouse>
+          <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+          <memory_worker_dynamic_hard_limit>false</memory_worker_dynamic_hard_limit>
+          <mark_cache_size>67108864</mark_cache_size>
+          <uncompressed_cache_size>0</uncompressed_cache_size>
+          <index_mark_cache_size>0</index_mark_cache_size>
+          <index_uncompressed_cache_size>0</index_uncompressed_cache_size>
+          <background_schedule_pool_size>8</background_schedule_pool_size>
+          <background_common_pool_size>4</background_common_pool_size>
+          <background_fetches_pool_size>2</background_fetches_pool_size>
+          <background_move_pool_size>2</background_move_pool_size>
+          <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
+          <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+          <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+          <asynchronous_metric_log remove="1"/>
+          <metric_log remove="1"/>
+          <query_metric_log remove="1"/>
+          <trace_log remove="1"/>
+          <text_log remove="1"/>
+          <part_log remove="1"/>
+          <processors_profile_log remove="1"/>
+          <opentelemetry_span_log remove="1"/>
+          <latency_log remove="1"/>
+          <error_log remove="1"/>
+          <query_thread_log remove="1"/>
+          <query_views_log remove="1"/>
+          <session_log remove="1"/>
+          <blob_storage_log remove="1"/>
+        </clickhouse>
+      config.d/prometheus.xml: |
+        <clickhouse>
+          <prometheus>
+            <endpoint>/metrics</endpoint>
+            <port>9363</port>
+            <metrics>true</metrics>
+            <events>true</events>
+            <asynchronous_metrics>true</asynchronous_metrics>
+            <errors>true</errors>
+          </prometheus>
+        </clickhouse>
+    profiles:
+      analyst/constraints/max_concurrent_queries_for_user/max: 2
+      analyst/constraints/max_execution_time/max: 60
+      analyst/constraints/max_memory_usage/max: 268435456
+      analyst/constraints/max_rows_to_read/max: 200000000
+      analyst/constraints/priority/min: 10
+      analyst/max_concurrent_queries_for_user: 2
+      analyst/max_execution_time: 60
+      analyst/max_memory_usage: 268435456
+      analyst/max_rows_to_read: 200000000
+      analyst/max_threads: 2
+      analyst/priority: 10
+      default/max_memory_usage: 536870912
+      default/max_threads: 2
+    quotas:
+      analyst/interval/duration: 3600
+      analyst/interval/execution_time: 1800
+      analyst/interval/queries: 600
+      analyst/interval/read_rows: 2000000000
+    users:
+      otel_admin/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_admin/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-admin
+      otel_admin/profile: default
+      otel_admin/quota: default
+      otel_analyst/grants/query:
+      - GRANT SELECT ON otel.*
+      - GRANT SELECT ON otel_baseline.*
+      - GRANT SELECT ON otel_features.*
+      - GRANT SELECT ON otel_slo.*
+      - GRANT INSERT ON otel_ml.*
+      otel_analyst/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_analyst/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-analyst
+      otel_analyst/profile: analyst
+      otel_analyst/quota: analyst
+      otel_garmr/grants/query:
+      - GRANT SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*
+      - GRANT SELECT ON otel.*
+      - GRANT SELECT ON otel_features.*
+      - GRANT SELECT ON otel_baseline.*
+      otel_garmr/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_garmr/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-garmr
+      otel_garmr/profile: default
+      otel_garmr/quota: default
+      otel_reader/grants/query:
+      - GRANT SELECT ON otel.*
+      - GRANT SELECT ON otel_baseline.*
+      - GRANT SELECT ON otel_slo.*
+      - GRANT SELECT ON system.view_refreshes
+      - GRANT SELECT ON system.disks
+      otel_reader/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_reader/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-reader
+      otel_reader/profile: default
+      otel_reader/quota: default
+      otel_writer/grants/query:
+      - GRANT INSERT ON otel.*
+      otel_writer/networks/ip:
+      - 0.0.0.0/0
+      - ::/0
+      otel_writer/password:
+        valueFrom:
+          secretKeyRef:
+            key: password
+            name: clickhouse-writer
+      otel_writer/profile: default
+      otel_writer/quota: default
+  defaults:
+    templates:
+      dataVolumeClaimTemplate: data
+      podTemplate: clickhouse
+      serviceTemplate: clickhouse
+  templates:
+    podTemplates:
+    - metadata:
+        annotations:
+          traffic.sidecar.istio.io/excludeInboundPorts: "8123"
+        labels:
+          sidecar.istio.io/inject: "true"
+      name: clickhouse
+      spec:
+        containers:
+        - image: clickhouse/clickhouse-server:26.9.5.2
+          name: clickhouse
+          resources:
+            limits:
+              memory: 1664Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+    serviceTemplates:
+    - generateName: clickhouse
+      name: clickhouse
+      spec:
+        ports:
+        - name: http
+          port: 8123
+        - name: tcp
+          port: 9000
+        type: ClusterIP
+    volumeClaimTemplates:
+    - name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi

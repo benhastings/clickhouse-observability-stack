@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../app-of-apps/values.schema.json
+# The restricted-namespace profile (README: A restricted namespace): the stack in a tenant namespace that may
+# not create cluster-scoped objects or manage Namespace metadata. Copy this file (make env/new NAME=<env>, then
+# these keys) for a site of your own; what follows is the least a tenant needs, sized like the laptop profile.
+# make check/restricted fails when this environment's render gains anything cluster-scoped, a Namespace,
+# CreateNamespace or managedNamespaceMetadata, a Gateway, or a Service address in another namespace.
+environment: restricted
+
+# The repository and revision Argo CD deploys from. They must match the bootstrap Application in
+# cluster-configs/app-of-apps/app-of-apps-restricted.yaml (make check/structure enforces it).
+repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+targetRevision: main
+
+# The cluster the child Applications deploy into.
+destinationServer: https://kubernetes.default.svc
+
+# No CreateNamespace and no managedNamespaceMetadata on the child Applications, and an AppProject that allows no
+# cluster-scoped kind. The platform team creates the namespace beforehand and, with the istio mesh below, labels it
+# istio-injection: enabled.
+clusterScoped: false
+
+global:
+  labels:
+    environment: restricted
+  # The platform team's ClickHouse operator, with its CRDs and cluster RBAC (README: A shared ClickHouse
+  # operator). It has to watch this stack's namespace. Set podLabels and networkPolicy.namespaces.operator to
+  # where it runs when that is not the clickhouse-operator namespace and labels.
+  clickhouseOperator:
+    shared: true
+  # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
+  # no Gateway is rendered. The Gateway, its TLS certificate and DNS for the host are the platform's; the gateway
+  # name, its namespace and the host are placeholders.
+  mesh: istio
+  exposure:
+    enabled: true
+    hosts:
+      grafana: grafana.restricted.example
+    gateway:
+      name: shared-gateway
+      namespace: istio-ingress
+
+applications:
+  # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats (README: Collector
+  # RBAC: cluster-wide or one namespace, for what that loses). The collector stays inside the cluster: exposing
+  # OTLP as well takes a hosts.otlp entry and collector.auth, as in values-prod.yaml.
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+      exposure:
+        host: ""
+
+  demo-load:
+    enabled: false
