@@ -27,6 +27,8 @@ scripts/split-manifests.bash                  splits one rendered environment in
 scripts/check-structure.bash                  enforces the layout rules below
 scripts/check-manifests.bash                  kubeconform and container policy over tests/golden
 scripts/kind-up.sh, kind-down.sh              create and delete the local kind cluster
+scripts/kind-platform.bash                    on kind, the platform team's part of the restricted profile
+scripts/e2e-restricted.bash                   the restricted profile's e2e checks, sourced by scripts/e2e.bash
 scripts/port-forward.sh                       forward Grafana, Argo CD, Cerberus and OTLP to localhost
 kind-config.yaml                              the local cluster definition
 git/hooks/                                    the pre-commit hook (`make setup/hooks`)
@@ -67,7 +69,7 @@ add a target. `make help` lists everything.
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
 | `make test`                 | every offline test: `test/unit` and `test/credentials`                         |
-| `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio |
+| `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio, `ENV=restricted` the restricted profile |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make test/traceql-latency` | needs Docker: times TraceQL through Cerberus over `DAYS` of synthetic traces at `RATE`; by hand, not CI |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
@@ -149,6 +151,14 @@ for the ClickHouse installation to complete and every Deployment to roll out ins
 `.github/workflows/e2e-mesh.yml` runs `make test/e2e MESH=istio` on pull requests labelled `mesh` and on demand: the
 same checks with Istio installed and `mesh: istio`, plus sidecars, the gateway routes, Grafana's OAuth redirect to a placeholder provider, and `STRICT` mTLS. Label a
 PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules, injection, NetworkPolicies).
+
+`.github/workflows/e2e-restricted.yml` runs `make test/e2e ENV=restricted` on pull requests labelled `restricted` and
+on demand: kind with Istio, `scripts/kind-platform.bash` as the platform team (the labelled namespace, the shared
+operator, the shared Gateway), then `restricted` through Argo CD and `scripts/e2e-restricted.bash`. With no demo
+load, it sends its own trace, log and metric and reads them back through Cerberus and Grafana, reaches Grafana
+through the Gateway, and fails when Argo CD manages anything cluster-scoped or outside the namespace, or a Secret
+value shows up in the pods' logs or the live objects. Label a PR `restricted` when it changes what that profile
+renders or how the shared operator is used.
 
 ### Cluster nodes
 

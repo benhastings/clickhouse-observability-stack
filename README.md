@@ -413,6 +413,20 @@ labels a namespace. `make cluster/preflight ENV=<env>` works with only the tenan
 namespace is missing, or is readable and lacks the injection label. Where a tenant can't read the namespace, the
 operator's pods or StorageClasses, it warns and leaves that check to the platform team.
 
+To try it on kind, run `make cluster/up ENV=restricted` or `make test/e2e ENV=restricted` (with `REVISION=<branch>`
+for a pushed branch). It installs Istio, then does the platform team's part with `scripts/kind-platform.bash`: the
+`observability` namespace labelled for injection, this repository's operator in `clickhouse-operator`, outside
+the mesh, and the `istio-ingress/shared-gateway` Gateway for `grafana.restricted.example` over plain HTTP. It then
+bootstraps `restricted` through Argo CD unchanged. With no demo load to read, the e2e run checks that the AppProject
+allows no cluster-scoped kind and that every object Argo CD manages is in `observability` or `argocd`, that the
+shared operator completed the installation and the stack runs no operator or DaemonSet of its own, that Cerberus
+is ready, then sends a trace, a log and a metric from a pod in the namespace and reads each back through Cerberus
+and through each Grafana datasource. It also checks that the collector's clickhouse exporter has sent spans, log
+records and metric points, that the datasources are healthy, that Grafana answers by its host through the
+Gateway, and that no Secret value the stack reads appears in its pods' logs, its ConfigMaps, workloads or
+installation, or the Applications. CI runs it on pull requests labelled `restricted` and on demand
+(`.github/workflows/e2e-restricted.yml`).
+
 `make check/restricted` (part of `make check`) holds the profile to this. It fails when the `restricted`
 golden render, or any environment with `clusterScoped: false`, contains a kind not known to be namespaced (so any
 cluster-scoped one), a Gateway, `CreateNamespace=true` or `managedNamespaceMetadata`, an AppProject that allows a
@@ -1348,6 +1362,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 | Golden renders | any change to what lands in a cluster, per environment, shown as a diff in the PR | `make check`, offline |
 | kubeconform + policy | invalid objects, missing memory limits, unpinned images; anything cluster-scoped or in another namespace in the `restricted` profile | `make check`, pinned schemas |
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
+| kind e2e, restricted | the `restricted` profile deployed against a shared operator and Gateway: nothing cluster-scoped, a trace, log and metric through to Grafana, no Secret value in logs | CI on PRs labelled `restricted`, or `make test/e2e ENV=restricted` |
 
 Everything that could drift is pinned: tool versions in the `Makefile`, Kubernetes `1.37.0` for rendering,
 schemas and the kind node image (by digest), and the schema sources by commit. No chart is fetched from a
