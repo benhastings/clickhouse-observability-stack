@@ -2,7 +2,7 @@
 {{- $env := required "environment is required" .Values.environment -}}
 {{- $namespaces := list "argocd" }}
 {{- range $name, $app := .Values.applications }}
-{{- if and $app (ne $app.enabled false) }}
+{{- if include "app-of-apps.enabled" (list $ $name $app) }}
 {{- $namespaces = append $namespaces ($app.namespace | default $.Values.namespace) }}
 {{- end }}
 {{- end }}
@@ -27,13 +27,16 @@ spec:
     - server: {{ $.Values.destinationServer }}
       namespace: {{ . }}
     {{- end }}
-  # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's
-  # CRDs from its crds/ directory, and its ClusterRole and ClusterRoleBinding.
+  # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's CRDs from
+  # its crds/ directory, and the operator's and the collector's ClusterRole and ClusterRoleBinding. With a
+  # shared operator (global.clickhouseOperator.shared) nothing may install a CRD.
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    {{- if not (dig "clickhouseOperator" "shared" false (default dict .Values.global)) }}
     - group: apiextensions.k8s.io
       kind: CustomResourceDefinition
+    {{- end }}
     - group: rbac.authorization.k8s.io
       kind: ClusterRole
     - group: rbac.authorization.k8s.io

@@ -4,7 +4,9 @@
 #
 # It checks the Kubernetes version against KUBE_VERSION (the version the golden files render against),
 # each destination namespace, the Secrets the environment does not create, a StorageClass for ClickHouse,
-# the Istio CRDs when global.mesh is istio, and the Vault injector when vault.enabled is true.
+# the Istio CRDs when global.mesh is istio, the Vault injector when vault.enabled is true, and, with
+# global.clickhouseOperator.shared, the platform's ClickHouse operator: its CRD, the right to create an
+# installation, and a Ready operator pod.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,7 +39,12 @@ app_value() {
   yq ".applications.\"$1\".values$2 // \"\"" "$values"
 }
 
+# With global.clickhouseOperator.shared a platform team runs the ClickHouse operator, and the app-of-apps
+# renders no clickhouse-operator application.
+operator_shared="$(yq '.global.clickhouseOperator.shared // false' "$values")"
+
 app_enabled() {
+  [[ "$1" == clickhouse-operator && "$operator_shared" == true ]] && return 1
   [[ "$(yq ".applications.\"$1\".enabled" "$values")" != false ]]
 }
 
@@ -132,6 +139,27 @@ if app_enabled otel-collector &&
   [[ "$(yq '.applications.otel-collector.values.collector.auth.enabled' "$values")" == true ]] &&
   [[ "$(yq '.applications.otel-collector.values.secrets.auth.create' "$values")" != true ]]; then
   require_secret "$default_namespace" otel-collector-auth "otel-collector OTLP bearer token"
+fi
+
+# A shared operator is not installed by this stack, so it has to be there already: the API serves the
+# ClickHouseInstallation kind (checked through discovery, which needs no cluster-wide read of CRDs), this context
+# may create one in the stack's namespace, and an operator pod is Ready. A tenant that may not list pods in the
+# operator's namespace gets a warning instead: whether it watches the stack's namespace is for the platform team.
+if [[ "$operator_shared" == true ]] && app_enabled clickhouse; then
+  shared_hint="global.clickhouseOperator.shared is true, so the stack does not install the Altinity ClickHouse operator"
+  if ! kubectl get --raw /apis/clickhouse.altinity.com/v1 2>/dev/null |
+    yq -p json -e '.resources[] | select(.name == "clickhouseinstallations")' >/dev/null 2>&1; then
+    fail "$shared_hint, but the cluster does not serve ClickHouseInstallation (clickhouse.altinity.com/v1): ask the platform team to install the operator and its CRD clickhouseinstallations.clickhouse.altinity.com, or set global.clickhouseOperator.shared: false to install them with the stack"
+  elif [[ "$(kubectl auth can-i create clickhouseinstallations.clickhouse.altinity.com -n "$default_namespace" 2>/dev/null || true)" != yes ]]; then
+    fail "$shared_hint, but this context cannot create a ClickHouseInstallation in namespace $default_namespace: ask the platform team for create, update, patch and delete on clickhouseinstallations.clickhouse.altinity.com there"
+  fi
+  shared_ns="$(yq '.global.networkPolicy.namespaces.operator // "clickhouse-operator"' "$values")"
+  shared_selector="$(yq '.global.clickhouseOperator.podLabels // {"app.kubernetes.io/name": "clickhouse-operator"} | to_entries | map(.key + "=" + .value) | join(",")' "$values")"
+  if ! shared_pods="$(kubectl -n "$shared_ns" get pods -l "$shared_selector" -o json 2>/dev/null)"; then
+    echo "WARN: cannot list pods in namespace $shared_ns to see the shared ClickHouse operator ($shared_selector); confirm with the platform team that it runs and watches namespace $default_namespace" >&2
+  elif [[ "$(yq -p json '[.items[] | select(.status.conditions[]? | select(.type == "Ready" and .status == "True"))] | length' <<<"$shared_pods")" == 0 ]]; then
+    fail "$shared_hint, but no Ready pod matches $shared_selector in namespace $shared_ns: set global.networkPolicy.namespaces.operator and global.clickhouseOperator.podLabels to where the platform's operator runs, or ask the platform team to start it"
+  fi
 fi
 
 # An empty storageClassName means the cluster's default StorageClass, so one has to exist.

@@ -82,6 +82,28 @@ tests:
             - group: rbac.authorization.k8s.io
               kind: ClusterRoleBinding
 
+  - it: allows no CRD, and not the operator's namespace, when a platform team runs a shared ClickHouse operator
+    template: templates/app-project.yaml
+    set:
+      global.clickhouseOperator.shared: true
+    asserts:
+      - equal:
+          path: spec.clusterResourceWhitelist
+          value:
+            - group: ""
+              kind: Namespace
+            - group: rbac.authorization.k8s.io
+              kind: ClusterRole
+            - group: rbac.authorization.k8s.io
+              kind: ClusterRoleBinding
+      - equal:
+          path: spec.destinations
+          value:
+            - server: https://kubernetes.default.svc
+              namespace: argocd
+            - server: https://kubernetes.default.svc
+              namespace: observability
+
   - it: renders before the wave 0 Applications
     template: templates/app-project.yaml
     asserts:

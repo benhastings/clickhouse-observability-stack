@@ -642,6 +642,22 @@
           "description": "prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper",
           "x-default": "`\"\"`"
         },
+        "clickhouseOperator": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "shared": {
+              "type": "boolean",
+              "description": "`false`: the stack installs the Altinity operator itself, as the `clickhouse-operator` application with its CRDs, ClusterRole and ClusterRoleBinding. `true`: a platform team already runs one that watches the stack's namespace; the app-of-apps renders no `clickhouse-operator` Application and the stack nothing cluster-scoped for ClickHouse. The operator's namespace is `global.networkPolicy.namespaces.operator`",
+              "x-default": "`false`"
+            },
+            "podLabels": {
+              "$ref": "#/definitions/stringMap",
+              "description": "labels that select the operator's pods, for the ClickHouse NetworkPolicy and `make cluster/preflight`; a platform's operator installed from Altinity's Helm chart is usually `{app.kubernetes.io/name: altinity-clickhouse-operator}`",
+              "x-default": "`{app.kubernetes.io/name: clickhouse-operator}`"
+            }
+          }
+        },
         "imagePullSecrets": {
           "type": "array",
           "items": {

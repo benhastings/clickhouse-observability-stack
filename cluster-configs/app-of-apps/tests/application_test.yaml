@@ -115,6 +115,53 @@ tests:
       - hasDocuments:
           count: 9
 
+  - it: renders no operator Application when a platform team runs a shared ClickHouse operator
+    set:
+      global.clickhouseOperator.shared: true
+    asserts:
+      - hasDocuments:
+          count: 9
+      - containsDocument:
+          kind: Application
+          apiVersion: argoproj.io/v1alpha1
+          name: clickhouse-operator-test
+        not: true
+
+  - it: still renders ClickHouse, with the shared-operator switch, when a platform team runs the operator
+    set:
+      global.clickhouseOperator.shared: true
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-test
+    asserts:
+      - equal:
+          path: spec.source.helm.valuesObject.global.clickhouseOperator.shared
+          value: true
+      - equal:
+          path: spec.destination.namespace
+          value: observability
+
+  - it: fails when the operator application is enabled next to a shared operator
+    set:
+      global.clickhouseOperator.shared: true
+      applications.clickhouse-operator.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "applications.clickhouse-operator.enabled is true but global.clickhouseOperator.shared is true"
+
+  - it: renders the operator Application when the operator is not shared
+    set:
+      global.clickhouseOperator.shared: false
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-operator-test
+    asserts:
+      - isKind:
+          of: Application
+      - equal:
+          path: spec.source.path
+          value: cluster-nodes/clickhouse-operator
+
   - it: passes global and the app's values to the node, app values winning
     set:
       global.labels.environment: test

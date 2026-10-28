@@ -9,6 +9,9 @@
 # passwords (on kind, make cluster/up and make dev/up do). uninstall removes both releases and leaves the
 # CRDs and namespaces in place.
 #
+# With global.clickhouseOperator.shared a platform team runs the operator: install skips steps 1 and 2 (preflight
+# has already checked the CRD and the operator) and uninstall leaves the operator alone.
+#
 # Helm installs a chart's crds/ on the first install only and never upgrades them. After an operator bump,
 # apply the new release's CRDs yourself: kubectl apply -f cluster-nodes/clickhouse-operator/crds/
 set -euo pipefail
@@ -21,6 +24,7 @@ apps=cluster-configs/app-of-apps/values.yaml
 operator_ns="$(yq '.applications.clickhouse-operator.namespace' "$apps")"
 stack_ns="$(yq '.namespace' "$apps")"
 crd=clickhouseinstallations.clickhouse.altinity.com
+shared="$(yq '.global.clickhouseOperator.shared // false' "cluster-configs/overrides/values-$env.yaml" 2>/dev/null || echo false)"
 
 case "$action" in
   install)
@@ -29,16 +33,22 @@ case "$action" in
     # Under Istio the namespaces need the injection label before any pod starts; Argo CD sets it through
     # managedNamespaceMetadata, so the Helm path sets it here.
     if [[ "$(yq '.global.mesh // "istio"' "cluster-configs/overrides/values-$env.yaml")" == istio ]]; then
-      for ns in "$operator_ns" "$stack_ns"; do
+      namespaces=("$stack_ns")
+      [[ "$shared" == true ]] || namespaces+=("$operator_ns")
+      for ns in "${namespaces[@]}"; do
         kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
         kubectl label namespace "$ns" istio-injection=enabled --overwrite >/dev/null
       done
     fi
-    echo "==> Installing clickhouse-operator into $operator_ns"
-    helm upgrade --install clickhouse-operator cluster-nodes/clickhouse-operator \
-      --namespace "$operator_ns" --create-namespace -f "$out/clickhouse-operator.yaml" --wait --timeout 5m
-    echo "==> Waiting for CRD $crd"
-    kubectl wait --for=condition=Established "crd/$crd" --timeout=120s
+    if [[ "$shared" == true ]]; then
+      echo "==> Using the shared ClickHouse operator (global.clickhouseOperator.shared)"
+    else
+      echo "==> Installing clickhouse-operator into $operator_ns"
+      helm upgrade --install clickhouse-operator cluster-nodes/clickhouse-operator \
+        --namespace "$operator_ns" --create-namespace -f "$out/clickhouse-operator.yaml" --wait --timeout 5m
+      echo "==> Waiting for CRD $crd"
+      kubectl wait --for=condition=Established "crd/$crd" --timeout=120s
+    fi
     echo "==> Installing stack into $stack_ns"
     helm upgrade --install stack cluster-configs/stack \
       --namespace "$stack_ns" --create-namespace -f "$out/stack.yaml" --timeout 10m
@@ -47,7 +57,8 @@ case "$action" in
     ;;
   uninstall)
     helm uninstall stack --namespace "$stack_ns" --ignore-not-found
-    helm uninstall clickhouse-operator --namespace "$operator_ns" --ignore-not-found
+    [[ "$shared" == true ]] ||
+      helm uninstall clickhouse-operator --namespace "$operator_ns" --ignore-not-found
     echo "Left in place: the operator's CRDs (kubectl get crd | grep altinity) and the namespaces"
     echo "$operator_ns and $stack_ns, including the Secrets and the ClickHouse volume claims in them."
     ;;

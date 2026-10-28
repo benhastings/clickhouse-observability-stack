@@ -250,7 +250,8 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
 
 - **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`,
   `grafana-admin` and `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
-  [External Secrets operator](#secrets-kubernetes-or-vault) create them.
+  [External Secrets operator](#secrets-kubernetes-or-vault) create them. With
+  [a shared ClickHouse operator](#a-shared-clickhouse-operator), `clickhouse-operator-credentials` is the platform's.
 - **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
   [Service mesh](#service-mesh-istio-or-plain-kubernetes).
 - **Preflight.** `make cluster/preflight ENV=<env>` checks the context for all of it and installs nothing. The
@@ -310,6 +311,52 @@ The environment file, the Secrets, `global.mesh` and every other value mean the 
 differs is ordering: sync waves exist only on the Argo CD path. The Helm path installs the operator, waits for
 its CRD, then installs everything else. A rendered tree applies in one pass once the CRDs exist, so apply it
 twice on a new cluster. Sign-in with Keycloak is described in [Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak).
+
+### A shared ClickHouse operator
+
+By default the stack installs the Altinity operator itself: the `clickhouse-operator` application, with its
+CRDs, a ClusterRole and a ClusterRoleBinding. On a cluster where a platform team owns cluster-scoped resources
+and already runs the operator, one switch in the environment file uses theirs instead:
+
+```yaml
+global:
+  clickhouseOperator:
+    shared: true
+    # Where the platform's operator runs, for the ClickHouse NetworkPolicy and preflight. Altinity's Helm
+    # chart labels its pods app.kubernetes.io/name: altinity-clickhouse-operator.
+    podLabels:
+      app.kubernetes.io/name: altinity-clickhouse-operator
+  networkPolicy:
+    namespaces:
+      operator: <the operator's namespace>
+```
+
+With `shared: true` the app-of-apps renders no `clickhouse-operator` Application (setting it `enabled: true`
+as well fails the render), the AppProject no longer allows a CustomResourceDefinition, and the `clickhouse`
+application renders only namespaced objects: the `ClickHouseInstallation`, its schema Job and ConfigMap. The
+`clickhouse-operator-credentials` Secret is the platform's business, not this environment's. `make helm/install`
+skips the operator release, and `make helm/uninstall` leaves the platform's operator alone. The default,
+`shared: false`, is unchanged, and it is what `local` runs.
+
+The platform's operator has to do what this stack's own would: serve `ClickHouseInstallation` at
+`clickhouse.altinity.com/v1` at a version that accepts this stack's installation (it is tested with 0.27.4), watch
+the stack's namespace, and be able to reach ClickHouse on 8123 and 9000. Its default ClickHouse config
+(`chi/config.d`, `chi/users.d`) is its own; this stack's copies in `cluster-nodes/clickhouse-operator/files/`
+are the upstream defaults, so a stock operator matches them.
+
+`make cluster/preflight` (which `cluster/bootstrap` and `helm/install` run first) fails, saying what to fix,
+when the API does not serve `ClickHouseInstallation`, when the context cannot create one in the stack's
+namespace, or when no operator pod matching `podLabels` is Ready in the operator's namespace. A tenant that may
+not list pods there gets a warning instead. Whether the operator watches the stack's namespace is in its own
+config, which a tenant usually cannot read, so that one is for the platform team to confirm.
+
+Preflight checks the cluster rather than the render: Argo CD renders charts without cluster access, so a
+`lookup` in a template sees nothing there and could not tell a missing CRD from a working one. On the Argo CD
+path two things report a missing operator after preflight. A sync without the CRD fails with Argo CD's own
+error naming `ClickHouseInstallation`, and an installation no operator picks up stays `Progressing` with a
+message saying so, from the health check in `cluster-configs/argocd/values.yaml`, which holds back every later
+wave. A platform's own Argo CD needs that health check (and the child-Application one, see
+[Sync order](#sync-order)) for the waves to mean anything.
 
 ## Design decisions
 
@@ -809,7 +856,7 @@ Child apps carry sync waves:
 
 | wave | app |
 |---|---|
-| 0 | operator |
+| 0 | operator (none with [a shared operator](#a-shared-clickhouse-operator)) |
 | 1 | ClickHouse |
 | 2 | Cerberus, garmr sql-adapter, garmr |
 | 3 | collector, Grafana, Alertmanager, vmalert |
