@@ -775,7 +775,7 @@ if [[ "${MESH:-kubernetes}" == istio ]]; then
     redirects "Istio ($1): a signed-out visitor to Grafana is sent to its login page" \
       '(^|/)login$' -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/"
     redirects "Istio ($1): Grafana's login page signs in automatically through OAuth" \
-      '(^|/)login/generic_oauth$' -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/login"
+      '(^|/)login/generic_oauth(\?|$)' -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/login"
     redirects "Istio ($1): OAuth sends the visitor to the provider, to come back to the exposed host" \
       '^https://sso\.example/realms/platform/protocol/openid-connect/auth\?.*client_id=grafana&.*redirect_uri=http%3A%2F%2Fgrafana\.127\.0\.0\.1\.sslip\.io%2Flogin%2Fgeneric_oauth&' \
       -H 'Host: grafana.127.0.0.1.sslip.io' "$gateway/login/generic_oauth"
