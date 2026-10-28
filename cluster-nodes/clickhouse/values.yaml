@@ -198,8 +198,9 @@ configMaps:
 
 # With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
 # operator's own label. The collector, Cerberus, garmr sql-adapter, garmr serve, the schema Job and the backup job reach the native and HTTP ports, the
-# operator reaches them from its namespace, the collector scrapes the Prometheus port, and replicas reach each
-# other on the interserver port.
+# operator reaches them from its namespace (global.networkPolicy.namespaces.operator, its pods selected by
+# global.clickhouseOperator.podLabels, which a shared operator may label differently), the collector scrapes the
+# Prometheus port, and replicas reach each other on the interserver port.
 networkPolicy:
   podSelector:
     matchLabels:
@@ -229,7 +230,7 @@ networkPolicy:
               kubernetes.io/metadata.name: {{ dig "global" "networkPolicy" "namespaces" "operator" "clickhouse-operator" .Values.AsMap }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: clickhouse-operator
+              {{- dig "global" "clickhouseOperator" "podLabels" (dict "app.kubernetes.io/name" "clickhouse-operator") .Values.AsMap | toYaml | nindent 10 }}
       ports:
         - port: 8123
           protocol: TCP

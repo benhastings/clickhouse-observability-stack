@@ -48,6 +48,10 @@ destinationServer: https://kubernetes.default.svc
 # global:
 #   labels:
 #     environment: $name
+#   # When a platform team already runs the ClickHouse operator, use theirs and install no CRD, ClusterRole
+#   # or ClusterRoleBinding for it (README: A shared ClickHouse operator).
+#   clickhouseOperator:
+#     shared: true
 
 # Change one app by writing only the keys you want under applications.<app>.values, for example:
 # applications:

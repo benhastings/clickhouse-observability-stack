@@ -48,6 +48,14 @@ global:
     namespaces:
       stack: observability
       operator: clickhouse-operator
+  # Who runs the Altinity ClickHouse operator. false: this stack installs it, as the clickhouse-operator
+  # application with its CRDs, ClusterRole and ClusterRoleBinding. true: a platform team already runs one that
+  # watches the stack's namespace (in global.networkPolicy.namespaces.operator), and the stack renders nothing
+  # cluster-scoped for ClickHouse. podLabels select the operator's pods, for the NetworkPolicy and preflight.
+  clickhouseOperator:
+    shared: false
+    podLabels:
+      app.kubernetes.io/name: clickhouse-operator
   imagePullSecrets: []
   services:
     clickhouse: clickhouse:9000

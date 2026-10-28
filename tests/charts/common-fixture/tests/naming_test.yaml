@@ -50,3 +50,25 @@ tests:
         documentSelector:
           path: kind
           value: ClusterRole
+
+  # global.clickhouseOperator is read by the app-of-apps and the clickhouse node; every node accepts it, since
+  # global reaches them all, and it leaves an app's own RBAC alone.
+  - it: accepts global.clickhouseOperator and keeps an app's own ClusterRole
+    set:
+      global.clickhouseOperator.shared: true
+      global.clickhouseOperator.podLabels:
+        app.kubernetes.io/name: altinity-clickhouse-operator
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: ClusterRole
+    asserts:
+      - isKind:
+          of: ClusterRole
+
+  - it: rejects an unknown key under global.clickhouseOperator
+    set:
+      global.clickhouseOperator.unknownKey: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'unknownKey' not allowed"
