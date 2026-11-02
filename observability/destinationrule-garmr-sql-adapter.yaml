@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 spec:
   host: garmr-sql-adapter.observability.svc.cluster.local

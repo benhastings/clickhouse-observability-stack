@@ -26,7 +26,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: 36eab5a238822ce40ce81d47809ad790cf132966793bb32f4fcaa9461237136d
+        checksum/config: 7dd8d1ae706f81c6019634c7d341402b8805488d436584e2c022c36315bb0940
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false

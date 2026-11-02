@@ -10,10 +10,13 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-0.1.0
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 data:
   CLICKHOUSE_ADDR: "clickhouse:9000"
+  CLICKHOUSE_TLS_CA_FILE: ""
+  CLICKHOUSE_TLS_ENABLED: "false"
+  CLICKHOUSE_TLS_SERVER_NAME: ""
   CLICKHOUSE_USER: "otel_garmr"
   GARMR_ALERTMANAGER_URL: "http://alertmanager:9093"
   GARMR_DATABASE: "garmr"
