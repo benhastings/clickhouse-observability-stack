@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: prod
 automountServiceAccountToken: false
 ---
@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: prod
 data:
   CLICKHOUSE_ADDR: "clickhouse:9000"
@@ -51,7 +51,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: prod
 spec:
   type: ClusterIP
@@ -77,7 +77,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: prod
 spec:
   replicas: 1
@@ -93,7 +93,7 @@ spec:
         app.kubernetes.io/name: garmr-sql-adapter
         app.kubernetes.io/instance: garmr-sql-adapter
       annotations:
-        checksum/config: 77c250d9fed363059b34dfc1ece664aff24dca702958402930a49e08d4466c1d
+        checksum/config: 32ec78b94a6f23e1121f9f983a4399ecb11fec6a7d46bddc00b97684e61e1f72
     spec:
       serviceAccountName: garmr-sql-adapter
       automountServiceAccountToken: false
@@ -107,7 +107,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: garmr
-          image: "ghcr.io/benhastings/garmr:v0.1.0@sha256:e431bf6619f97f280a2e1cb606bf124da0287331de4f207752ef1099febe07b4"
+          image: "ghcr.io/benhastings/garmr:v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
           imagePullPolicy: IfNotPresent
           args:
             - sql-adapter
@@ -165,7 +165,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: prod
 spec:
   host: garmr-sql-adapter.observability.svc.cluster.local

@@ -40,8 +40,8 @@ flowchart LR
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) and Kubernetes events from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
-| `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
-| `garmr` | `ghcr.io/benhastings/garmr:v0.2.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
+| `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
+| `garmr` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
 | `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
 | `demo-load` | `ghcr.io/benhastings/correlated-telemetrygen:v0.2.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen) (the benhastings fork, which adds scheduled incidents): a browser front end, a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. Every hour, starting 15 minutes in, payments fails 90% of charges for 10 minutes. |
 
@@ -553,15 +553,10 @@ It does not connect to ClickHouse: the machine running it may not be able to rea
 #### garmr and TLS
 
 garmr serve and garmr sql-adapter read `CLICKHOUSE_TLS_ENABLED`, `CLICKHOUSE_TLS_CA_FILE` and
-`CLICKHOUSE_TLS_SERVER_NAME`, which the stack sets as for the other clients. The garmr releases this stack pins
-(sql-adapter `v0.1.0`, serve `v0.2.0`) predate that support
-([benhastings/garmr#7](https://github.com/benhastings/garmr/issues/7), in
-[benhastings/garmr#8](https://github.com/benhastings/garmr/pull/8)). Until both nodes are bumped to a release
-that has it, they ignore those variables and dial in plaintext. The connection then fails, but the native
-protocol's Hello carries the password, so it has already crossed the wire. Don't deploy `paas` until both image
-tags are bumped, or set `applications.garmr.enabled` and `applications.garmr-sql-adapter.enabled` to `false`
-until then (vmalert's SQL rules and garmr's incidents stop working; Grafana's alert rules through Alertmanager
-still work).
+`CLICKHOUSE_TLS_SERVER_NAME`, which the stack sets as for the other clients, from garmr `v0.3.0`
+([benhastings/garmr#8](https://github.com/benhastings/garmr/pull/8)). Don't pin either node to an older release
+in `paas`: those ignore the variables and dial in plaintext, and the native protocol's Hello carries the password,
+so it crosses the wire before the connection fails.
 
 ## Design decisions
 
@@ -1534,7 +1529,7 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
   - A certificate error (`unknown authority`, `certificate is valid for ...`) means the CA bundle in `tls.caConfigMap` or the name in `tls.serverName` doesn't match what the service presents. Ask the platform for the right ones. Skipping verification is not an option.
   - `AUTHENTICATION_FAILED` is a password that doesn't match the user the service owner created.
   - `ACCESS_DENIED` or `Not enough privileges` is a grant the contract lists but the service owner hasn't given.
-  - garmr failing to connect while the others work is [garmr and TLS](#garmr-and-tls).
+  - garmr failing to connect while the others work is an image older than `v0.3.0`: see [garmr and TLS](#garmr-and-tls).
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
   ```bash

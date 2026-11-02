@@ -40,7 +40,7 @@ deployment:
       image:
         repository: ghcr.io/benhastings/garmr
         # The tag and the digest it was published with, so a re-pushed tag can't change what runs.
-        tag: "v0.1.0@sha256:e431bf6619f97f280a2e1cb606bf124da0287331de4f207752ef1099febe07b4"
+        tag: "v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
       args:
         - sql-adapter
       ports:

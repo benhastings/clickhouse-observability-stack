@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-0.1.0
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 automountServiceAccountToken: false
 ---
@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-0.1.0
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 data:
   CLICKHOUSE_ADDR: "clickhouse:9000"
@@ -56,7 +56,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-0.1.0
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 spec:
   type: ClusterIP
@@ -82,7 +82,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-0.1.0
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 spec:
   replicas: 1
@@ -98,7 +98,7 @@ spec:
         app.kubernetes.io/name: garmr
         app.kubernetes.io/instance: garmr
       annotations:
-        checksum/config: 4d3831f5e71bb341ce01256de8714443585654e7b48ab2299892975d7293f521
+        checksum/config: 2e6eed9b090ce634cdb38c91ae90246c67dc01a5c1e82bb10c6c2cadd832ca15
     spec:
       serviceAccountName: garmr
       automountServiceAccountToken: false
@@ -112,7 +112,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: garmr
-          image: "ghcr.io/benhastings/garmr:v0.2.0@sha256:63e526abd9c5761ec5c076b31c3a437ef95f9dca7869c5844c67ed04812a5454"
+          image: "ghcr.io/benhastings/garmr:v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
           imagePullPolicy: IfNotPresent
           args:
             - serve
@@ -177,7 +177,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-0.1.0
-    app.kubernetes.io/version: "0.2.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: dev
 spec:
   host: garmr.observability.svc.cluster.local

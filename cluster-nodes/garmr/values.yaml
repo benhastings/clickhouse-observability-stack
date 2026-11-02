@@ -57,7 +57,7 @@ deployment:
       image:
         repository: ghcr.io/benhastings/garmr
         # The tag and the digest it was published with, so a re-pushed tag can't change what runs.
-        tag: "v0.2.0@sha256:63e526abd9c5761ec5c076b31c3a437ef95f9dca7869c5844c67ed04812a5454"
+        tag: "v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
       args:
         - serve
       ports:
