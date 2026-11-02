@@ -557,9 +557,11 @@ garmr serve and garmr sql-adapter read `CLICKHOUSE_TLS_ENABLED`, `CLICKHOUSE_TLS
 (sql-adapter `v0.1.0`, serve `v0.2.0`) predate that support
 ([benhastings/garmr#7](https://github.com/benhastings/garmr/issues/7), in
 [benhastings/garmr#8](https://github.com/benhastings/garmr/pull/8)). Until both nodes are bumped to a release
-that has it, they fail to connect to an external ClickHouse, and never fall back to plaintext. In the meantime,
-vmalert's SQL rules and garmr's incidents don't work in `paas`, but Grafana's alert rules through Alertmanager
-still do.
+that has it, they ignore those variables and dial in plaintext. The connection then fails, but the native
+protocol's Hello carries the password, so it has already crossed the wire. Don't deploy `paas` until both image
+tags are bumped, or set `applications.garmr.enabled` and `applications.garmr-sql-adapter.enabled` to `false`
+until then (vmalert's SQL rules and garmr's incidents stop working; Grafana's alert rules through Alertmanager
+still work).
 
 ## Design decisions
 
