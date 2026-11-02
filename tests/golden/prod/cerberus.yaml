@@ -42,6 +42,9 @@ data:
   CERBERUS_CH_DIAL_TIMEOUT: "10s"
   CERBERUS_CH_OPTIMIZATIONS: "auto"
   CERBERUS_CH_PROTOCOL: "native"
+  CERBERUS_CH_TLS_CA_FILE: ""
+  CERBERUS_CH_TLS_ENABLED: "false"
+  CERBERUS_CH_TLS_SERVER_NAME: ""
   CERBERUS_CH_USERNAME: "otel_reader"
   CERBERUS_HTTP_ADDR: ":8080"
   CERBERUS_LOG_FORMAT: "json"
@@ -106,7 +109,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: 9c6d2e8dc2edb86f652fbf6f212b7a7fb7012e0d02e1f67b1fca6622bbb5ca63
+        checksum/config: 7c39c8e8bf92d2193924cb956f3cd19dc9ec0942d8f3a6507dd47488be3815a9
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false

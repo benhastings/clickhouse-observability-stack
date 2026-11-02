@@ -32,6 +32,9 @@ metadata:
 data:
   CLICKHOUSE_ADDR: "clickhouse:9000"
   CLICKHOUSE_DATABASE: "otel"
+  CLICKHOUSE_TLS_CA_FILE: ""
+  CLICKHOUSE_TLS_ENABLED: "false"
+  CLICKHOUSE_TLS_SERVER_NAME: ""
   CLICKHOUSE_USER: "otel_reader"
   GARMR_LISTEN_ADDRESS: ":8080"
   GARMR_LOG_FORMAT: "json"
@@ -90,7 +93,7 @@ spec:
         app.kubernetes.io/name: garmr-sql-adapter
         app.kubernetes.io/instance: garmr-sql-adapter
       annotations:
-        checksum/config: 33f2f32553045fd82abf0d7a4563f6c7016409059420c48e0c5acb0781836e54
+        checksum/config: 77c250d9fed363059b34dfc1ece664aff24dca702958402930a49e08d4466c1d
     spec:
       serviceAccountName: garmr-sql-adapter
       automountServiceAccountToken: false

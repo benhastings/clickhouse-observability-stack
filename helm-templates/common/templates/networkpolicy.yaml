@@ -11,7 +11,9 @@ metadata:
   {{- include "common.metadata" (list . (include "common.fullname" .)) | nindent 2 }}
 spec:
   podSelector:
-    {{- if $np.podSelector }}
+    {{- if kindIs "string" $np.podSelector }}
+    {{- tpl $np.podSelector . | trim | nindent 4 }}
+    {{- else if $np.podSelector }}
     {{- tpl (toYaml $np.podSelector) . | nindent 4 }}
     {{- else }}
     matchLabels:

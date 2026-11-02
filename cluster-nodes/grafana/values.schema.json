@@ -251,8 +251,11 @@
           "x-default": "`true`"
         },
         "podSelector": {
-          "type": "object",
-          "description": "a full label selector for the pods the policy covers; empty selects `app.kubernetes.io/name: <name>`",
+          "type": [
+            "object",
+            "string"
+          ],
+          "description": "a full label selector for the pods the policy covers, or a templated string that renders one; empty selects `app.kubernetes.io/name: <name>`",
           "x-default": "`{}`"
         },
         "ingress": {
@@ -588,6 +591,46 @@
             }
           }
         },
+        "clickhouse": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "external": {
+              "type": "boolean",
+              "description": "`false`: the stack runs ClickHouse, as the `clickhouse` application's ClickHouseInstallation. `true`: a service owner runs it at `global.services.clickhouse`; the app-of-apps renders no `clickhouse-operator` Application, the `clickhouse` node renders only its schema Job, and NetworkPolicies allow that address's port instead of the operator's pods",
+              "x-default": "`false`"
+            },
+            "networkPolicyPeers": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "with `external`, the NetworkPolicy peers (`ipBlock`, `namespaceSelector`, ...) `global.services.clickhouse` resolves to; empty allows its port to any destination",
+              "x-default": "`[]`"
+            },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "serverName": {
+                  "type": "string",
+                  "description": "with `external`, required: the name the server's certificate must carry. Every client connects over TLS and verifies it; there is no option to skip verification, and no client presents a certificate of its own",
+                  "x-default": "`\"\"`"
+                },
+                "caConfigMap": {
+                  "type": "string",
+                  "description": "with `external`, required: a ConfigMap in the stack's namespace with the CA bundle that signed the server's certificate. The platform or the service owner provides it; the stack never creates a certificate",
+                  "x-default": "`\"\"`"
+                },
+                "caKey": {
+                  "type": "string",
+                  "description": "the key of the CA bundle in `caConfigMap`",
+                  "x-default": "`ca.crt`"
+                }
+              }
+            }
+          }
+        },
         "imagePullSecrets": {
           "type": "array",
           "items": {
@@ -607,7 +650,7 @@
           "properties": {
             "clickhouse": {
               "type": "string",
-              "description": "where the collector and Cerberus reach ClickHouse's native protocol",
+              "description": "where the collector, Cerberus, garmr and the schema Job reach ClickHouse's native protocol, as `host:port`; with `global.clickhouse.external`, the service owner's endpoint (`9440` is the usual TLS port)",
               "x-default": "`clickhouse:9000`"
             },
             "cerberus": {
@@ -999,6 +1042,9 @@
         },
         "volumeMounts": {
           "type": "array"
+        },
+        "clickhouseCA": {
+          "type": "boolean"
         }
       }
     }

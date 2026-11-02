@@ -10,7 +10,8 @@
 # CRDs and namespaces in place.
 #
 # With global.clickhouseOperator.shared a platform team runs the operator: install skips steps 1 and 2 (preflight
-# has already checked the CRD and the operator) and uninstall leaves the operator alone. With clusterScoped: false
+# has already checked the CRD and the operator) and uninstall leaves the operator alone. With global.clickhouse.external
+# a service owner runs ClickHouse, so there is no operator at all and the same steps are skipped. With clusterScoped: false
 # (the restricted-namespace profile) it neither creates nor labels a namespace: preflight has checked that the
 # platform team made it.
 #
@@ -27,6 +28,9 @@ operator_ns="$(yq '.applications.clickhouse-operator.namespace' "$apps")"
 stack_ns="$(yq '.namespace' "$apps")"
 crd=clickhouseinstallations.clickhouse.altinity.com
 shared="$(yq '.global.clickhouseOperator.shared // false' "cluster-configs/overrides/values-$env.yaml" 2>/dev/null || echo false)"
+external="$(yq '.global.clickhouse.external // false' "cluster-configs/overrides/values-$env.yaml" 2>/dev/null || echo false)"
+# No operator of the stack's own: a platform team runs one, or a service owner runs ClickHouse.
+[[ "$external" == true ]] && shared=true
 create_ns=(--create-namespace)
 [[ "$(yq '.clusterScoped' "cluster-configs/overrides/values-$env.yaml" 2>/dev/null || true)" == false ]] && create_ns=()
 
@@ -44,7 +48,9 @@ case "$action" in
         kubectl label namespace "$ns" istio-injection=enabled --overwrite >/dev/null
       done
     fi
-    if [[ "$shared" == true ]]; then
+    if [[ "$external" == true ]]; then
+      echo "==> Using the service owner's ClickHouse (global.clickhouse.external)"
+    elif [[ "$shared" == true ]]; then
       echo "==> Using the shared ClickHouse operator (global.clickhouseOperator.shared)"
     else
       echo "==> Installing clickhouse-operator into $operator_ns"
@@ -56,8 +62,13 @@ case "$action" in
     echo "==> Installing stack into $stack_ns"
     helm upgrade --install stack cluster-configs/stack \
       --namespace "$stack_ns" "${create_ns[@]}" -f "$out/stack.yaml" --timeout 10m
-    echo "Installed. ClickHouse starts once the operator reconciles the installation:"
-    echo "  kubectl -n $stack_ns get chi,pods"
+    if [[ "$external" == true ]]; then
+      echo "Installed. The schema Job applies the tables to the service owner's ClickHouse:"
+      echo "  kubectl -n $stack_ns get jobs,pods"
+    else
+      echo "Installed. ClickHouse starts once the operator reconciles the installation:"
+      echo "  kubectl -n $stack_ns get chi,pods"
+    fi
     ;;
   uninstall)
     helm uninstall stack --namespace "$stack_ns" --ignore-not-found

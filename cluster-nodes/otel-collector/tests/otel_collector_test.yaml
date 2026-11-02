@@ -827,3 +827,55 @@ tests:
             ports:
               - port: 8080
                 protocol: TCP
+
+  - it: exports to an external ClickHouse over TLS, verified against the platform's CA and the server name, and never skips verification
+    set: &external
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.paas.example
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.services.clickhouse: clickhouse.paas.example:9440
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "endpoint: tcp://clickhouse.paas.example:9440\\?dial_timeout=10s&secure=true\\n"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "tls:\\n\\s+ca_file: /etc/clickhouse-ca/ca.crt\\n\\s+server_name_override: clickhouse.paas.example\\n"
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "skip_verify=|tls:\\n(\\s+(ca_file|server_name_override): .*\\n)*\\s+insecure"
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "job_name: clickhouse"
+
+  - it: mounts the platform's CA bundle in the gateway for an external ClickHouse
+    set: *external
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: clickhouse-ca
+            mountPath: /etc/clickhouse-ca
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+            configMap:
+              name: platform-ca
+
+  - it: keeps the in-cluster exporter plaintext and scrapes the operator's ClickHouse pods
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["relay.yaml"]
+          pattern: "secure=true|ca_file"
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "job_name: clickhouse"

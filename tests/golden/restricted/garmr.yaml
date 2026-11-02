@@ -31,6 +31,9 @@ metadata:
     environment: restricted
 data:
   CLICKHOUSE_ADDR: "clickhouse:9000"
+  CLICKHOUSE_TLS_CA_FILE: ""
+  CLICKHOUSE_TLS_ENABLED: "false"
+  CLICKHOUSE_TLS_SERVER_NAME: ""
   CLICKHOUSE_USER: "otel_garmr"
   GARMR_ALERTMANAGER_URL: "http://alertmanager:9093"
   GARMR_DATABASE: "garmr"
@@ -95,7 +98,7 @@ spec:
         app.kubernetes.io/name: garmr
         app.kubernetes.io/instance: garmr
       annotations:
-        checksum/config: 38bb1885e03a8ce0b33940c9a1ac58831d3c26aae7fb37ed94325940e4247568
+        checksum/config: 861fe020b3c4f44a6aa39427cf87f6e3d91d76c4be4bf91be4b40f9efa882e6a
     spec:
       serviceAccountName: garmr
       automountServiceAccountToken: false

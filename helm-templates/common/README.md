@@ -56,9 +56,14 @@ schema, and to the template in the same change.
 | `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |
 | `global.clickhouseOperator.shared` | `false` | `false`: the stack installs the Altinity operator itself, as the `clickhouse-operator` application with its CRDs, ClusterRole and ClusterRoleBinding. `true`: a platform team already runs one that watches the stack's namespace; the app-of-apps renders no `clickhouse-operator` Application and the stack nothing cluster-scoped for ClickHouse. The operator's namespace is `global.networkPolicy.namespaces.operator` |
 | `global.clickhouseOperator.podLabels.<name>` | `{app.kubernetes.io/name: clickhouse-operator}` | labels that select the operator's pods, for the ClickHouse NetworkPolicy and `make cluster/preflight`; a platform's operator installed from Altinity's Helm chart is usually `{app.kubernetes.io/name: altinity-clickhouse-operator}` |
+| `global.clickhouse.external` | `false` | `false`: the stack runs ClickHouse, as the `clickhouse` application's ClickHouseInstallation. `true`: a service owner runs it at `global.services.clickhouse`; the app-of-apps renders no `clickhouse-operator` Application, the `clickhouse` node renders only its schema Job, and NetworkPolicies allow that address's port instead of the operator's pods |
+| `global.clickhouse.networkPolicyPeers` | `[]` | with `external`, the NetworkPolicy peers (`ipBlock`, `namespaceSelector`, ...) `global.services.clickhouse` resolves to; empty allows its port to any destination |
+| `global.clickhouse.tls.serverName` | `""` | with `external`, required: the name the server's certificate must carry. Every client connects over TLS and verifies it; there is no option to skip verification, and no client presents a certificate of its own |
+| `global.clickhouse.tls.caConfigMap` | `""` | with `external`, required: a ConfigMap in the stack's namespace with the CA bundle that signed the server's certificate. The platform or the service owner provides it; the stack never creates a certificate |
+| `global.clickhouse.tls.caKey` | `ca.crt` | the key of the CA bundle in `caConfigMap` |
 | `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
 | `global.vault` |  | the same keys as `vault`, for every app at once; an app's own `vault` wins |
-| `global.services.clickhouse` | `clickhouse:9000` | where the collector and Cerberus reach ClickHouse's native protocol |
+| `global.services.clickhouse` | `clickhouse:9000` | where the collector, Cerberus, garmr and the schema Job reach ClickHouse's native protocol, as `host:port`; with `global.clickhouse.external`, the service owner's endpoint (`9440` is the usual TLS port) |
 | `global.services.cerberus` | `http://cerberus:8080` | where Grafana's datasources reach Cerberus |
 | `global.services.otlpGrpc` | `otel-collector:4317` | where the demo load sends OTLP over gRPC |
 | `global.services.alertmanager` | `http://alertmanager:9093` | where rule evaluators send alerts |
@@ -124,7 +129,7 @@ schema, and to the template in the same change.
 | `exposure.port` | `""` | the name of the `service.ports` entry the host routes to |
 | `exposure.annotations.<name>` | `{}` | annotations on the Ingress, such as a controller's body-size limit |
 | `networkPolicy.enabled` | `true` | set `false` to leave this app out when `global.networkPolicy.enabled` |
-| `networkPolicy.podSelector` | `{}` | a full label selector for the pods the policy covers; empty selects `app.kubernetes.io/name: <name>` |
+| `networkPolicy.podSelector` | `{}` | a full label selector for the pods the policy covers, or a templated string that renders one; empty selects `app.kubernetes.io/name: <name>` |
 | `networkPolicy.ingress` | `[]` | NetworkPolicy ingress rules, a list or a templated string; see Network policies |
 | `networkPolicy.egress` | `[]` | NetworkPolicy egress rules after DNS (and istiod under `istio`), a list or a templated string |
 | `configMaps.<key>` |  | a ConfigMap: `data` (map of file name to a string or a YAML object, templated) and/or `files` (a glob relative to the node chart, not templated) |
@@ -153,6 +158,7 @@ A ConfigMap, Secret or object keyed `main` takes the chart's name; any other key
 | `envFrom` | list, templated |
 | `startupProbe`, `livenessProbe`, `readinessProbe` | passed through |
 | `resources`, `securityContext`, `volumeMounts` | passed through |
+| `clickhouseCA` | `true` mounts the external ClickHouse's CA bundle (`global.clickhouse.tls.caConfigMap`) read-only at `/etc/clickhouse-ca`, with `global.clickhouse.external` only; `common.clickhouseCA` is the bundle's path |
 
 ### Secrets
 

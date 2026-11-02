@@ -9,6 +9,8 @@
 #   - an AppProject whose clusterResourceWhitelist allows anything
 #   - an object, or a RoleBinding subject, in a namespace other than its Application's destination
 #   - a <service>.<namespace>.svc address in another namespace (the API server, kubernetes.default.svc, aside)
+# With global.clickhouse.external (README: An external ClickHouse) it also fails on a ClickHouseInstallation, a
+# clickhouse-operator Application, and anything that still selects the operator's ClickHouse pods.
 # An unknown kind fails rather than passes: add it to namespaced below once you know it is namespaced.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -45,6 +47,7 @@ for env in "${envs[@]}"; do
     continue
   fi
   [[ "$(yq '.clusterScoped' "$overrides")" == false ]] || fail "$overrides" "must set clusterScoped: false"
+  external="$(yq '.global.clickhouse.external // false' "$overrides")"
 
   for file in "$dir"/*.yaml "cluster-configs/app-of-apps/app-of-apps-$env.yaml"; do
     release="$(basename "$file" .yaml)"
@@ -65,6 +68,12 @@ for env in "${envs[@]}"; do
         fail "$file" "$object is cluster-scoped, or a kind not known to be namespaced"
       fi
       [[ "$ns" == null || "$ns" == "$expected" ]] || fail "$file" "$object is in namespace $ns, not $expected"
+      if [[ "$external" == true ]]; then
+        [[ "$kind" != ClickHouseInstallation ]] ||
+          fail "$file" "$object runs ClickHouse, but global.clickhouse.external says the service owner does"
+        [[ "$kind/$name" != "Application/clickhouse-operator-$env" ]] ||
+          fail "$file" "$object installs the ClickHouse operator, but global.clickhouse.external says the service owner runs ClickHouse"
+      fi
       [[ "$create_ns" == false ]] || fail "$file" "$object asks Argo CD to create its namespace (CreateNamespace=true)"
       [[ "$managed_ns" == false ]] || fail "$file" "$object manages its namespace's metadata (managedNamespaceMetadata)"
       [[ "$whitelist" == 0 ]] || fail "$file" "$object allows cluster-scoped kinds (clusterResourceWhitelist)"
@@ -78,6 +87,10 @@ for env in "${envs[@]}"; do
        ((.spec.clusterResourceWhitelist // []) | length),
        ([.subjects[]?.namespace | select(. != null)] | join(" "))] | @tsv
       ] | .[]' "$file")
+
+    if [[ "$external" == true ]] && grep -q 'clickhouse.altinity.com/chi' "$file"; then
+      fail "$file" "selects the operator's ClickHouse pods (clickhouse.altinity.com/chi), but global.clickhouse.external says there are none"
+    fi
 
     while IFS= read -r address; do
       target="${address#*.}"

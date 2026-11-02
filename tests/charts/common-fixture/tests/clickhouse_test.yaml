@@ -1,0 +1,156 @@
+suite: global.clickhouse
+release:
+  name: fixture
+  namespace: demo
+set:
+  networkPolicy.egress: |-
+    {{- include "common.clickhouseEgress" (list . (list 9000 9363)) }}
+tests:
+  - it: reaches the operator's ClickHouse pods on the ports the app names, with no CA mounted
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+    asserts:
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - podSelector:
+                  matchLabels:
+                    clickhouse.altinity.com/chi: otel
+            ports:
+              - port: 9000
+                protocol: TCP
+              - port: 9363
+                protocol: TCP
+        template: templates/networkpolicy.yaml
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+          any: true
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.template.spec.containers[?(@.name == "sidecar")].volumeMounts
+        template: templates/deployment.yaml
+
+  - it: with an external ClickHouse, allows only its port, to any destination when no peers are named
+    set: &external
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.paas.example
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.services.clickhouse: clickhouse.paas.example:9440
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.egress[1]
+          value:
+            ports:
+              - port: 9440
+                protocol: TCP
+      - lengthEqual:
+          path: spec.egress
+          count: 2
+
+  - it: with an external ClickHouse and networkPolicyPeers, allows its port to those peers
+    set:
+      <<: *external
+      global.clickhouse.networkPolicyPeers:
+        - ipBlock:
+            cidr: 10.20.0.0/24
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 10.20.0.0/24
+            ports:
+              - port: 9440
+                protocol: TCP
+
+  - it: with an external ClickHouse, mounts the platform's CA bundle read-only in a container that sets clickhouseCA
+    set: *external
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+            configMap:
+              name: platform-ca
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "sidecar")].volumeMounts
+          value:
+            - name: clickhouse-ca
+              mountPath: /etc/clickhouse-ca
+              readOnly: true
+      - notContains:
+          path: spec.template.spec.containers[?(@.name == "app")].volumeMounts
+          content:
+            name: clickhouse-ca
+            mountPath: /etc/clickhouse-ca
+            readOnly: true
+
+  - it: renders the CA bundle's path from caKey
+    set:
+      <<: *external
+      global.clickhouse.tls.caKey: bundle.pem
+      objects.paths:
+        apiVersion: v1
+        kind: ConfigMap
+        data:
+          ca: '{{ include "common.clickhouseCA" . }}'
+    documentSelector:
+      path: metadata.name
+      value: fixture-paths
+    template: templates/objects.yaml
+    asserts:
+      - equal:
+          path: data.ca
+          value: /etc/clickhouse-ca/bundle.pem
+
+  - it: fails an external ClickHouse with no server name, since its certificate could not be verified
+    set:
+      <<: *external
+      global.clickhouse.tls.serverName: ""
+    template: templates/networkpolicy.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: global.clickhouse.tls.serverName is empty
+
+  - it: fails an external ClickHouse with no CA bundle
+    set:
+      <<: *external
+      global.clickhouse.tls.caConfigMap: ""
+    template: templates/networkpolicy.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: global.clickhouse.tls.caConfigMap is empty
+
+  - it: fails an external ClickHouse address with no port
+    set:
+      <<: *external
+      global.services.clickhouse: clickhouse.paas.example
+    template: templates/networkpolicy.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: global.services.clickhouse is not host:port
+
+  - it: takes a podSelector written as a templated string
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      networkPolicy.podSelector: |-
+        matchLabels:
+          app.kubernetes.io/name: {{ .Release.Name }}-job
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              app.kubernetes.io/name: fixture-job

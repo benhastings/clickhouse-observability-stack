@@ -56,6 +56,20 @@ global:
     shared: false
     podLabels:
       app.kubernetes.io/name: clickhouse-operator
+  # Who runs ClickHouse. external false: this stack does, through the operator. true: a service owner does, at
+  # global.services.clickhouse, and the stack renders no operator and no ClickHouseInstallation (README: An
+  # external ClickHouse). An external ClickHouse is always reached over TLS with the server's certificate
+  # verified: tls.serverName is the name it must carry and tls.caConfigMap the ConfigMap, in the stack's
+  # namespace, with the CA bundle that signed it (key tls.caKey). The platform or the service owner provides that
+  # ConfigMap; the stack never creates a certificate, and there is no way to skip verification.
+  # networkPolicyPeers are the NetworkPolicy peers the address resolves to; empty allows its port anywhere.
+  clickhouse:
+    external: false
+    networkPolicyPeers: []
+    tls:
+      serverName: ""
+      caConfigMap: ""
+      caKey: ca.crt
   imagePullSecrets: []
   services:
     clickhouse: clickhouse:9000
@@ -261,7 +275,11 @@ objects: {}
   securityContext:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with $c.volumeMounts }}
+  {{- $mounts := default list $c.volumeMounts }}
+  {{- if and $c.clickhouseCA (include "common.clickhouseExternal" $root) }}
+  {{- $mounts = append $mounts (dict "name" "clickhouse-ca" "mountPath" "/etc/clickhouse-ca" "readOnly" true) }}
+  {{- end }}
+  {{- with $mounts }}
   volumeMounts:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -329,13 +347,21 @@ spec:
     {{- include "common.container" (list $root $name $c $key) | nindent 4 }}
     {{- end }}
     {{- end }}
-  {{- with $d.volumes }}
+  {{- /* A container with clickhouseCA mounts the external ClickHouse's CA bundle (common.clickhouseCAVolume). */}}
+  {{- $clickhouseCA := false }}
+  {{- range $d.containers }}{{ if and . .clickhouseCA }}{{ $clickhouseCA = true }}{{ end }}{{ end }}
+  {{- $clickhouseCA = and $clickhouseCA (include "common.clickhouseExternal" $root) }}
+  {{- if or $d.volumes $clickhouseCA }}
   volumes:
-    {{- range $name, $volume := . }}
+    {{- range $name, $volume := $d.volumes }}
     {{- if $volume }}
     - name: {{ $name }}
       {{- tpl (ternary $volume (toYaml $volume) (kindIs "string" $volume)) $root | trim | nindent 6 }}
     {{- end }}
+    {{- end }}
+    {{- if $clickhouseCA }}
+    - name: clickhouse-ca
+      {{- include "common.clickhouseCAVolume" $root | nindent 6 }}
     {{- end }}
   {{- end }}
 {{- end -}}
@@ -484,6 +510,87 @@ overrides them once under global. It takes (list $root "<name>") and fails on an
 {{- fail (printf "global.services has no %q" $name) -}}
 {{- end -}}
 {{- index $v.global.services $name -}}
+{{- end -}}
+
+{{- /*
+common.clickhouseEgress renders the NetworkPolicy egress rule an app uses to reach ClickHouse. It takes
+(list $root (list <port>...)): the ports on the ClickHouse pods this stack runs, selected by the operator's
+clickhouse.altinity.com/chi label. With global.clickhouse.external, ClickHouse is a service someone else runs:
+the rule allows only the port of global.services.clickhouse, to global.clickhouse.networkPolicyPeers, or to any
+destination when that is empty, and the in-cluster ports are dropped.
+*/ -}}
+
+{{- /*
+common.clickhouseExternal is "true" with global.clickhouse.external and empty without. An external ClickHouse
+is reached only over verified TLS, so it fails the render unless global.clickhouse.tls names the server's
+certificate name and the ConfigMap with its CA bundle.
+*/ -}}
+
+{{- define "common.clickhouseExternal" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $c := $v.global.clickhouse -}}
+{{- if $c.external -}}
+{{- if not $c.tls.serverName -}}
+{{- fail "global.clickhouse.external is true but global.clickhouse.tls.serverName is empty: name the certificate the service owner's ClickHouse presents (README: An external ClickHouse)" -}}
+{{- end -}}
+{{- if not $c.tls.caConfigMap -}}
+{{- fail "global.clickhouse.external is true but global.clickhouse.tls.caConfigMap is empty: name the ConfigMap with the CA bundle the platform provides (README: An external ClickHouse)" -}}
+{{- end -}}
+{{- if not (include "common.serviceAddress" (list . "clickhouse") | regexMatch ":[0-9]+$") -}}
+{{- fail "global.clickhouse.external is true but global.services.clickhouse is not host:port" -}}
+{{- end -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- /*
+common.clickhouseCA: where a container finds the external ClickHouse's CA bundle, /etc/clickhouse-ca/<caKey>.
+A container that sets clickhouseCA: true gets global.clickhouse.tls.caConfigMap mounted there, with
+global.clickhouse.external only; common.clickhouseCAVolume is that volume's source, for a pod common does not
+render (the clickhouse node's schema Job).
+*/ -}}
+
+{{- define "common.clickhouseCA" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- printf "/etc/clickhouse-ca/%s" $v.global.clickhouse.tls.caKey -}}
+{{- end -}}
+
+{{- define "common.clickhouseCAVolume" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- if include "common.clickhouseExternal" . -}}
+configMap:
+  name: {{ $v.global.clickhouse.tls.caConfigMap }}
+{{- else -}}
+emptyDir: {}
+{{- end -}}
+{{- end -}}
+
+{{- define "common.clickhouseEgress" -}}
+{{- $root := index . 0 -}}
+{{- $ports := index . 1 -}}
+{{- $v := include "common.values" $root | fromYaml -}}
+{{- if include "common.clickhouseExternal" $root -}}
+{{- $port := include "common.serviceAddress" (list $root "clickhouse") | splitList ":" | last -}}
+{{- with $v.global.clickhouse.networkPolicyPeers }}
+- to:
+    {{- toYaml . | nindent 4 }}
+  ports:
+{{- else }}
+- ports:
+{{- end }}
+    - port: {{ int $port }}
+      protocol: TCP
+{{- else }}
+- to:
+    - podSelector:
+        matchLabels:
+          clickhouse.altinity.com/chi: otel
+  ports:
+    {{- range $ports }}
+    - port: {{ int . }}
+      protocol: TCP
+    {{- end }}
+{{- end -}}
 {{- end -}}
 
 {{- /*
