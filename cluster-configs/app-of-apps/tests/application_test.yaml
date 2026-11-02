@@ -149,6 +149,50 @@ tests:
       - failedTemplate:
           errorPattern: "applications.clickhouse-operator.enabled is true but global.clickhouseOperator.shared is true"
 
+  - it: renders no operator Application when ClickHouse is an external service
+    set:
+      global.clickhouse.external: true
+    asserts:
+      - hasDocuments:
+          count: 9
+      - containsDocument:
+          kind: Application
+          apiVersion: argoproj.io/v1alpha1
+          name: clickhouse-operator-test
+        not: true
+
+  - it: still renders the clickhouse Application for its schema Job, with the external switch, when ClickHouse is external
+    set:
+      global.clickhouse.external: true
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-test
+    asserts:
+      - equal:
+          path: spec.source.helm.valuesObject.global.clickhouse.external
+          value: true
+
+  - it: fails when the operator application is enabled next to an external ClickHouse
+    set:
+      global.clickhouse.external: true
+      applications.clickhouse-operator.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "applications.clickhouse-operator.enabled is true but global.clickhouse.external is true"
+
+  - it: accepts the restricted-namespace profile with an external ClickHouse and no shared operator
+    set:
+      clusterScoped: false
+      global.clickhouse.external: true
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - hasDocuments:
+          count: 9
+      - equal:
+          path: spec.syncPolicy.syncOptions
+          value:
+            - ServerSideApply=true
+
   - it: renders the operator Application when the operator is not shared
     set:
       global.clickhouseOperator.shared: false
@@ -339,7 +383,7 @@ tests:
       applications.otel-collector.values.rbac.scope: namespace
     asserts:
       - failedTemplate:
-          errorPattern: "clusterScoped is false but global.clickhouseOperator.shared is not true"
+          errorPattern: "clusterScoped is false but neither global.clickhouse.external nor global.clickhouseOperator.shared is true"
 
   - it: fails the restricted-namespace profile with a cluster-wide collector
     set:

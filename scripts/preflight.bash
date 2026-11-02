@@ -7,6 +7,9 @@
 # the Secrets the environment does not create, a StorageClass for ClickHouse, Istio's API when global.mesh is
 # istio, the Vault injector when vault.enabled is true, and, with global.clickhouseOperator.shared, the
 # platform's ClickHouse operator: its CRD, the right to create an installation, and a Ready operator pod.
+# With global.clickhouse.external it checks the service contract instead (README: The ClickHouse service
+# contract): the CA bundle's ConfigMap and key, and each credential Secret an enabled app reads. It never reads a
+# Secret's data, only whether the Secret exists.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -42,9 +45,11 @@ app_value() {
 # With global.clickhouseOperator.shared a platform team runs the ClickHouse operator, and the app-of-apps
 # renders no clickhouse-operator application.
 operator_shared="$(yq '.global.clickhouseOperator.shared // false' "$values")"
+# With global.clickhouse.external a service owner runs ClickHouse: no operator, no installation, no volume.
+clickhouse_external="$(yq '.global.clickhouse.external // false' "$values")"
 
 app_enabled() {
-  [[ "$1" == clickhouse-operator && "$operator_shared" == true ]] && return 1
+  [[ "$1" == clickhouse-operator && ("$operator_shared" == true || "$clickhouse_external" == true) ]] && return 1
   [[ "$(yq ".applications.\"$1\".enabled" "$values")" != false ]]
 }
 
@@ -132,7 +137,7 @@ if app_enabled clickhouse-operator &&
   [[ "$(yq '.applications.clickhouse-operator.values.secrets.credentials.create' "$values")" != true ]]; then
   require_declared_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
 fi
-if app_enabled clickhouse; then
+if app_enabled clickhouse && [[ "$clickhouse_external" != true ]]; then
   for user in admin:"clickhouse schema Job" writer:otel-collector reader:cerberus analyst:"notebooks and jobs"; do
     if [[ "$(yq ".applications.clickhouse.values.secrets.${user%%:*}.create" "$values")" != true ]]; then
       require_declared_secret "$default_namespace" "clickhouse-${user%%:*}" "clickhouse, ${user#*:}"
@@ -140,7 +145,7 @@ if app_enabled clickhouse; then
   done
 fi
 # garmr's ClickHouse user exists unless the environment turns clickhouse.garmr off.
-if app_enabled clickhouse && [[ "$(yq '.applications.clickhouse.values.clickhouse.garmr.enabled' "$values")" != false ]] &&
+if app_enabled clickhouse && [[ "$clickhouse_external" != true ]] && [[ "$(yq '.applications.clickhouse.values.clickhouse.garmr.enabled' "$values")" != false ]] &&
   [[ "$(yq '.applications.clickhouse.values.secrets.garmr.create' "$values")" != true ]]; then
   require_declared_secret "$default_namespace" clickhouse-garmr "clickhouse, garmr serve"
 fi
@@ -161,11 +166,32 @@ if app_enabled otel-collector &&
   require_secret "$default_namespace" otel-collector-auth "otel-collector OTLP bearer token"
 fi
 
+# An external ClickHouse: the service owner issues each identity, so every Secret an enabled app reads has to exist
+# before the first sync, and the platform's CA bundle has to be in the namespace. Only existence is checked.
+if [[ "$clickhouse_external" == true ]]; then
+  contract="global.clickhouse.external is true (README: The ClickHouse service contract)"
+  app_enabled clickhouse && require_declared_secret "$default_namespace" clickhouse-admin "$contract: the schema Job's migration identity, otel_admin; or set applications.clickhouse.enabled: false if the service owner applies the schema"
+  app_enabled otel-collector && require_declared_secret "$default_namespace" clickhouse-writer "$contract: otel-collector, otel_writer"
+  if app_enabled cerberus || app_enabled garmr-sql-adapter; then
+    require_declared_secret "$default_namespace" clickhouse-reader "$contract: cerberus and garmr sql-adapter, otel_reader"
+  fi
+  app_enabled garmr && require_declared_secret "$default_namespace" clickhouse-garmr "$contract: garmr serve, otel_garmr"
+  ca_configmap="$(yq '.global.clickhouse.tls.caConfigMap // ""' "$values")"
+  ca_key="$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$values")"
+  if [[ -z "$ca_configmap" || -z "$(yq '.global.clickhouse.tls.serverName // ""' "$values")" ]]; then
+    fail "$contract, so global.clickhouse.tls.serverName and global.clickhouse.tls.caConfigMap are required"
+  elif ! ca_json="$(kubectl -n "$default_namespace" get configmap "$ca_configmap" -o json 2>/dev/null)"; then
+    fail "ConfigMap $ca_configmap (global.clickhouse.tls.caConfigMap) is missing in namespace $default_namespace: ask the platform team for the CA bundle that signed the ClickHouse service's certificate"
+  elif [[ "$(yq -p json ".data.\"$ca_key\" // \"\"" <<<"$ca_json")" != *"BEGIN CERTIFICATE"* ]]; then
+    fail "ConfigMap $ca_configmap has no PEM certificate under key $ca_key (global.clickhouse.tls.caKey)"
+  fi
+fi
+
 # A shared operator is not installed by this stack, so it has to be there already: the API serves the
 # ClickHouseInstallation kind (checked through discovery, which needs no cluster-wide read of CRDs), this context
 # may create one in the stack's namespace, and an operator pod is Ready. A tenant that may not list pods in the
 # operator's namespace gets a warning instead: whether it watches the stack's namespace is for the platform team.
-if [[ "$operator_shared" == true ]] && app_enabled clickhouse; then
+if [[ "$operator_shared" == true && "$clickhouse_external" != true ]] && app_enabled clickhouse; then
   shared_hint="global.clickhouseOperator.shared is true, so the stack does not install the Altinity ClickHouse operator"
   if ! kubectl get --raw /apis/clickhouse.altinity.com/v1 2>/dev/null |
     yq -p json -e '.resources[] | select(.name == "clickhouseinstallations")' >/dev/null 2>&1; then
@@ -183,8 +209,8 @@ if [[ "$operator_shared" == true ]] && app_enabled clickhouse; then
 fi
 
 # An empty storageClassName means the cluster's default StorageClass, so one has to exist. StorageClasses are
-# cluster-scoped, so a tenant that may not read them gets a warning instead.
-if app_enabled clickhouse; then
+# cluster-scoped, so a tenant that may not read them gets a warning instead. An external ClickHouse needs none.
+if app_enabled clickhouse && [[ "$clickhouse_external" != true ]]; then
   storage_class="$(app_value clickhouse .clickhouse.storageClassName)"
   if [[ -z "$storage_class" ]]; then
     storage_class="$(yq '.clickhouse.storageClassName // ""' cluster-nodes/clickhouse/values.yaml)"

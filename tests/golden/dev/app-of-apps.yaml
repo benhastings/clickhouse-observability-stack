@@ -24,7 +24,8 @@ spec:
       namespace: observability
   # The cluster-scoped kinds the nodes render: namespaces from CreateNamespace, the operator's CRDs from
   # its crds/ directory, and the operator's and the collector's ClusterRole and ClusterRoleBinding. With a
-  # shared operator (global.clickhouseOperator.shared) nothing may install a CRD.
+  # shared operator (global.clickhouseOperator.shared) or an external ClickHouse (global.clickhouse.external)
+  # nothing may install a CRD.
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace

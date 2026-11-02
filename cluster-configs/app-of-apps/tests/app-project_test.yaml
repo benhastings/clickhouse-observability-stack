@@ -104,6 +104,21 @@ tests:
             - server: https://kubernetes.default.svc
               namespace: observability
 
+  - it: allows no CRD when ClickHouse is an external service
+    template: templates/app-project.yaml
+    set:
+      global.clickhouse.external: true
+    asserts:
+      - equal:
+          path: spec.clusterResourceWhitelist
+          value:
+            - group: ""
+              kind: Namespace
+            - group: rbac.authorization.k8s.io
+              kind: ClusterRole
+            - group: rbac.authorization.k8s.io
+              kind: ClusterRoleBinding
+
   - it: allows no cluster-scoped kind at all in the restricted-namespace profile
     template: templates/app-project.yaml
     set:

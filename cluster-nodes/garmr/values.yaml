@@ -17,6 +17,13 @@ configMaps:
     data:
       CLICKHOUSE_ADDR: '{{ include "common.serviceAddress" (list $ "clickhouse") }}'
       CLICKHOUSE_USER: otel_garmr
+      # An external ClickHouse (global.clickhouse.external) over TLS, verified against the platform's CA bundle and
+      # the certificate's name; empty leaves TLS off. garmr reads these from the release that adds ClickHouse TLS
+      # (benhastings/garmr), so against an external ClickHouse an older image fails to connect rather than falling
+      # back to plaintext.
+      CLICKHOUSE_TLS_ENABLED: '{{ if include "common.clickhouseExternal" . }}true{{ else }}false{{ end }}'
+      CLICKHOUSE_TLS_CA_FILE: '{{ if include "common.clickhouseExternal" . }}{{ include "common.clickhouseCA" . }}{{ end }}'
+      CLICKHOUSE_TLS_SERVER_NAME: '{{ if include "common.clickhouseExternal" . }}{{ .Values.global.clickhouse.tls.serverName }}{{ end }}'
       GARMR_DATABASE: garmr
       GARMR_ALERTMANAGER_URL: '{{ include "common.serviceAddress" (list $ "alertmanager") }}'
       # A link to a trace for the failing-trace enrichment, {trace_id} replaced; an environment sets it to its
@@ -50,7 +57,7 @@ deployment:
       image:
         repository: ghcr.io/benhastings/garmr
         # The tag and the digest it was published with, so a re-pushed tag can't change what runs.
-        tag: "v0.2.0@sha256:63e526abd9c5761ec5c076b31c3a437ef95f9dca7869c5844c67ed04812a5454"
+        tag: "v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
       args:
         - serve
       ports:
@@ -64,6 +71,8 @@ deployment:
           key: password
           vault:
             env: CLICKHOUSE_PASSWORD_FILE
+      # The external ClickHouse's CA bundle, at CLICKHOUSE_TLS_CA_FILE (global.clickhouse.external only).
+      clickhouseCA: true
       envFrom:
         - configMapRef:
             name: '{{ include "common.fullname" . }}-env'
@@ -122,13 +131,7 @@ networkPolicy:
         - port: 8080
           protocol: TCP
   egress: |-
-    - to:
-        - podSelector:
-            matchLabels:
-              clickhouse.altinity.com/chi: otel
-      ports:
-        - port: 9000
-          protocol: TCP
+    {{- include "common.clickhouseEgress" (list . (list 9000)) }}
     - to:
         - podSelector:
             matchLabels:

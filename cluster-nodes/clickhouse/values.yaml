@@ -186,8 +186,10 @@ clickhouse:
 # lowMemory and storageClassName need to. The leading "---" keeps this string unquoted through
 # toYaml, so common's tpl renders it as YAML. To set something the clickhouse keys don't cover, set
 # objects.installation to a whole ClickHouseInstallation map; it replaces the rendered one.
+# With global.clickhouse.external a service owner runs ClickHouse, so there is no Installation: this node renders
+# only the schema Job and its ConfigMap, which apply files/schema.sql.tpl to the external server over TLS.
 objects:
-  installation: '--{{ "-" }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}'
+  installation: '--{{ "-" }}{{ if not (include "common.clickhouseExternal" .) }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}{{ end }}'
   schema: '--{{ "-" }}{{ tpl (.Files.Get "files/schema-job.yaml.tpl") . }}'
 
 # The SQL the schema Job applies, rendered with the TTLs.
@@ -201,11 +203,18 @@ configMaps:
 # operator reaches them from its namespace (global.networkPolicy.namespaces.operator, its pods selected by
 # global.clickhouseOperator.podLabels, which a shared operator may label differently), the collector scrapes the
 # Prometheus port, and replicas reach each other on the interserver port.
+# With global.clickhouse.external there are no ClickHouse pods here, so the policy covers the schema Job instead:
+# no ingress, and egress only to the external ClickHouse.
 networkPolicy:
-  podSelector:
+  podSelector: |-
     matchLabels:
+      {{- if include "common.clickhouseExternal" . }}
+      app.kubernetes.io/name: clickhouse-schema
+      {{- else }}
       clickhouse.altinity.com/chi: otel
+      {{- end }}
   ingress: |-
+    {{- if not (include "common.clickhouseExternal" .) }}
     - from:
         - podSelector:
             matchExpressions:
@@ -243,7 +252,11 @@ networkPolicy:
       ports:
         - port: 9009
           protocol: TCP
+    {{- end }}
   egress: |-
+    {{- if include "common.clickhouseExternal" . }}
+    {{- include "common.clickhouseEgress" (list . list) }}
+    {{- else }}
     - to:
         - podSelector:
             matchLabels:
@@ -258,4 +271,5 @@ networkPolicy:
     - ports:
         - port: 443
           protocol: TCP
+    {{- end }}
     {{- end }}

@@ -104,6 +104,8 @@ deployment:
         repository: example/sidecar
         tag: "0.1.0"
         pullPolicy: Always
+      # Mounts the external ClickHouse's CA bundle, with global.clickhouse.external only.
+      clickhouseCA: true
   volumes:
     # A string is templated and used as the whole volume source.
     gated: |-

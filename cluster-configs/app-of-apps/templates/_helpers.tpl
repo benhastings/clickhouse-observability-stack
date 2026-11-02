@@ -6,18 +6,19 @@
 {{/*
 "true" when the application renders, empty when it does not: (list $ name app). An application is off with
 enabled: false, and the clickhouse-operator application is also off when global.clickhouseOperator.shared says
-a platform team already runs the operator; setting it enabled: true as well fails the render, since the two
-operators would fight over the same installations.
+a platform team already runs the operator, or global.clickhouse.external that a service owner runs ClickHouse
+itself; setting it enabled: true as well fails the render.
 */}}
 {{- define "app-of-apps.enabled" -}}
 {{- $root := index . 0 -}}
 {{- $name := index . 1 -}}
 {{- $app := index . 2 -}}
 {{- $shared := dig "clickhouseOperator" "shared" false (default dict $root.Values.global) -}}
+{{- $external := dig "clickhouse" "external" false (default dict $root.Values.global) -}}
 {{- if and $app (ne $app.enabled false) -}}
-{{- if and (eq $name "clickhouse-operator") $shared -}}
+{{- if and (eq $name "clickhouse-operator") (or $shared $external) -}}
 {{- if eq $app.enabled true -}}
-{{- fail "applications.clickhouse-operator.enabled is true but global.clickhouseOperator.shared is true: a platform team already runs the operator, so remove enabled: true" -}}
+{{- fail (printf "applications.clickhouse-operator.enabled is true but %s: no operator of the stack's own may run, so remove enabled: true" (ternary "global.clickhouse.external is true" "global.clickhouseOperator.shared is true" $external)) -}}
 {{- end -}}
 {{- else -}}
 true
@@ -28,15 +29,16 @@ true
 {{/*
 "true" when the stack may create cluster-scoped objects (clusterScoped, true by default), empty for the
 restricted-namespace profile. That profile works only when nothing in it needs a cluster-scoped object, so the
-render fails unless a platform team runs the ClickHouse operator (global.clickhouseOperator.shared) and every
-enabled collector, the otel-collector node under any name, sets rbac.scope: namespace.
+render fails unless ClickHouse is external (global.clickhouse.external) or a platform team runs the ClickHouse
+operator (global.clickhouseOperator.shared), and every enabled collector, the otel-collector node under any
+name, sets rbac.scope: namespace.
 */}}
 {{- define "app-of-apps.clusterScoped" -}}
 {{- if ne .Values.clusterScoped false -}}
 true
 {{- else -}}
-{{- if not (dig "clickhouseOperator" "shared" false (default dict .Values.global)) -}}
-{{- fail "clusterScoped is false but global.clickhouseOperator.shared is not true: the stack's own operator needs CRDs, a ClusterRole and a ClusterRoleBinding, so set global.clickhouseOperator.shared: true and use the platform's" -}}
+{{- if not (or (dig "clickhouse" "external" false (default dict .Values.global)) (dig "clickhouseOperator" "shared" false (default dict .Values.global))) -}}
+{{- fail "clusterScoped is false but neither global.clickhouse.external nor global.clickhouseOperator.shared is true: the stack's own operator needs CRDs, a ClusterRole and a ClusterRoleBinding, so consume an external ClickHouse or use the platform's operator" -}}
 {{- end -}}
 {{- range $name, $app := .Values.applications -}}
 {{- if and (include "app-of-apps.enabled" (list $ $name $app)) (or (eq $name "otel-collector") (eq (toString $app.path) "cluster-nodes/otel-collector")) -}}

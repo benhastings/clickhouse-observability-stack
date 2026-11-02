@@ -1,4 +1,7 @@
 {{- $b := .Values.clickhouse.backup }}
+{{- if include "common.clickhouseExternal" . }}
+{{- fail "clickhouse.backup is on but global.clickhouse.external is true: backups of an external ClickHouse are the service owner's" }}
+{{- end }}
 {{- if not $b.enabled }}
 {{- fail "objects.backup is set but clickhouse.backup.enabled is false; set both or neither" }}
 {{- end }}

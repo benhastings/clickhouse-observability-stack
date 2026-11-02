@@ -85,6 +85,7 @@
     "mutatingwebhookconfigurations",
     "nindent",
     "nofile",
+    "paas",
     "percentencode",
     "percentunit",
     "pipefail",

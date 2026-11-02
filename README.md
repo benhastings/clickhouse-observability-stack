@@ -40,8 +40,8 @@ flowchart LR
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) and Kubernetes events from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
-| `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.1.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
-| `garmr` | `ghcr.io/benhastings/garmr:v0.2.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
+| `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
+| `garmr` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
 | `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
 | `demo-load` | `ghcr.io/benhastings/correlated-telemetrygen:v0.2.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen) (the benhastings fork, which adds scheduled incidents): a browser front end, a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. Every hour, starting 15 minutes in, payments fails 90% of charges for 10 minutes. |
 
@@ -256,6 +256,10 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
   [Service mesh](#service-mesh-istio-or-plain-kubernetes).
 - **Cluster-scoped objects.** By default the stack creates its namespaces, the operator's CRDs and two
   ClusterRoles. In a namespace that allows none of that, use [a restricted namespace](#a-restricted-namespace).
+- **ClickHouse.** By default the stack runs its own. On a platform that offers ClickHouse as a service, consume
+  that one instead: see [an external ClickHouse](#an-external-clickhouse) for the identities and the CA bundle the
+  service owner provides. Those Secrets are then the service owner's, and `clickhouse-operator-credentials` is not
+  needed.
 - **Preflight.** `make cluster/preflight ENV=<env>` checks the context for all of it and installs nothing. The
   Argo CD and Helm paths run it first and stop on a failure.
 
@@ -432,6 +436,127 @@ golden render, or any environment with `clusterScoped: false`, contains a kind n
 cluster-scoped one), a Gateway, `CreateNamespace=true` or `managedNamespaceMetadata`, an AppProject that allows a
 cluster-scoped kind, an object or RoleBinding subject outside its Application's namespace, or a
 `<service>.<namespace>.svc` address in another namespace.
+
+### An external ClickHouse
+
+On a platform that runs ClickHouse as a service, the stack is a tenant: it consumes the service's ClickHouse and
+runs no ClickHouse of its own, so it needs no operator, no CRD, no ClickHouseInstallation and no volume. The
+`paas` environment ([`values-paas.yaml`](cluster-configs/overrides/values-paas.yaml)) is the supported profile for
+that: [a restricted namespace](#a-restricted-namespace) with an external ClickHouse in place of the shared operator.
+Copy it for a site of your own (`make env/new NAME=<env>`, then its keys):
+
+```yaml
+clusterScoped: false
+global:
+  clickhouse:
+    external: true
+    networkPolicyPeers: []                 # optional: the NetworkPolicy peers the endpoint resolves to
+    tls:
+      serverName: clickhouse.paas.example  # the name the server's certificate carries
+      caConfigMap: platform-ca-bundle      # the platform's CA bundle, in this namespace
+      caKey: ca.crt
+  services:
+    clickhouse: clickhouse.paas.example:9440
+applications:
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+```
+
+With `external: true`:
+
+- The app-of-apps renders no `clickhouse-operator` Application, and the AppProject allows no CRD. Setting
+  `applications.clickhouse-operator.enabled: true` as well fails the render.
+- The `clickhouse` application renders only its schema Job and the ConfigMap with its SQL (see
+  [Who applies the schema](#who-applies-the-schema)). `clickhouse.backup` fails the render, because backups are
+  the service owner's.
+- The collector, Cerberus, garmr sql-adapter, garmr and the schema Job all dial `global.services.clickhouse`. Each
+  connects over TLS and verifies the server's certificate against `tls.serverName` and the bundle in
+  `tls.caConfigMap`. The render fails without either of them. There is no setting that skips verification, and
+  no client presents a certificate of its own.
+- NetworkPolicies allow that address's port, to `networkPolicyPeers` or, when it is empty, to any destination.
+  They no longer allow the operator's pods. The collector no longer scrapes ClickHouse.
+- `make helm/install` installs no operator, and `make cluster/preflight` checks the service contract below
+  instead of a StorageClass and an operator.
+
+`make check/restricted` holds `paas` to everything [a restricted namespace](#a-restricted-namespace) is held to.
+For an external ClickHouse it also fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
+anything that still selects the operator's pods (`clickhouse.altinity.com/chi`).
+
+#### The ClickHouse service contract
+
+The tenant supplies connection references and application configuration. Everything else is the service owner's.
+
+**What the service owner provides:**
+
+| What | Where the stack reads it | Notes |
+| --- | --- | --- |
+| A native-protocol TLS endpoint, `host:port` | `global.services.clickhouse` | Usually port `9440`. Plaintext is not supported. |
+| The certificate's name | `global.clickhouse.tls.serverName` | Every client checks it against the certificate, and sends it as SNI. |
+| The CA bundle that signed the certificate | a ConfigMap in the stack's namespace, named by `global.clickhouse.tls.caConfigMap`, key `caKey` | The platform puts it there. A CA certificate is public, so a ConfigMap is enough. The tenant never creates or holds a certificate. |
+| Network reach from the namespace to the endpoint | `global.clickhouse.networkPolicyPeers`, optional | Under Istio with `outboundTrafficPolicy: REGISTRY_ONLY`, the platform also needs a ServiceEntry for the host. The stack's own NetworkPolicies only allow the traffic. |
+| ClickHouse `26.9` | | The version the schema and every client are tested against. |
+| An embedded or external Keeper, with `keeper_map_path_prefix` set | | For garmr's KeeperMap table. |
+| Retention, backup and restore, upgrades, capacity, and incident response for the server | | The tenant's TTLs (`clickhouse.schema.ttlDays`) apply only to its own tables. |
+
+**One identity per workload.** The service owner creates each user with these grants and gives the tenant its
+password as a Secret in the stack's namespace, key `password`. The usernames are fixed: the clients and the schema
+name them.
+
+| Secret | User | Grants | Read by |
+| --- | --- | --- | --- |
+| `clickhouse-writer` | `otel_writer` | `INSERT ON otel.*` | the collector |
+| `clickhouse-reader` | `otel_reader` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_slo.*`, `system.view_refreshes`, `system.disks` | Cerberus, garmr sql-adapter |
+| `clickhouse-garmr` | `otel_garmr` | `SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*`, `SELECT ON otel.*`, `otel_features.*`, `otel_baseline.*` | garmr serve |
+| `clickhouse-analyst` | `otel_analyst` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*`, `INSERT ON otel_ml.*`, under limits of the service owner's choosing | notebooks and jobs, not a workload |
+| `clickhouse-admin` | `otel_admin` | only if the service owner delegates migrations: create and alter tables, views and databases in `otel`, `otel_features`, `otel_ml`, `otel_baseline`, `otel_slo` and `garmr`, and be the definer of their views | the schema Job |
+
+`files/installation.yaml.tpl` in the `clickhouse` node is the reference for these grants: it is what the
+in-cluster ClickHouse creates. The database names are fixed too. Ask for them on a ClickHouse service the tenant
+does not share, or one where the tenant owns those six databases.
+
+#### Who applies the schema
+
+By default the schema Job applies `files/schema.sql.tpl` to the service as `otel_admin`, over the same verified
+TLS, whenever the rendered SQL changes. That requires the service owner to delegate the migration identity
+above. Every statement is idempotent, so the Job can run again at any time.
+
+When the service owner applies the schema instead, set `applications.clickhouse.enabled: false`. The Job and its
+ConfigMap are then not rendered, and preflight stops asking for `clickhouse-admin`. Hand the service owner the
+SQL from `make render ENV=<env>` (the `clickhouse-schema` ConfigMap in `dist/manifests/<env>/`) for every change
+to it. Nothing in the stack creates a table: the collector (`create_schema: false`) and Cerberus
+(`CERBERUS_AUTO_CREATE_SCHEMA: "false"`) never do.
+
+#### Preflight
+
+`make cluster/preflight ENV=<env>` checks the contract from the tenant's side and reads no Secret's data:
+
+- the CA ConfigMap exists, with a PEM certificate under `caKey`;
+- `clickhouse-writer`, `clickhouse-reader` and `clickhouse-garmr` exist when the apps that read them are enabled;
+- `clickhouse-admin` exists when the schema Job is enabled.
+
+It does not connect to ClickHouse: the machine running it may not be able to reach the endpoint.
+
+#### What a tenant gives up
+
+- **The collector sees only its namespace,** as in [a restricted namespace](#a-restricted-namespace): no
+  `kubeletstats`, no node metrics, and Kubernetes state and events for this namespace only. The table under
+  [Collector RBAC](#collector-rbac-cluster-wide-or-one-namespace) lists each signal. Node and kubelet metrics
+  reach the stack only if the platform sends them in over OTLP.
+- **ClickHouse's own metrics are the service owner's.** The collector scrapes no external server, so the Stack
+  health dashboard's ClickHouse panels are empty, and vmalert's `ClickHouseInsertsFailing`,
+  `ClickHouseMemoryLimitRejects` and `ClickHouseTooManyParts` never fire. The collector's export failures
+  (`CollectorExportFailing`) still show a ClickHouse the tenant can't write to.
+- **No backups or restores** from the stack. Ask the service owner.
+
+#### garmr and TLS
+
+garmr serve and garmr sql-adapter read `CLICKHOUSE_TLS_ENABLED`, `CLICKHOUSE_TLS_CA_FILE` and
+`CLICKHOUSE_TLS_SERVER_NAME`, which the stack sets as for the other clients, from garmr `v0.3.0`
+([benhastings/garmr#8](https://github.com/benhastings/garmr/pull/8)). Don't pin either node to an older release
+in `paas`: those ignore the variables and dial in plaintext, and the native protocol's Hello carries the password,
+so it crosses the wire before the connection fails.
 
 ## Design decisions
 
@@ -1220,7 +1345,8 @@ of the container alone. `helm-templates/common/README.md` documents every key.
 larger resources, Secrets you create yourself (`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`
 and `clickhouse-operator-credentials`), and Grafana signing in through OAuth with its secrets in Vault (see
 [Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)). `restricted` is the profile for a tenant
-namespace with nothing cluster-scoped (see [A restricted namespace](#a-restricted-namespace)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+namespace with nothing cluster-scoped (see [A restricted namespace](#a-restricted-namespace)), and `paas` the same
+profile consuming a platform's ClickHouse service (see [An external ClickHouse](#an-external-clickhouse)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. Every application starts from its node defaults; add only what differs.
 
@@ -1360,7 +1486,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 |---|---|---|
 | helm-unittest | a template or value that renders the wrong object; the contracts between apps (Secret names, Service ports, schema ownership) | `make test`, offline |
 | Golden renders | any change to what lands in a cluster, per environment, shown as a diff in the PR | `make check`, offline |
-| kubeconform + policy | invalid objects, missing memory limits, unpinned images; anything cluster-scoped or in another namespace in the `restricted` profile | `make check`, pinned schemas |
+| kubeconform + policy | invalid objects, missing memory limits, unpinned images; anything cluster-scoped or in another namespace in the `restricted` and `paas` profiles, and a ClickHouseInstallation or operator in `paas` | `make check`, pinned schemas |
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
 | kind e2e, restricted | the `restricted` profile deployed against a shared operator and Gateway: nothing cluster-scoped, a trace, log and metric through to Grafana, no Secret value in logs | CI on PRs labelled `restricted`, or `make test/e2e ENV=restricted` |
 
@@ -1391,6 +1517,19 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
 - **Grafana is slow to become Ready, or Drilldown pages are empty:** Grafana installs the three Drilldown apps from grafana.com, in the background, when it starts; other default plugins are switched off in `grafana.ini` (`disable_plugins`). If grafana.com is unreachable, Grafana still starts, without Drilldown; check `kubectl -n observability logs deploy/grafana | grep -i plugin`. In `local` only (`values-local.yaml`), the plugins are kept on a `grafana-plugins` volume so they download once, Grafana's database lives in memory so its startup migrations don't crawl on a laptop disk, and a startup probe allows a slow start up to 10 minutes. Other environments keep plugins and the database in emptyDirs, so each restart downloads the plugins again.
 - **Cerberus stays `0/1 Ready`, or the `clickhouse` app stays Progressing:** Cerberus reports not-ready until the tables exist, and the schema Job creates them. Check `kubectl -n observability logs job -l app.kubernetes.io/name=clickhouse-schema` and `kubectl -n observability logs deploy/cerberus`.
 - **The collector logs `ACCESS_DENIED` or `Not enough privileges`:** it inserts as `otel_writer`, which has only `INSERT` on `otel.*`. A table outside `otel`, or an exporter setting that reads before writing, needs a grant in `cluster-nodes/clickhouse/files/installation.yaml.tpl`.
+- **An external ClickHouse refuses the stack (`paas`, or `global.clickhouse.external`):** these are service-contract questions for the service owner, not cluster administration. See [the ClickHouse service contract](#the-clickhouse-service-contract).
+  - Run `make cluster/preflight ENV=<env>` first. It names a missing Secret or CA ConfigMap.
+  - Then check which client fails and what it logs:
+    ```bash
+    kubectl -n observability logs job -l app.kubernetes.io/name=clickhouse-schema
+    kubectl -n observability logs deploy/otel-collector | grep -i clickhouse
+    kubectl -n observability logs deploy/cerberus
+    ```
+  - A timeout or `connection refused` is network reach: the platform's egress, `networkPolicyPeers`, or a ServiceEntry under Istio's `REGISTRY_ONLY`.
+  - A certificate error (`unknown authority`, `certificate is valid for ...`) means the CA bundle in `tls.caConfigMap` or the name in `tls.serverName` doesn't match what the service presents. Ask the platform for the right ones. Skipping verification is not an option.
+  - `AUTHENTICATION_FAILED` is a password that doesn't match the user the service owner created.
+  - `ACCESS_DENIED` or `Not enough privileges` is a grant the contract lists but the service owner hasn't given.
+  - garmr failing to connect while the others work is an image older than `v0.3.0`: see [garmr and TLS](#garmr-and-tls).
 - **A Loki API call returns `missing or invalid 'end' parameter`:** Cerberus requires both `start` and `end` on `query_range`. Grafana always sends both; this only affects hand-written curl calls.
 - **Querying ClickHouse directly:**
   ```bash
@@ -1515,7 +1654,8 @@ on the target cluster after the first sync, in this order:
 - **A namespace without cluster-scoped RBAC:** set `rbac.scope: namespace` on the `otel-collector` app. The
   collector then gets only a Role, watches only its own namespace and drops `kubeletstats`; see **Collector RBAC:
   cluster-wide or one namespace** for what that loses. For a namespace with nothing cluster-scoped at all, start
-  from the `restricted` environment (**A restricted namespace**).
+  from the `restricted` environment (**A restricted namespace**), or from `paas` (**An external ClickHouse**) where
+  the platform offers ClickHouse as a service.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
 - **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default; `values-prod.yaml` keeps traces 21 days, logs 14 and metrics 30). Set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus to the metrics retention when it exceeds 14 days, as `prod` does.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.

@@ -93,6 +93,9 @@ tests:
           value:
             CLICKHOUSE_ADDR: clickhouse:9000
             CLICKHOUSE_USER: otel_garmr
+            CLICKHOUSE_TLS_ENABLED: "false"
+            CLICKHOUSE_TLS_CA_FILE: ""
+            CLICKHOUSE_TLS_SERVER_NAME: ""
             GARMR_DATABASE: garmr
             GARMR_ALERTMANAGER_URL: http://alertmanager:9093
             GARMR_TRACE_URL: ""
@@ -156,3 +159,52 @@ tests:
             ports:
               - port: 9093
                 protocol: TCP
+
+  - it: reaches an external ClickHouse over TLS, verified against the platform's CA bundle and the server name
+    set:
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.paas.example
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.services.clickhouse: clickhouse.paas.example:9440
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+    asserts:
+      - equal:
+          path: data.CLICKHOUSE_TLS_ENABLED
+          value: "true"
+        template: templates/configmap.yaml
+      - equal:
+          path: data.CLICKHOUSE_TLS_CA_FILE
+          value: /etc/clickhouse-ca/ca.crt
+        template: templates/configmap.yaml
+      - equal:
+          path: data.CLICKHOUSE_TLS_SERVER_NAME
+          value: clickhouse.paas.example
+        template: templates/configmap.yaml
+      - notExists:
+          path: data.CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY
+        template: templates/configmap.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: clickhouse-ca
+            mountPath: /etc/clickhouse-ca
+            readOnly: true
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 9440
+                protocol: TCP
+        template: templates/networkpolicy.yaml
+
+  - it: leaves TLS off for the in-cluster ClickHouse
+    template: templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.CLICKHOUSE_TLS_ENABLED
+          value: "false"
+      - equal:
+          path: data.CLICKHOUSE_TLS_CA_FILE
+          value: ""

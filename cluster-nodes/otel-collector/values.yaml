@@ -142,7 +142,13 @@ configMaps:
           clickhouse:
             create_schema: false
             database: otel
-            endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s
+            endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s{{ if include "common.clickhouseExternal" . }}&secure=true{{ end }}
+            {{- if include "common.clickhouseExternal" . }}
+            # An external ClickHouse over TLS, verified against the platform's CA bundle and the certificate's name.
+            tls:
+              ca_file: {{ include "common.clickhouseCA" . }}
+              server_name_override: {{ .Values.global.clickhouse.tls.serverName }}
+            {{- end }}
             password: {{ if include "common.vaultEnabled" . }}${file:{{ include "common.secretFile" (list . "otel-collector" "CLICKHOUSE_PASSWORD") }}}{{ else }}${env:CLICKHOUSE_PASSWORD}{{ end }}
             retry_on_failure:
               enabled: true
@@ -306,6 +312,7 @@ configMaps:
                     - source_labels: [__name__]
                       regex: otelcol_(receiver_(accepted|refused|failed)_.*|exporter_(sent|send_failed|enqueue_failed)_.*|exporter_queue_(size|capacity)|processor_memory_limiter_refused_.*|process_memory_rss|process_runtime_heap_alloc_bytes)
                       action: keep
+                {{- if not (include "common.clickhouseExternal" .) }}
                 - job_name: clickhouse
                   scrape_interval: 30s
                   kubernetes_sd_configs:
@@ -325,6 +332,7 @@ configMaps:
                     - source_labels: [__name__]
                       regex: ClickHouse(ProfileEvents_(InsertQuery|FailedInsertQuery|InsertedRows|InsertedBytes|SelectQuery|FailedSelectQuery)|Metrics_(MemoryTracking|Query|BackgroundMergesAndMutationsPoolTask)|AsyncMetrics_(MaxPartCountForPartition|MemoryResident|CGroupMemoryUsed|CGroupMemoryTotal)|ErrorMetric_(MEMORY_LIMIT_EXCEEDED|TOO_MANY_PARTS))
                       action: keep
+                {{- end }}
                 - job_name: cerberus
                   scrape_interval: 30s
                   static_configs:
@@ -575,6 +583,8 @@ deployment:
           memory: 64Mi
         limits:
           memory: 256Mi
+      # The external ClickHouse's CA bundle, for the exporter's tls.ca_file (global.clickhouse.external only).
+      clickhouseCA: true
       volumeMounts:
         - name: config
           mountPath: /conf
@@ -613,7 +623,12 @@ daemonset:
             clickhouse:
               create_schema: false
               database: otel
-              endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s
+              endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s{{ if include "common.clickhouseExternal" . }}&secure=true{{ end }}
+              {{- if include "common.clickhouseExternal" . }}
+              tls:
+                ca_file: {{ include "common.clickhouseCA" . }}
+                server_name_override: {{ .Values.global.clickhouse.tls.serverName }}
+              {{- end }}
               password: {{ if include "common.vaultEnabled" . }}${file:{{ include "common.secretFile" (list . "otel-collector" "CLICKHOUSE_PASSWORD") }}}{{ else }}${env:CLICKHOUSE_PASSWORD}{{ end }}
               retry_on_failure:
                 enabled: true
@@ -686,6 +701,7 @@ daemonset:
           memory: 32Mi
         limits:
           memory: 128Mi
+      clickhouseCA: true
 
 # With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may
 # send OTLP (which includes the ingress gateway or controller for exposed OTLP), and Alertmanager posts its
@@ -714,16 +730,10 @@ networkPolicy:
       ports:
         - port: 8088
           protocol: TCP
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              clickhouse.altinity.com/chi: otel
-      ports:
-        - port: 9000
-          protocol: TCP
-        - port: 9363
-          protocol: TCP
+  # ClickHouse's native and Prometheus ports on the operator's pods, or with global.clickhouse.external only the
+  # service owner's endpoint (the collector scrapes no external ClickHouse).
+  egress: |-
+    {{- include "common.clickhouseEgress" (list . (list 9000 9363)) }}
     - to:
         - podSelector:
             matchLabels:

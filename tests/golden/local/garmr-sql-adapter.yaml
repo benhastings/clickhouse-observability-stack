@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: local
 automountServiceAccountToken: false
 ---
@@ -27,11 +27,14 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: local
 data:
   CLICKHOUSE_ADDR: "clickhouse:9000"
   CLICKHOUSE_DATABASE: "otel"
+  CLICKHOUSE_TLS_CA_FILE: ""
+  CLICKHOUSE_TLS_ENABLED: "false"
+  CLICKHOUSE_TLS_SERVER_NAME: ""
   CLICKHOUSE_USER: "otel_reader"
   GARMR_LISTEN_ADDRESS: ":8080"
   GARMR_LOG_FORMAT: "json"
@@ -48,7 +51,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: local
 spec:
   type: ClusterIP
@@ -74,7 +77,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: garmr-sql-adapter-0.1.0
-    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/version: "0.3.0"
     environment: local
 spec:
   replicas: 1
@@ -90,7 +93,7 @@ spec:
         app.kubernetes.io/name: garmr-sql-adapter
         app.kubernetes.io/instance: garmr-sql-adapter
       annotations:
-        checksum/config: 6f6f8883277385c423e65cf91c2ad45aa74633ff5beac7f3bbe788617460b44b
+        checksum/config: 4f6c8c8cbe094a782bb6f506465ecda003bfc756d22d64798217389b64fb875b
     spec:
       serviceAccountName: garmr-sql-adapter
       automountServiceAccountToken: false
@@ -104,7 +107,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: garmr
-          image: "ghcr.io/benhastings/garmr:v0.1.0@sha256:e431bf6619f97f280a2e1cb606bf124da0287331de4f207752ef1099febe07b4"
+          image: "ghcr.io/benhastings/garmr:v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
           imagePullPolicy: IfNotPresent
           args:
             - sql-adapter

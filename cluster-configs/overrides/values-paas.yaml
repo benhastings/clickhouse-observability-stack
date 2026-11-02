@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../app-of-apps/values.schema.json
+# The PaaS tenant profile (README: An external ClickHouse): the stack in a tenant namespace on a platform that
+# runs ClickHouse as a service. It installs no operator, no CRD and no ClickHouseInstallation, and creates nothing
+# cluster-scoped: it consumes the service owner's ClickHouse over verified TLS, with credentials the service owner
+# issues. Copy this file (make env/new NAME=<env>, then these keys) for a site of your own; the endpoint, the
+# certificate name, the CA ConfigMap, the gateway and the host are placeholders.
+# make check/restricted holds this environment to the restricted-namespace policy, and also fails it on a
+# ClickHouseInstallation or a clickhouse-operator Application.
+environment: paas
+
+# The repository and revision Argo CD deploys from. They must match the bootstrap Application in
+# cluster-configs/app-of-apps/app-of-apps-paas.yaml (make check/structure enforces it).
+repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+targetRevision: main
+
+# The cluster the child Applications deploy into.
+destinationServer: https://kubernetes.default.svc
+
+# No CreateNamespace and no managedNamespaceMetadata on the child Applications, and an AppProject that allows no
+# cluster-scoped kind. The platform team creates the namespace beforehand and, with the istio mesh below, labels it
+# istio-injection: enabled.
+clusterScoped: false
+
+global:
+  labels:
+    environment: paas
+  # The service owner's ClickHouse (README: The ClickHouse service contract). Every client reaches it at
+  # services.clickhouse over TLS and verifies its certificate against tls.serverName and the CA bundle in the
+  # ConfigMap tls.caConfigMap, which the platform puts in this namespace. The users and their Secrets
+  # (clickhouse-writer, -reader, -analyst, -garmr and, for the schema Job, -admin) come from the service owner.
+  clickhouse:
+    external: true
+    # With global.networkPolicy.enabled, the peers services.clickhouse resolves to, such as
+    # [{ipBlock: {cidr: 10.20.0.0/24}}]; empty allows port 9440 to any destination.
+    networkPolicyPeers: []
+    tls:
+      serverName: clickhouse.paas.example
+      caConfigMap: platform-ca-bundle
+      caKey: ca.crt
+  services:
+    clickhouse: clickhouse.paas.example:9440
+  # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
+  # no Gateway is rendered. The Gateway, its TLS certificate and DNS for the host are the platform's.
+  mesh: istio
+  exposure:
+    enabled: true
+    hosts:
+      grafana: grafana.paas.example
+    gateway:
+      name: shared-gateway
+      namespace: istio-ingress
+
+applications:
+  # The schema Job applies the stack's tables to the service owner's ClickHouse as the migration identity in
+  # clickhouse-admin, which the service owner delegates. Where the service owner applies the schema itself, set
+  # enabled: false here and hand them the clickhouse-schema ConfigMap from make render ENV=paas (README: The ClickHouse service
+  # contract).
+  clickhouse:
+    values: {}
+
+  # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats or node metrics
+  # (README: Collector RBAC: cluster-wide or one namespace, for what that loses).
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+      exposure:
+        host: ""
+
+  demo-load:
+    enabled: false

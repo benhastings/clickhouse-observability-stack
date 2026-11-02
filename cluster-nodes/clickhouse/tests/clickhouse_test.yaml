@@ -844,3 +844,130 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: clickhouse.keeper.embedded runs one Keeper inside one server
+
+  - it: renders no ClickHouseInstallation for an external ClickHouse, only the schema Job and its SQL
+    set: &external
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.paas.example
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.services.clickhouse: clickhouse.paas.example:9440
+    templates:
+      - templates/objects.yaml
+      - templates/configmap.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/objects.yaml
+      - isKind:
+          of: Job
+        template: templates/objects.yaml
+      - hasDocuments:
+          count: 1
+        template: templates/configmap.yaml
+
+  - it: applies the schema to an external ClickHouse over TLS, verified against the platform's CA and the server name
+    set: *external
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_HOST
+            value: clickhouse.paas.example
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PORT
+            value: "9440"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_TLS_SERVER_NAME
+            value: clickhouse.paas.example
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CA_FILE
+            value: /etc/clickhouse-ca/ca.crt
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '--secure --tls-sni-override "\$CLICKHOUSE_TLS_SERVER_NAME"'
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: <verificationMode>strict</verificationMode>
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: <name>RejectCertificateHandler</name>
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: (?i)accept-invalid-certificate|AcceptCertificateHandler|verificationMode>none
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+            configMap:
+              name: platform-ca
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: clickhouse-ca
+            mountPath: /etc/clickhouse-ca
+            readOnly: true
+
+  - it: keeps the in-cluster schema Job plaintext, with no CA, when ClickHouse is not external
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: --secure
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+          any: true
+
+  - it: limits the schema Job's network to the external ClickHouse's port
+    set:
+      <<: *external
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              app.kubernetes.io/name: clickhouse-schema
+      - equal:
+          path: spec.ingress
+          value: []
+      - equal:
+          path: spec.egress[1]
+          value:
+            ports:
+              - port: 9440
+                protocol: TCP
+
+  - it: refuses backups of an external ClickHouse, which are the service owner's
+    set:
+      <<: *external
+      clickhouse.backup.enabled: true
+      clickhouse.backup.bucket: example-bucket
+      objects.backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+    template: templates/objects.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: backups of an external ClickHouse are the service owner's
+
+  - it: refuses an external ClickHouse without its CA bundle
+    set:
+      <<: *external
+      global.clickhouse.tls.caConfigMap: ""
+    template: templates/objects.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: global.clickhouse.tls.caConfigMap is empty
