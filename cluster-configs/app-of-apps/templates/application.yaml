@@ -1,6 +1,7 @@
 {{- $env := required "environment is required" .Values.environment -}}
 {{- $repoURL := required "repoURL is required" .Values.repoURL -}}
 {{- $clusterScoped := include "app-of-apps.clusterScoped" . -}}
+{{- $_ := include "app-of-apps.clickhouseSecrets" . -}}
 {{- range $name, $app := .Values.applications }}
 {{- if include "app-of-apps.enabled" (list $ $name $app) }}
 {{- $_ := required (printf "applications.%s.syncWave is required" $name) $app.syncWave }}

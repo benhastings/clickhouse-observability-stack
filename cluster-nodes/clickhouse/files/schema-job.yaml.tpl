@@ -1,3 +1,10 @@
+{{- /*
+The server (through the operator) and this Job read their users' passwords only from the clickhouse-<user> Secrets,
+so Vault cannot deliver them yet; a clickhouse on Vault would wait for Secrets nothing produces.
+*/}}
+{{- if include "common.vaultEnabled" . }}
+{{- fail (printf "%s: vault.enabled is true, but the ClickHouse server and the schema Job read their users' passwords only from the Kubernetes Secrets %s-<user>; set vault.enabled: false for it and its clients (cerberus, otel-collector, garmr, garmr-sql-adapter), and use pre-created Secrets or global.externalSecrets (README: Credentials)" (include "common.fullname" .) (include "common.fullname" .)) }}
+{{- end }}
 {{- $ch := .Values.clickhouse }}
 {{- $s := $ch.schema }}
 {{- $address := splitList ":" (include "common.serviceAddress" (list $ "clickhouse")) }}

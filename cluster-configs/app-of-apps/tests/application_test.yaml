@@ -461,3 +461,65 @@ tests:
     asserts:
       - hasDocuments:
           count: 7
+
+  - it: fails when a ClickHouse client reads Vault while ClickHouse reads Kubernetes Secrets, naming each
+    set:
+      applications.cerberus.values.vault.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "ClickHouse's credentials must come from one secret mechanism, but the applications that read them disagree (cerberus: vault, clickhouse: kubernetes, garmr: kubernetes, garmr-sql-adapter: kubernetes, otel-collector: kubernetes); set the same vault.enabled and global.externalSecrets.enabled for all of them (README: Credentials)"
+
+  - it: fails when global Vault is on but one ClickHouse client turns it off
+    set:
+      global.vault.enabled: true
+      applications.clickhouse.enabled: false
+      applications.garmr.values.vault.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: 'disagree \(cerberus: vault, garmr: kubernetes, garmr-sql-adapter: vault, otel-collector: vault\)'
+
+  - it: fails when External Secrets is on but a ClickHouse client reads Vault
+    set:
+      global.externalSecrets.enabled: true
+      applications.otel-collector.values.global.externalSecrets.enabled: false
+      applications.otel-collector.values.vault.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: 'otel-collector: vault\)'
+
+  - it: fails when one application has both Vault and External Secrets, naming it and both mechanisms
+    set:
+      global.externalSecrets.enabled: true
+      applications.garmr.values.vault.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "applications.garmr: vault.enabled and global.externalSecrets.enabled are both true, so its credentials would have two producers; choose one secret mechanism for the environment (README: Credentials)"
+
+  - it: checks a ClickHouse client added under another name with the same path
+    set:
+      applications.cerberus-b:
+        syncWave: 2
+        path: cluster-nodes/cerberus
+        values:
+          vault:
+            enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: 'cerberus-b: vault'
+
+  - it: accepts ClickHouse and its clients all on External Secrets, and Grafana alone on Vault
+    set:
+      global.externalSecrets.enabled: true
+      applications.grafana.values.vault.enabled: true
+      applications.grafana.values.global.externalSecrets.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 9
+
+  - it: ignores a disabled ClickHouse client
+    set:
+      applications.garmr.enabled: false
+      applications.garmr.values.vault.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 8
