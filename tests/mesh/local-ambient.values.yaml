@@ -14,6 +14,10 @@ global:
     hosts:
       grafana: grafana.127.0.0.1.sslip.io
       otlp: otlp.127.0.0.1.sslip.io
+    # Plain HTTP on 80, which e2e reaches the gateway on: no observability-tls credential exists on kind, and
+    # Grafana's root URL then starts with http://, as the OAuth redirect check expects.
+    tls:
+      credentialName: ""
 applications:
   otel-collector:
     values:

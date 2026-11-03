@@ -156,7 +156,7 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit test/credentials test/local-secrets ## Every offline test
+test: test/unit test/credentials test/kind-profiles ## Every offline test
 
 .PHONY: test/e2e
 test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted for the restricted namespace
@@ -173,9 +173,9 @@ test/credentials: ## Prove check-credentials.bash rejects the leaky fixture in t
 	  echo 'test/credentials: check-credentials.bash passed a render that leaks a password'; exit 1; \
 	else echo 'test/credentials: ok, the leaky fixture is rejected'; fi
 
-.PHONY: test/local-secrets
-test/local-secrets: deps ## Fail when the local environment, alone or with a tests/mesh profile, reads a Secret kind never creates
-	KUBE_VERSION=$(KUBE_VERSION) scripts/check-local-secrets.bash
+.PHONY: test/kind-profiles
+test/kind-profiles: deps ## Fail when the local environment, alone or with a tests/mesh profile, reads a Secret kind never creates or exposes over TLS
+	KUBE_VERSION=$(KUBE_VERSION) scripts/check-kind-profiles.bash
 
 .PHONY: test/unit
 # cspell:words NPROCESSORS ONLN
