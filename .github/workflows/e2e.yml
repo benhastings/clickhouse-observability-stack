@@ -1,8 +1,14 @@
+# The laptop profile on kind. Pull requests skip the demo load's injected incident and the alerts it drives
+# (E2E_INCIDENT=0), which wait on its schedule for about 25 minutes; pushes to main, the nightly run, a manual
+# run and pull requests labelled `slow` run it too.
 name: End to end
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
 defaults:
   run:
@@ -24,13 +30,24 @@ jobs:
         with:
           go-version: stable
           cache: false
+      - name: Cache tools
+        id: tools
+        uses: actions/cache@v6
+        with:
+          path: ~/go/bin
+          # The tool versions are pinned in the Makefile, so it is the key.
+          key: tools-cluster-${{ runner.os }}-${{ hashFiles('Makefile') }}
       - name: Install tools
+        if: steps.tools.outputs.cache-hit != 'true'
         run: |
           make setup/tools/go setup/tools/cluster
+      - name: Put the tools on PATH
+        run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Deploy this commit to kind and query the stack
         env:
           REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          E2E_INCIDENT: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'slow')) && '1' || '0' }}
         run: |
           make test/e2e REVISION="$REVISION"
       - name: Cluster state on failure

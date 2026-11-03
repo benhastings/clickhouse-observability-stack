@@ -174,8 +174,11 @@ test/credentials: ## Prove check-credentials.bash rejects the leaky fixture in t
 	else echo 'test/credentials: ok, the leaky fixture is rejected'; fi
 
 .PHONY: test/unit
-test/unit: deps ## helm-unittest suites for the common library and every cluster node
-	helm-unittest --strict $(sort $(UNIT_TEST_CHARTS))
+# cspell:words NPROCESSORS ONLN
+test/unit: deps ## helm-unittest suites for the common library and every cluster node, one chart per CPU at a time
+	@printf '%s\n' $(sort $(UNIT_TEST_CHARTS)) | \
+		xargs -P "$$(getconf _NPROCESSORS_ONLN)" -I{} sh -c 'out="$$(helm-unittest --strict "$$1" 2>&1)"; rc=$$?; printf "%s\n" "$$out"; exit $$rc' sh {} \
+		|| { echo "test/unit: a suite failed; its output is above"; exit 1; }
 
 ##@ Environments
 
