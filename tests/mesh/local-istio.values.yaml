@@ -28,3 +28,10 @@ applications:
           tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
           apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
           autoLogin: true
+      # So no grafana-oauth secret is read either: this kind cluster has none, and Grafana needs none to redirect.
+      deployment:
+        containers:
+          grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+                if: "false"
