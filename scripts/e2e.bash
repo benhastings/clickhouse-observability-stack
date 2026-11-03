@@ -447,7 +447,7 @@ poll "PromQL: span metrics keep arriving after the analyst's refused query" \
 
 # The schema is files/schema.sql.tpl in the clickhouse node, not Cerberus's. Ask the Cerberus image this
 # stack runs which schema it expects, create that in a scratch database, and compare the two table by table.
-# TTLs come from clickhouse.schema.ttlDays and the view's definer from the schema file, so both are ignored.
+# TTLs come from global.retention and the view's definer from the schema file, so both are ignored.
 # The anomaly baselines live in otel_baseline, so they are not part of the comparison.
 step "ClickHouse: the otel schema is the one Cerberus expects"
 cerberus_image="$(yq '.deployment.containers.cerberus.image | .repository + ":" + .tag' cluster-nodes/cerberus/values.yaml)"

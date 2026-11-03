@@ -6,6 +6,11 @@ targetRevision: main
 global:
   # kind runs no service mesh, so no Istio resources are rendered.
   mesh: kubernetes
+  # A week of each signal, for the 2 Gi volume below; ClickHouse's TTLs and Cerberus's lookback follow it.
+  retention:
+    traces: 7
+    logs: 7
+    metrics: 7
   # Nothing is exposed outside kind: make cluster/port-forward reaches Grafana, Cerberus and OTLP.
   exposure:
     enabled: false
@@ -32,11 +37,6 @@ applications:
       clickhouse:
         storage: 2Gi
         lowMemory: true
-        schema:
-          ttlDays:
-            logs: 7
-            metrics: 7
-            traces: 7
         resources:
           requests:
             cpu: 100m
@@ -53,11 +53,6 @@ applications:
 
   cerberus:
     values:
-      configMaps:
-        env:
-          data:
-            # Equal to the metrics retention above, as production's 30d is to its own.
-            CERBERUS_PROM_METADATA_LOOKBACK: 7d
       deployment:
         replicas: 1
         containers:

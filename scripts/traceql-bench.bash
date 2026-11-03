@@ -36,7 +36,7 @@ echo "==> Applying the clickhouse node's schema (baselines and SLOs off, traces 
 sql --query "CREATE USER IF NOT EXISTS otel_admin IDENTIFIED WITH no_password HOST LOCAL; GRANT CURRENT GRANTS ON *.* TO otel_admin WITH GRANT OPTION"
 helm template bench cluster-nodes/clickhouse \
   --set clickhouse.baselines.enabled=false --set clickhouse.slo.enabled=false \
-  --set clickhouse.schema.ttlDays.traces=30 2>/dev/null |
+  --set global.retention.traces=30 2>/dev/null |
   yq 'select(.kind == "ConfigMap") | .data["schema.sql"]' | sql >/dev/null
 
 # Each trace is three spans: web's click (the root), checkout's server span for one of 20 routes, and payments'

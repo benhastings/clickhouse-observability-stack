@@ -4,6 +4,12 @@ repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
 
 global:
+  # Production's sizes keep 15 days of traces and 45 of metrics even here; ClickHouse's TTLs and Cerberus's lookback
+  # follow it.
+  retention:
+    traces: 15
+    logs: 7
+    metrics: 45
   # dev exposes nothing outside the cluster until a site gives it hostnames under exposure.
   exposure:
     enabled: false
@@ -20,11 +26,6 @@ applications:
   clickhouse:
     values:
       clickhouse:
-        schema:
-          ttlDays:
-            logs: 7
-            metrics: 7
-            traces: 7
         analyst:
           maxMemoryUsage: 268435456
           maxExecutionTime: 60
@@ -33,12 +34,6 @@ applications:
             readRows: 2000000000
             executionTime: 1800
 
-  cerberus:
-    values:
-      configMaps:
-        env:
-          data:
-            CERBERUS_PROM_METADATA_LOOKBACK: 7d
 
   otel-collector:
     values:

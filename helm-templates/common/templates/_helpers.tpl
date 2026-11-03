@@ -576,3 +576,10 @@ environment's null never reaches the chart.
 {{- else }}true{{ end -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* (list $root "<signal>"): global.retention's days for traces, logs or metrics, defaults included. */ -}}
+
+{{- define "common.retentionDays" -}}
+{{- $v := include "common.values" (index . 0) | fromYaml -}}
+{{- int (required (printf "global.retention.%s is required" (index . 1)) (index $v.global.retention (index . 1))) -}}
+{{- end -}}

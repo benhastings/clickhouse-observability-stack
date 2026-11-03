@@ -56,7 +56,7 @@ What the stack is for, what delivers each part, and where to see it. Where a par
 | Goal | Delivered by | See it | Left |
 |---|---|---|---|
 | One store for metrics, events, logs and traces | OTLP into the collector, everything into ClickHouse's `otel` database; Alertmanager's notifications become logs too | [Querying ClickHouse directly](#troubleshooting) | |
-| About three weeks of traces, queried on demand | TraceQL through Cerberus; `clickhouse.schema.ttlDays` (7 days on kind) | Explore → Tempo (Cerberus) | [#162](https://github.com/benhastings/clickhouse-observability-stack/issues/162) |
+| About three weeks of traces, queried on demand | TraceQL through Cerberus; `global.retention` (7 days on kind) | Explore → Tempo (Cerberus) | [#162](https://github.com/benhastings/clickhouse-observability-stack/issues/162) |
 | System metrics from nodes and Kubernetes | the collector's `kubeletstats` receiver: CPU, memory, filesystem, network for node, pod, container and volume | Explore → Prometheus (Cerberus), `k8s_node_*` | [#163](https://github.com/benhastings/clickhouse-observability-stack/issues/163): host metrics, cluster state, Kubernetes attributes on every signal |
 | RED metrics derived from spans, with bounded cardinality | the `spanmetrics` and `servicegraph` connectors, with a fixed set of dimensions | [Span metrics](#span-metrics-the-collectors-spanmetrics-connector-not-a-clickhouse-materialized-view) | [#176](https://github.com/benhastings/clickhouse-observability-stack/issues/176): a cardinality cap |
 | Wide-event logs | log attributes kept as a map column; the demo's one event per request carries `duration_ms`, `user.id`, `outcome` and more | `{service_name="checkout"} \| main="true"` | |
@@ -498,7 +498,7 @@ The tenant supplies connection references and application configuration. Everyth
 | Network reach from the namespace to the endpoint | `global.clickhouse.networkPolicyPeers`, optional | Under Istio with `outboundTrafficPolicy: REGISTRY_ONLY`, the platform also needs a ServiceEntry for the host. The stack's own NetworkPolicies only allow the traffic. |
 | ClickHouse `26.9` | | The version the schema and every client are tested against. |
 | An embedded or external Keeper, with `keeper_map_path_prefix` set | | For garmr's KeeperMap table. |
-| Retention, backup and restore, upgrades, capacity, and incident response for the server | | The tenant's TTLs (`clickhouse.schema.ttlDays`) apply only to its own tables. |
+| Retention, backup and restore, upgrades, capacity, and incident response for the server | | The tenant's TTLs (`global.retention`) apply only to its own tables. |
 
 **One identity per workload.** The service owner creates each user with these grants and gives the tenant its
 password as a Secret in the stack's namespace, key `password`. The usernames are fixed: the clients and the schema
@@ -674,10 +674,13 @@ reach ClickHouse over TLS (`CLICKHOUSE_SECURE=true`) rather than exposing its HT
 `mcp-clickhouse` 0.7.0 installed with pip (the `uv run` line is the project's own): it listed both databases and
 the `otel` tables, answered a per-service error-ratio query, and gave up on a cross join after 30 seconds.
 
-Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days) on the `clickhouse` app. The
-defaults keep traces 21 days, logs 14 and metrics 30, and set Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` to
-the metrics retention: without it, Grafana's metric and label pickers only look back 14 days. The laptop
-profiles keep 7 days of each, for their 2 Gi volume. A change rewrites each table's TTL without rewriting its parts:
+Retention is `global.retention` (`traces`, `logs`, `metrics`, in days), one setting for the whole stack. The
+defaults keep traces 21 days, logs 14 and metrics 90; `dev` keeps 15 days of traces and 45 of metrics, and the
+laptop profiles 7 days of each, for their 2 Gi volume. Two things read it, so they can't disagree: ClickHouse's
+TTLs (the clickhouse node's schema), and Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK`, which is how far
+Grafana's metric and label pickers look back when they send no time range. Without that alignment the pickers
+either miss metrics ClickHouse still has or scan days it has dropped. Set retention there, never on either app.
+Keeping a subset of metrics, such as aggregated SLIs, longer than the raw samples is #274. A change rewrites each table's TTL without rewriting its parts:
 data written before the change expires on the old TTL.
 
 To change a table, edit its `CREATE` in the schema file and add an `ALTER ... IF [NOT] EXISTS` below it, so
@@ -1213,8 +1216,9 @@ disk ≈ (spans/s × 88 × days_traces + logs/s × 89 × days_logs + samples/s �
 ```
 
 The 1.5 is headroom: parts not yet merged compress less, merges need room for both old and new parts, and
-`ClickHouseDiskFilling` warns at 80%. `prod`'s 200 Gi, at 21/14/30 days, covers about 400 spans/s, 300 log
-records/s and 400 metric samples/s. The demo's spans carry about 27 resource and 12 span attributes, and its
+`ClickHouseDiskFilling` warns at 80%. The default 320 Gi, at 21/14/90 days, covers about 400 spans/s, 300 log
+records/s and 400 metric samples/s (about 304 GiB by the formula). **The formula is measured on the demo load
+only:** #273 tests it on real telemetry, so treat it as a starting point. The demo's spans carry about 27 resource and 12 span attributes, and its
 logs 26 resource and 15 log attributes, so a site whose telemetry carries more (or less) should re-measure with
 the same query:
 
@@ -1663,7 +1667,7 @@ on the target cluster after the first sync, in this order:
   from the `restricted` environment (**A restricted namespace**), or from `paas` (**An external ClickHouse**) where
   the platform offers ClickHouse as a service.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
-- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (traces 21 days, logs 14 and metrics 30 by default; 7 each in the laptop profiles). Keep `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus equal to the metrics retention.
+- **Retention:** set `global.retention` (traces 21 days, logs 14 and metrics 90 by default; 7 each in the laptop profiles). ClickHouse's TTLs and Cerberus's metadata lookback both follow it.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.
 

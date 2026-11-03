@@ -3,6 +3,26 @@ release:
   name: cerberus
   namespace: observability
 tests:
+  - it: looks metadata back as far as the metrics retention, from global.retention like ClickHouse's TTLs
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - equal:
+          path: data.CERBERUS_PROM_METADATA_LOOKBACK
+          value: 90d
+
+  - it: follows an environment's metrics retention, so the two can't drift apart
+    set:
+      global.retention.metrics: 45
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - equal:
+          path: data.CERBERUS_PROM_METADATA_LOOKBACK
+          value: 45d
+
   - it: serves the query APIs on cerberus:8080, where Grafana points
     documentSelector:
       path: kind

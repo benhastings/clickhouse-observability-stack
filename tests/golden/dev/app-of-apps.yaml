@@ -63,6 +63,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -101,15 +105,15 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
-        configMaps:
-          env:
-            data:
-              CERBERUS_PROM_METADATA_LOOKBACK: 7d
         global:
           exposure:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -156,16 +160,15 @@ spec:
             quota:
               executionTime: 1800
               readRows: 2000000000
-          schema:
-            ttlDays:
-              logs: 7
-              metrics: 7
-              traces: 7
         global:
           exposure:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -214,6 +217,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
         secrets:
           credentials:
             create: false
@@ -260,6 +267,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -303,6 +314,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -349,6 +364,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
         vault:
           enabled: false
   destination:
@@ -397,6 +416,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -440,6 +463,10 @@ spec:
             enabled: false
           labels:
             environment: dev
+          retention:
+            logs: 7
+            metrics: 45
+            traces: 15
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
