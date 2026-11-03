@@ -107,6 +107,7 @@
     "setdefault",
     "shellcheck",
     "slos",
+    "slurpfile",
     "spanmetrics",
     "squote",
     "sslip",

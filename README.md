@@ -1437,6 +1437,27 @@ An application from elsewhere sets `repoURL` and `path`, or `chart`. Any other n
 "is not a chart under cluster-nodes/", so a typo can't quietly create an Application for a chart that doesn't
 exist.
 
+### Checking a live cluster for drift
+
+An installation copied into another repo can pin the chart revision and the values revision separately, so a
+commit nobody consumes looks deployed. `make check/live ENV=<env>` reads the Applications Argo CD runs
+(`kubectl -n argocd get applications`, nothing else) and compares them with a fresh render of
+`values-<env>.yaml`. For the parent `app-of-apps-<env>` and every child it prints the repo, path (or chart) and
+revision, then reports as `DRIFT`:
+
+- a different `repoURL`, `targetRevision`, path or chart, release name or destination namespace
+- a live `valuesObject` that differs from the render, as a diff
+- an Application the render expects and the cluster lacks, or the reverse
+
+It exits 1 on any drift and changes nothing. `make test/live` proves it offline against a fixture: the render
+itself, as the Application list a cluster would return, with one thing changed at a time.
+
+A release record carries three revisions, because each can move on its own: the **chart revision** (the
+`targetRevision` of each child, from `values-<env>.yaml`, or the child's own pin), the **values revision** (the
+commit of the repo that holds `values-<env>.yaml`, which the parent `app-of-apps-<env>` loads) and the **parent
+revision** (the `targetRevision` in `app-of-apps-<env>.yaml`). Record all three, and run `make check/live` after
+a sync to confirm the cluster runs them.
+
 ### Stable names
 
 The apps find each other by hard-coded name, port and Secret, not by discovery. Every object is named after

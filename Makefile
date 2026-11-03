@@ -130,6 +130,11 @@ check/restricted: ## Fail when the restricted profile's golden render has a clus
 check/credentials: ## Fail when tests/golden renders a Secret value or a literal password, token or client secret
 	scripts/check-credentials.bash tests/golden
 
+.PHONY: check/live
+check/live: ## Needs a cluster: report drift between the live Argo CD Applications and a fresh render of ENV=<env>; read-only, exits 1 on drift
+	@test -n '$(ENV)' || { echo 'usage: make check/live ENV=<env>'; exit 1; }
+	KUBE_VERSION=$(KUBE_VERSION) scripts/check-live.bash '$(ENV)'
+
 ##@ Generate
 
 .PHONY: generate
@@ -156,7 +161,7 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit test/credentials test/kind-profiles ## Every offline test
+test: test/unit test/credentials test/kind-profiles test/live ## Every offline test
 
 .PHONY: test/e2e
 test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted for the restricted namespace
@@ -166,6 +171,10 @@ test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Arg
 .PHONY: test/traceql-latency
 test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (21) of synthetic traces at RATE (50) spans/s; by hand, not CI
 	RATE=$(or $(RATE),50) DAYS=$(or $(DAYS),21) scripts/traceql-bench.bash
+
+.PHONY: test/live
+test/live: ## Prove check-live.bash reports a changed revision, valuesObject, missing and extra Application, from a fixture
+	scripts/test-live.bash
 
 .PHONY: test/credentials
 test/credentials: ## Prove check-credentials.bash rejects the leaky fixture in tests/credentials/leaky
