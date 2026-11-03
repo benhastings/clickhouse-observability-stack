@@ -9,7 +9,10 @@ One Argo CD app-of-apps chart deploys everything else, per environment. Every wo
 **New here?** [docs/getting-started.md](docs/getting-started.md) walks through installing it on a real cluster
 step by step, with the Kubernetes and observability terms explained as they come up, and
 [docs/runbook.md](docs/runbook.md) covers checking it, smoke-testing it, what each alert means, and fixes by
-symptom.
+symptom. Putting it in a tenant namespace? Read the
+[tenant acceptance contract](docs/tenant-acceptance.md) (which signals, dashboards and alerts a namespace-scoped
+collector loses) and copy the [go/no-go checklist](docs/go-no-go.md) (the six release gates, each with an owner,
+evidence and rollback revision) into your environment's repository.
 
 ```mermaid
 flowchart LR

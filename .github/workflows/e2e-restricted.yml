@@ -27,20 +27,34 @@ jobs:
         with:
           go-version: stable
           cache: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
       - name: Cache tools
         id: tools
         uses: actions/cache@v6
         with:
-          path: ~/go/bin
+          path: |
+            ~/go/bin
+            .venv
           # The tool versions are pinned in the Makefile, so it is the key.
-          key: tools-cluster-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          key: tools-e2e-${{ runner.os }}-${{ hashFiles('Makefile') }}
       - name: Install tools
         if: steps.tools.outputs.cache-hit != 'true'
         run: |
-          make setup/tools/go setup/tools/cluster
+          make setup/tools/go setup/tools/cluster setup/tools/python
+      - name: Install Node tools
+        run: |
+          make setup/tools/node
       - name: Put the tools on PATH
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # Check's lint, here too, so a lint failure stops the run in seconds instead of after the deploy.
+      - name: Lint
+        run: |
+          make check/lint
       - name: Deploy this commit to kind as the restricted profile and query the stack
         env:
           REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
