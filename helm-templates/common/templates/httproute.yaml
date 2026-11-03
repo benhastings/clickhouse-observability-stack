@@ -32,9 +32,13 @@ metadata:
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+{{- /* Every field the API server defaults is written out, so the stored route equals this render: Argo CD diffs
+the two, and a defaulted field it doesn't render would hold the Application OutOfSync. */}}
 spec:
   parentRefs:
-    - name: {{ $gw.name }}
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gw.name }}
       {{- with $gw.namespace }}
       namespace: {{ . }}
       {{- end }}
@@ -44,7 +48,14 @@ spec:
   hostnames:
     - {{ $host }}
   rules:
-    - backendRefs:
-        - name: {{ include "common.fullname" . }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ include "common.fullname" . }}
           port: {{ $port.port }}
+          weight: 1
 {{- end }}
