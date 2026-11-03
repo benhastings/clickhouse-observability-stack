@@ -152,7 +152,7 @@ gives the same result on a laptop and in CI.
 
 `make check` proves the manifests are well-formed. It does not prove the stack works: ordering, health,
 ClickHouse schema compatibility and Grafana queries are only exercised by deploying. That is
-`.github/workflows/e2e.yml`, which runs `make test/e2e` on every pull request: a kind cluster on a
+`.github/workflows/e2e.yml`, which runs `make test/e2e` on every pull request (with `E2E_INCIDENT=0`: pull requests skip the demo load's injected incident and the alerts it drives, which take about 25 minutes of its schedule; pushes to `main`, the nightly run, a manual run and pull requests labelled `slow` run everything below): a kind cluster on a
 digest-pinned Kubernetes `1.37.0` node, Argo CD, and the `local` app-of-apps at the PR's commit. It then waits
 for every Application to be Synced and Healthy, and queries the running stack through Cerberus: span metrics
 for both demo services, a payments error ratio near 25%, a checkout server error ratio under 5%, service-graph metrics, node

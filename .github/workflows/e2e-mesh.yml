@@ -28,13 +28,25 @@ jobs:
         with:
           go-version: stable
           cache: false
+      - name: Cache tools
+        id: tools
+        uses: actions/cache@v6
+        with:
+          path: ~/go/bin
+          # The tool versions are pinned in the Makefile, so it is the key.
+          key: tools-cluster-${{ runner.os }}-${{ hashFiles('Makefile') }}
       - name: Install tools
+        if: steps.tools.outputs.cache-hit != 'true'
         run: |
           make setup/tools/go setup/tools/cluster
+      - name: Put the tools on PATH
+        run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Deploy this commit to kind with Istio and query the stack
         env:
           REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          # The injected incident is the laptop e2e's to check; the mesh changes nothing about it.
+          E2E_INCIDENT: "0"
         run: |
           make test/e2e MESH=istio REVISION="$REVISION"
       - name: Memory the kind node used
