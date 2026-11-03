@@ -387,6 +387,15 @@ tests:
           value:
             istio-injection: enabled
 
+  - it: labels every destination namespace for ztunnel instead under Istio ambient mode
+    set:
+      global.istio.dataplaneMode: ambient
+    asserts:
+      - equal:
+          path: spec.syncPolicy.managedNamespaceMetadata.labels
+          value:
+            istio.io/dataplane-mode: ambient
+
   - it: leaves namespaces unlabelled when the mesh is kubernetes
     set:
       global.mesh: kubernetes

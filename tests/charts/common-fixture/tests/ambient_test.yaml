@@ -1,0 +1,163 @@
+# cspell:words destinationrule
+suite: common under Istio ambient mode
+release:
+  name: fixture
+  namespace: demo
+set:
+  global.mesh: istio
+  global.istio.dataplaneMode: ambient
+tests:
+  - it: renders no DestinationRule, since ztunnel uses mTLS for every connection
+    template: templates/destinationrule.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still renders the ISTIO_MUTUAL DestinationRule in sidecar mode
+    template: templates/destinationrule.yaml
+    set:
+      global.istio.dataplaneMode: sidecar
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: lets each in-mesh peer reach the app over HBONE too, and kubelet probe it through ztunnel
+    template: templates/networkpolicy.yaml
+    set:
+      global.networkPolicy.enabled: true
+      networkPolicy.ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: client
+          ports:
+            - port: 8080
+              protocol: TCP
+        - ports:
+            - port: 4317
+              protocol: TCP
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+          ports:
+            - port: 9000
+              protocol: TCP
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: client
+            ports:
+              - port: 15008
+                protocol: TCP
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 15008
+                protocol: TCP
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - ipBlock:
+                  cidr: 169.254.7.127/32
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - ipBlock:
+                  cidr: 10.0.0.0/8
+            ports:
+              - port: 15008
+                protocol: TCP
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 15020
+                protocol: TCP
+              - port: 15021
+                protocol: TCP
+              - port: 15090
+                protocol: TCP
+
+  - it: sends to each in-mesh peer over HBONE too, and needs no istiod egress
+    template: templates/networkpolicy.yaml
+    set:
+      global.networkPolicy.enabled: true
+      networkPolicy.egress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: server
+            - ipBlock:
+                cidr: 192.0.2.0/24
+          ports:
+            - port: 9000
+              protocol: TCP
+        - ports:
+            - port: 443
+              protocol: TCP
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: server
+            ports:
+              - port: 15008
+                protocol: TCP
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 15008
+                protocol: TCP
+      - notContains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: istio-system
+            ports:
+              - port: 15012
+                protocol: TCP
+              - port: 15017
+                protocol: TCP
+
+  - it: labels the Service to use the platform's waypoint
+    template: templates/service.yaml
+    set:
+      global.istio.waypoint:
+        name: waypoint
+        namespace: istio-waypoints
+    asserts:
+      - equal:
+          path: metadata.labels["istio.io/use-waypoint"]
+          value: waypoint
+      - equal:
+          path: metadata.labels["istio.io/use-waypoint-namespace"]
+          value: istio-waypoints
+
+  - it: labels no Service for a waypoint in sidecar mode
+    template: templates/service.yaml
+    set:
+      global.istio.dataplaneMode: sidecar
+      global.istio.waypoint.name: waypoint
+    asserts:
+      - notExists:
+          path: metadata.labels["istio.io/use-waypoint"]
+
+  - it: refuses an unknown data plane mode
+    template: templates/service.yaml
+    set:
+      global.istio.dataplaneMode: proxyless
+    asserts:
+      - failedTemplate: {}

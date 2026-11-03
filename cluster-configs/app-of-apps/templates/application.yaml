@@ -59,11 +59,15 @@ spec:
       {{- end }}
       - ServerSideApply=true
     {{- if and $clusterScoped (eq (toString ($.Values.global.mesh | default "istio")) "istio") }}
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
+        {{- if eq (toString (dig "istio" "dataplaneMode" "sidecar" (default dict $.Values.global))) "ambient" }}
+        istio.io/dataplane-mode: ambient
+        {{- else }}
         istio-injection: enabled
+        {{- end }}
     {{- end }}
 {{- end }}
 {{- end }}

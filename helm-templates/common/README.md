@@ -57,6 +57,9 @@ schema, and to the template in the same change.
 | `global.retention.logs` | `14` |  |
 | `global.retention.metrics` | `90` | also Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` |
 | `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. `istio` renders a DestinationRule (`ISTIO_MUTUAL`) for every Service and, with exposure on, a Gateway and VirtualService per app; `kubernetes` renders none of them, and an Ingress for exposure |
+| `global.istio.dataplaneMode` | `sidecar` | with `mesh: istio`, how pods join the mesh: `sidecar`, an istio-proxy in each pod and DestinationRules for `ISTIO_MUTUAL`; `ambient`, no sidecar, ztunnel carrying traffic over HBONE (15008), which every NetworkPolicy then allows between the same peers, and no DestinationRules |
+| `global.istio.waypoint.name` | `""` | with `ambient`, an existing waypoint every Service uses for L7 policy (`istio.io/use-waypoint`); empty uses none. The stack never renders a waypoint |
+| `global.istio.waypoint.namespace` | `""` | the waypoint's namespace when it is not the stack's (`istio.io/use-waypoint-namespace`) |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels.<name>` | `{}` | extra labels on every object |
 | `global.imageRegistry` | `""` | prepended to every image, so `registry.example/mirror` turns `grafana/grafana:13.2.2` into `registry.example/mirror/grafana/grafana:13.2.2`. An image that names its own registry keeps it in the path (`registry.example/mirror/ghcr.io/...`), which is how pull-through mirrors lay them out. Empty uses each image as written. Nodes that render images outside the common Deployment, such as ClickHouse's Installation and backup job, use the same `common.image` helper |

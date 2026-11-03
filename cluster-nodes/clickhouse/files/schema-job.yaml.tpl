@@ -22,7 +22,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: clickhouse-schema
-      {{- if eq (include "common.mesh" $) "istio" }}
+      {{- if include "common.istioSidecar" $ }}
       # A native sidecar stops when the Job's container exits; a classic one would keep the pod running.
       annotations:
         sidecar.istio.io/nativeSidecar: "true"

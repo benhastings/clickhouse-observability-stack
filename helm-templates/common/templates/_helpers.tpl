@@ -575,6 +575,49 @@ environment's null never reaches the chart.
 {{- if and $on (ne $on "false") }}true{{ end -}}
 {{- else }}true{{ end -}}
 {{- end -}}
+
+{{- /* "true" when the mesh is istio in ambient mode: no sidecars, ztunnel carries traffic over HBONE. */ -}}
+
+{{- define "common.istioAmbient" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $mode := toString (dig "istio" "dataplaneMode" "sidecar" $v.global) -}}
+{{- if not (has $mode (list "sidecar" "ambient")) -}}
+{{- fail (printf "global.istio.dataplaneMode must be sidecar or ambient, not %q" $mode) -}}
+{{- end -}}
+{{- if and (eq (include "common.mesh" .) "istio") (eq $mode "ambient") }}true{{ end -}}
+{{- end -}}
+
+{{- /* "true" when the mesh is istio with a sidecar in every pod. */ -}}
+
+{{- define "common.istioSidecar" -}}
+{{- if and (eq (include "common.mesh" .) "istio") (not (include "common.istioAmbient" .)) }}true{{ end -}}
+{{- end -}}
+
+{{- /*
+(list $root $rulesYAML): under ambient, the HBONE copy of each rule whose peers are in the mesh. ztunnel sends a
+pod's traffic to the destination pod on 15008, so a rule allowing pods or namespaces on their own ports also has
+to allow 15008 between the same peers. A rule with no peers (any source or destination) gets 15008 from or to
+anywhere; a rule whose peers are only ipBlocks is outside the mesh and gets no copy.
+*/ -}}
+
+{{- define "common.networkPolicy.hbone" -}}
+{{- $rules := index . 1 -}}
+{{- $field := index . 2 -}}
+{{- $out := list -}}
+{{- if $rules }}
+{{- range $r := fromYamlArray $rules }}
+{{- $peers := default list (index $r $field) -}}
+{{- $mesh := list -}}
+{{- range $p := $peers }}{{ if not $p.ipBlock }}{{ $mesh = append $mesh $p }}{{ end }}{{ end -}}
+{{- $hbone := list (dict "port" 15008 "protocol" "TCP") -}}
+{{- if not $peers }}
+{{- $out = append $out (dict "ports" $hbone) -}}
+{{- else if $mesh }}
+{{- $out = append $out (dict $field $mesh "ports" $hbone) -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with $out }}{{ toYaml (uniq .) }}{{ end -}}
 {{- end -}}
 
 {{- /* (list $root "<signal>"): global.retention's days for traces, logs or metrics, defaults included. */ -}}

@@ -166,7 +166,7 @@ spec:
               port: 9000
     podTemplates:
       - name: clickhouse
-        {{- if eq (include "common.mesh" $) "istio" }}
+        {{- if include "common.istioSidecar" $ }}
         # The operator creates these pods, so ask for the sidecar here as well as on the namespace. The
         # operator's own user may only connect from the operator pod's IP, and through a sidecar every
         # connection arrives from 127.0.0.6, so the operator's port, HTTP 8123, bypasses the sidecar here and

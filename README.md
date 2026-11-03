@@ -1125,10 +1125,11 @@ secret rotated in Vault, roll the app with `make cluster/restart APP=<app>`.
 
 ### Service mesh: Istio or plain Kubernetes
 
-`global.mesh` picks how the stack runs in the cluster. It defaults to `istio`, which `prod` and `dev` also set
-explicitly; `local` sets `kubernetes`, because kind runs no mesh.
+`global.mesh` picks how the stack runs in the cluster. It defaults to `istio`; `local` sets `kubernetes`,
+because kind runs no mesh. Under Istio, `global.istio.dataplaneMode` picks how pods join it: `sidecar` (the
+default) or `ambient`.
 
-- **`istio`**: every destination namespace is labelled `istio-injection: enabled` (the generated Applications
+- **`istio`, sidecar mode**: every destination namespace is labelled `istio-injection: enabled` (the generated Applications
   set it through Argo CD's `managedNamespaceMetadata`; `make helm/install` labels the namespaces itself; in
   [a restricted namespace](#a-restricted-namespace) the platform team does), the
   operator-created ClickHouse pods ask for a sidecar too, and each app's Service gets a DestinationRule with
@@ -1137,6 +1138,18 @@ explicitly; `local` sets `kubernetes`, because kind runs no mesh.
   reaches ClickHouse's HTTP port 8123 directly, because its ClickHouse user only accepts the operator pod's own
   IP and a sidecar would present `127.0.0.6`. With `global.exposure`, each app also gets a Gateway and a
   VirtualService.
+- **`istio`, ambient mode** (`global.istio.dataplaneMode: ambient`): no pod has a sidecar. The node's ztunnel
+  carries every connection over HBONE (port 15008) with mTLS. The namespaces are labelled
+  `istio.io/dataplane-mode: ambient` instead, by Argo CD, `make helm/install`, or in a restricted namespace by
+  the platform team. No DestinationRules are rendered, since ztunnel uses mTLS regardless, and the ClickHouse
+  pods and the schema Job ask for nothing. The operator's connection to 8123 stays in the mesh: ztunnel keeps the
+  operator pod's own address as the source. With `global.networkPolicy.enabled`, every rule that allows pods or
+  namespaces gets an HBONE copy between the same peers, and kubelet's probes are let in from ztunnel's
+  `169.254.7.127`. `global.istio.waypoint.name` (and `.namespace`) points every Service at a waypoint the
+  platform runs, for L7 policy (`istio.io/use-waypoint`). The stack never renders a waypoint, because that
+  needs the Gateway API CRDs. Exposure still uses the ingress gateway's Gateway and VirtualService. What the
+  platform provides: istio-cni and ztunnel on every node, the namespace label in a restricted namespace, and any
+  waypoint.
 - **`kubernetes`**: none of that, and exposure renders an Ingress.
 
 `make cluster/preflight` fails when the mesh is `istio` and Istio's CRDs are missing.
@@ -1148,8 +1161,10 @@ values: `mesh: istio`, and Grafana and OTLP exposed through the gateway at `graf
 The e2e run then checks that the apps have sidecars, reaches Grafana, follows a signed-out visitor through the
 gateway to the provider's sign-in URL, sends a span through the gateway, and repeats that with
 `PeerAuthentication` `STRICT`. The kind node needs
-about 3.2 GiB this way, against 2.4 GiB without the mesh. CI runs it on pull requests labelled `mesh` and on
-demand (`.github/workflows/e2e-mesh.yml`).
+about 3.2 GiB this way, against 2.4 GiB without the mesh. `MESH=ambient` does the same with Istio in ambient mode
+(istio-cni and ztunnel too) and `tests/mesh/local-ambient.values.yaml`, which also turns network policies on: it
+checks that no pod has a sidecar and that ztunnel redirects every pod, so every query crosses the policies over
+HBONE. CI runs both, side by side, on pull requests labelled `mesh` and on demand (`.github/workflows/e2e-mesh.yml`).
 
 ### Collector RBAC: cluster-wide or one namespace
 

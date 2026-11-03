@@ -77,8 +77,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -124,8 +124,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -184,8 +184,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -234,8 +234,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -281,8 +281,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -328,8 +328,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -380,8 +380,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -430,8 +430,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled
@@ -477,8 +477,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    # Argo CD creates the namespace, so it also labels it for Istio sidecar injection; no Namespace object
-    # is rendered for it to fight with.
+    # Argo CD creates the namespace, so it also labels it for the mesh: sidecar injection, or ambient's ztunnel
+    # (global.istio.dataplaneMode). No Namespace object is rendered for it to fight with.
     managedNamespaceMetadata:
       labels:
         istio-injection: enabled

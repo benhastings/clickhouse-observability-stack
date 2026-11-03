@@ -1,5 +1,6 @@
 {{- $v := include "common.values" . | fromYaml -}}
-{{- if and (include "common.serviceEnabled" .) (eq (include "common.mesh" .) "istio") }}
+{{- /* Sidecars only: under ambient, ztunnel uses mTLS for every connection on its own. */}}
+{{- if and (include "common.serviceEnabled" .) (include "common.istioSidecar" .) }}
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
