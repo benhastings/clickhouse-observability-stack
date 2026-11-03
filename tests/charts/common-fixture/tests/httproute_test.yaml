@@ -1,0 +1,83 @@
+# cspell:words httproute
+suite: common.httpRoute
+release:
+  name: fixture
+  namespace: demo
+set:
+  global.exposure.enabled: true
+  global.exposure.api: gateway-api
+  global.exposure.hosts.web: web.example.com
+  global.exposure.gateway.name: platform-gateway
+  global.exposure.gateway.namespace: gateways
+  exposure.host: web
+  exposure.port: http
+tests:
+  - it: attaches an HTTPRoute for the app's host to the platform's Gateway, routing to the Service port
+    template: templates/httproute.yaml
+    asserts:
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: spec
+          value:
+            parentRefs:
+              - name: platform-gateway
+                namespace: gateways
+            hostnames:
+              - web.example.com
+            rules:
+              - backendRefs:
+                  - name: fixture
+                    port: 80
+
+  - it: attaches to one listener with sectionName
+    template: templates/httproute.yaml
+    set:
+      global.exposure.gateway.sectionName: https
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].sectionName
+          value: https
+
+  - it: renders no Istio Gateway, VirtualService or Ingress with gateway-api
+    templates:
+      - templates/gateway.yaml
+      - templates/ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no HTTPRoute with the mesh's own exposure
+    template: templates/httproute.yaml
+    set:
+      global.exposure.api: ""
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: refuses gateway-api without the platform's Gateway
+    template: templates/httproute.yaml
+    set:
+      global.exposure.gateway.name: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: global.exposure.gateway.name is empty
+
+  - it: refuses an Istio Gateway without the mesh
+    template: templates/gateway.yaml
+    set:
+      global.mesh: kubernetes
+      global.exposure.api: istio
+    asserts:
+      - failedTemplate:
+          errorPattern: an Istio Gateway needs the mesh
+
+  - it: can render an Ingress under Istio when asked
+    template: templates/ingress.yaml
+    set:
+      global.exposure.api: ingress
+    asserts:
+      - isKind:
+          of: Ingress

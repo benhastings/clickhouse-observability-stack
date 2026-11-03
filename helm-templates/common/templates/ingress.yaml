@@ -1,7 +1,7 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $x := $v.global.exposure -}}
 {{- $key := $v.exposure.host -}}
-{{- if and $x.enabled $key (eq (include "common.mesh" .) "kubernetes") }}
+{{- if and $x.enabled $key (eq (include "common.exposureApi" .) "ingress") }}
 {{- $host := index ($x.hosts | default dict) $key | default "" -}}
 {{- if not $host }}
 {{- fail (printf "global.exposure.enabled is true but global.exposure.hosts.%s is empty" $key) }}

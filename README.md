@@ -1152,6 +1152,16 @@ default) or `ambient`.
   waypoint.
 - **`kubernetes`**: none of that, and exposure renders an Ingress.
 
+`global.exposure.api` picks how exposure is rendered, apart from the mesh: `istio` (an Istio Gateway and
+VirtualService per app, the default under Istio), `ingress` (the default without it) or `gateway-api`. With
+`gateway-api`, each exposed app gets an HTTPRoute for its host, attached to the Gateway API Gateway the platform
+runs, which is how a platform in ambient mode usually offers ingress. `global.exposure.gateway.name` and
+`.namespace` name that Gateway, and `.sectionName` picks one of its listeners. The stack never renders the Gateway:
+it, its TLS certificate and DNS for the hosts are the platform's, and its `allowedRoutes` has to admit the stack's
+namespace. `tls.credentialName` isn't used then, so set `global.exposure.scheme: https` when the Gateway terminates
+TLS, for Grafana's root URL. `MESH=ambient` on kind exposes Grafana and OTLP this way, through a shared
+`platform-gateway`.
+
 `make cluster/preflight` fails when the mesh is `istio` and Istio's CRDs are missing.
 
 To try the mesh on kind, add `MESH=istio` to `make cluster/up` or `make test/e2e`. It installs Istio 1.30.5 (istiod

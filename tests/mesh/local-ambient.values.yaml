@@ -1,6 +1,8 @@
 # Merged over values-local.yaml when make cluster/up or make test/e2e runs with MESH=ambient (kind only; never an
 # environment of its own): local-istio.values.yaml with Istio in ambient mode, so no pod has a sidecar and ztunnel
-# carries every connection over HBONE, and with network policies on, so their HBONE rules are exercised too.
+# carries every connection over HBONE, with network policies on, so their HBONE rules are exercised too, and
+# Grafana and OTLP exposed through Gateway API HTTPRoutes on the shared platform-gateway that
+# scripts/kind-istio.bash creates.
 global:
   mesh: istio
   istio:
@@ -11,6 +13,10 @@ global:
     exposureNamespaces: [istio-ingress]
   exposure:
     enabled: true
+    api: gateway-api
+    gateway:
+      name: platform-gateway
+      namespace: istio-ingress
     hosts:
       grafana: grafana.127.0.0.1.sslip.io
       otlp: otlp.127.0.0.1.sslip.io

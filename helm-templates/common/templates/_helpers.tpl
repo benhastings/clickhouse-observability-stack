@@ -627,3 +627,23 @@ anywhere; a rule whose peers are only ipBlocks is outside the mesh and gets no c
 {{- $v := include "common.values" (index . 0) | fromYaml -}}
 {{- int (required (printf "global.retention.%s is required" (index . 1)) (index $v.global.retention (index . 1))) -}}
 {{- end -}}
+
+{{- /*
+How exposure is rendered: global.exposure.api, or by default the mesh's own way (istio: an Istio Gateway and
+VirtualService; kubernetes: an Ingress). gateway-api renders HTTPRoutes on the platform's Gateway API Gateway.
+*/ -}}
+
+{{- define "common.exposureApi" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $api := toString (dig "exposure" "api" "" $v.global) -}}
+{{- if not $api -}}
+{{- $api = ternary "istio" "ingress" (eq (include "common.mesh" .) "istio") -}}
+{{- end -}}
+{{- if not (has $api (list "istio" "gateway-api" "ingress")) -}}
+{{- fail (printf "global.exposure.api must be istio, gateway-api or ingress, not %q" $api) -}}
+{{- end -}}
+{{- if and (eq $api "istio") (ne (include "common.mesh" .) "istio") -}}
+{{- fail "global.exposure.api is istio but global.mesh is not: an Istio Gateway needs the mesh" -}}
+{{- end -}}
+{{- $api -}}
+{{- end -}}

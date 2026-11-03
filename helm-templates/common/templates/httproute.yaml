@@ -1,0 +1,50 @@
+{{- /*
+With global.exposure.api gateway-api: an HTTPRoute for the app's host, attached to the platform's Gateway API
+Gateway (global.exposure.gateway.name and .namespace, optionally one listener by sectionName). The Gateway, its
+TLS certificate and DNS for the host are the platform's, and its allowedRoutes must admit this namespace; the
+stack never renders a Gateway in this mode, so tls.credentialName is not used.
+*/ -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $x := $v.global.exposure -}}
+{{- $key := $v.exposure.host -}}
+{{- if and $x.enabled $key (eq (include "common.exposureApi" .) "gateway-api") }}
+{{- $host := index ($x.hosts | default dict) $key | default "" -}}
+{{- if not $host }}
+{{- fail (printf "global.exposure.enabled is true but global.exposure.hosts.%s is empty" $key) }}
+{{- end }}
+{{- if not (include "common.serviceEnabled" .) }}
+{{- fail (printf "exposure.host is %s but the app renders no Service (service.enabled is false or service.ports is empty), so there is nothing to route to" $key) }}
+{{- end }}
+{{- $port := index $v.service.ports $v.exposure.port | default dict -}}
+{{- if not $port.port }}
+{{- fail (printf "exposure.port %q is not one of service.ports" $v.exposure.port) }}
+{{- end }}
+{{- $gw := $x.gateway | default dict -}}
+{{- if not $gw.name }}
+{{- fail "global.exposure.api is gateway-api but global.exposure.gateway.name is empty: name the platform's Gateway to attach the routes to" }}
+{{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  {{- include "common.metadata" (list . (include "common.fullname" .)) | nindent 2 }}
+  {{- with $v.exposure.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ $gw.name }}
+      {{- with $gw.namespace }}
+      namespace: {{ . }}
+      {{- end }}
+      {{- with $gw.sectionName }}
+      sectionName: {{ . }}
+      {{- end }}
+  hostnames:
+    - {{ $host }}
+  rules:
+    - backendRefs:
+        - name: {{ include "common.fullname" . }}
+          port: {{ $port.port }}
+{{- end }}

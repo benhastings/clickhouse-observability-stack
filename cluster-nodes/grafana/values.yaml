@@ -128,7 +128,8 @@ configMaps:
         {{- $rootUrl := .rootUrl }}
         {{- if and (not $rootUrl) $x.enabled }}
         {{- with index ($x.hosts | default dict) $.Values.exposure.host }}
-        {{- $rootUrl = printf "%s://%s/" (ternary "https" "http" (not (empty (dig "tls" "credentialName" "" $x)))) . }}
+        {{- $scheme := $x.scheme | default (ternary "https" "http" (not (empty (dig "tls" "credentialName" "" $x)))) }}
+        {{- $rootUrl = printf "%s://%s/" $scheme . }}
         {{- end }}
         {{- end }}
         [server]
