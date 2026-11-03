@@ -82,7 +82,7 @@ add a target. `make help` lists everything.
 | `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
-| `make test`                 | every offline test: `test/unit` and `test/credentials`                         |
+| `make test`                 | every offline test: `test/unit`, `test/credentials` and `test/local-secrets` |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio, `ENV=restricted` the restricted profile |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make test/traceql-latency` | needs Docker: times TraceQL through Cerberus over `DAYS` of synthetic traces at `RATE`; by hand, not CI |
