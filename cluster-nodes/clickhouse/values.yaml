@@ -55,9 +55,10 @@ secrets:
 clickhouse:
   shards: 1
   replicas: 1
-  # About 400 spans/s, 300 log records/s and 400 metric samples/s at the retention below, with 50% headroom
-  # (README: Disk sizing). Measure your own bytes per row before trusting the formula with real attributes.
-  storage: 200Gi
+  # About 400 spans/s, 300 log records/s and 400 metric samples/s at the default global.retention (21, 14 and 90
+  # days), with 50% headroom (README: Disk sizing): about 304 GiB. The formula is measured on the demo load
+  # only; measure your own bytes per row before trusting it.
+  storage: 320Gi
   storageClassName: ""
   image:
     repository: clickhouse/clickhouse-server
@@ -89,16 +90,11 @@ clickhouse:
       readRows: 100000000000
       executionTime: 7200
   # The otel database's tables are files/schema.sql.tpl, applied as otel_admin by a Job that runs whenever
-  # the rendered SQL changes. ttlDays is the retention per signal, in days. The Job connects to one server
-  # through the clickhouse Service, so with more than one shard or replica the tables exist on one of them:
-  # see "Before using this beyond a laptop" in the README. Three weeks of traces to search, two of logs, and a
-  # month of metrics so a dashboard can compare with the same day four weeks back; Cerberus's metadata lookback
-  # (CERBERUS_PROM_METADATA_LOOKBACK in the cerberus node) follows the longest of these.
+  # the rendered SQL changes. Their retention is global.retention (helm-templates/common/values.yaml), which
+  # Cerberus's metadata lookback follows too. The Job connects to one server through the clickhouse Service, so
+  # with more than one shard or replica the tables exist on one of them: see "Before using this beyond a laptop"
+  # in the README.
   schema:
-    ttlDays:
-      logs: 14
-      metrics: 30
-      traces: 21
     backoffLimit: 3
     activeDeadlineSeconds: 900
     resources:

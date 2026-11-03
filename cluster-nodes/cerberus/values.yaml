@@ -29,8 +29,8 @@ configMaps:
       CERBERUS_LOG_LEVEL: info
       CERBERUS_LOG_FORMAT: json
       # Grafana's metric and label pickers ask Cerberus without a time range, and Cerberus then looks back this
-      # far. Keep it equal to the clickhouse node's clickhouse.schema.ttlDays.metrics.
-      CERBERUS_PROM_METADATA_LOOKBACK: 30d
+      # far: the metrics retention, from the same global.retention ClickHouse's TTLs use, so they stay aligned.
+      CERBERUS_PROM_METADATA_LOOKBACK: '{{ include "common.retentionDays" (list . "metrics") }}d'
 
 service:
   ports:

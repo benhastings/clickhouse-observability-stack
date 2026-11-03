@@ -82,8 +82,8 @@ tests:
 
   - it: renders the retention per signal into the schema
     set:
-      clickhouse.schema.ttlDays.logs: 3
-      clickhouse.schema.ttlDays.traces: 30
+      global.retention.logs: 3
+      global.retention.traces: 30
     documentSelector:
       path: metadata.name
       value: clickhouse-schema
@@ -96,7 +96,7 @@ tests:
           pattern: ALTER TABLE otel.otel_traces MODIFY TTL toDateTime\(Timestamp\) \+ toIntervalDay\(30\);
       - matchRegex:
           path: data["schema.sql"]
-          pattern: ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime\(TimeUnix\) \+ toIntervalDay\(30\);
+          pattern: ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime\(TimeUnix\) \+ toIntervalDay\(90\);
       - matchRegex:
           path: data["schema.sql"]
           pattern: MODIFY SQL SECURITY DEFINER DEFINER = otel_admin;
@@ -192,7 +192,7 @@ tests:
 
   - it: builds the trace_summary and log_templates feature tables, each kept as long as its signal
     set:
-      clickhouse.schema.ttlDays: {traces: 21, logs: 14, metrics: 30}
+      global.retention: {traces: 21, logs: 14, metrics: 30}
     documentSelector:
       path: metadata.name
       value: clickhouse-schema
@@ -215,7 +215,7 @@ tests:
 
   - it: publishes each score in otel_ml.scores as an ml:<model>:<signal> gauge series, kept as long as metrics
     set:
-      clickhouse.schema.ttlDays: {traces: 21, logs: 14, metrics: 30}
+      global.retention: {traces: 21, logs: 14, metrics: 30}
     documentSelector:
       path: metadata.name
       value: clickhouse-schema

@@ -330,7 +330,7 @@ kubectl exec chi-otel-main-0-0-0 -c clickhouse -- clickhouse-client --user otel_
 
 Then pick one or more fixes:
 
-- **Keep less.** Lower `clickhouse.schema.ttlDays` in your environment file and apply it. ClickHouse drops whole
+- **Keep less.** Lower `global.retention` in your environment file and apply it. ClickHouse drops whole
   days at a time, so the space comes back within a day.
 - **A bigger disk.** If `kubectl get storageclass <name> -o jsonpath='{.allowVolumeExpansion}'` says `true`,
   raise `clickhouse.storage` and apply. The operator asks for the bigger volume. Some storage drivers only

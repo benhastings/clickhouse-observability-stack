@@ -52,6 +52,10 @@ schema, and to the template in the same change.
 | `nameOverride` | release name | base name of every object |
 | `common` |  | the library dependency's own values, which helm adds under its name; leave it empty |
 | `enabled` |  | read only by the `cluster-configs/stack` umbrella chart, which turns each node on or off with it |
+| `global.retention` |  | how long the stack keeps each signal, in days; ClickHouse's TTLs and Cerberus's metadata lookback both read it, so they stay aligned |
+| `global.retention.traces` | `21` |  |
+| `global.retention.logs` | `14` |  |
+| `global.retention.metrics` | `90` | also Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` |
 | `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. `istio` renders a DestinationRule (`ISTIO_MUTUAL`) for every Service and, with exposure on, a Gateway and VirtualService per app; `kubernetes` renders none of them, and an Ingress for exposure |
 | `global.namespace` | release namespace | namespace of every namespaced object |
 | `global.labels.<name>` | `{}` | extra labels on every object |

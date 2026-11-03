@@ -64,6 +64,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -97,10 +101,6 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
-        configMaps:
-          env:
-            data:
-              CERBERUS_PROM_METADATA_LOOKBACK: 7d
         deployment:
           containers:
             cerberus:
@@ -119,6 +119,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -167,11 +171,6 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
-          schema:
-            ttlDays:
-              logs: 7
-              metrics: 7
-              traces: 7
           storage: 2Gi
         global:
           exposure:
@@ -179,6 +178,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -232,6 +235,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: clickhouse-operator
@@ -271,6 +278,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -310,6 +321,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -349,6 +364,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -433,6 +452,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
         objects:
           plugins:
             apiVersion: v1
@@ -502,6 +525,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -541,6 +568,10 @@ spec:
           labels:
             environment: local
           mesh: kubernetes
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

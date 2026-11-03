@@ -340,7 +340,7 @@ data:
             annotations:
               summary: "ClickHouse disk {{ $labels.disk }} is {{ $value | humanizePercentage }} full"
               description: >-
-                Lower clickhouse.schema.ttlDays or grow clickhouse.storage before it passes 90%.
+                Lower global.retention or grow clickhouse.storage before it passes 90%.
           - alert: ClickHouseDiskFull
             expr: |
               SELECT name AS disk, round(1 - free_space / total_space, 3) AS value
@@ -353,7 +353,7 @@ data:
               summary: "ClickHouse disk {{ $labels.disk }} is {{ $value | humanizePercentage }} full"
               description: >-
                 Inserts fail when the disk fills, and the collector drops telemetry once its queue is full.
-                Grow clickhouse.storage, or lower clickhouse.schema.ttlDays and let the TTL merges free space.
+                Grow clickhouse.storage, or lower global.retention and let the TTL merges free space.
   
           # The telemetry pipeline, from the collector's, ClickHouse's and the kubelet's metrics that the collector
           # scrapes (the Stack health dashboard draws the same series). Counters are cumulative: an increase is the
@@ -593,7 +593,7 @@ spec:
         app.kubernetes.io/name: vmalert
         app.kubernetes.io/instance: vmalert
       annotations:
-        checksum/config: 1f89514073fab98a8f36c8b725e6fec0df0605c0fb8565509ced9121199b156e
+        checksum/config: d86ce1e363d2e762c27887f6dd37fed0b49a3c1bdc56376ecc61abda631d0050
     spec:
       serviceAccountName: vmalert
       automountServiceAccountToken: false

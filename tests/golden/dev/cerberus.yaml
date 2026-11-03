@@ -52,7 +52,7 @@ data:
   CERBERUS_OTLP_LOGS_ENABLED: "true"
   CERBERUS_OTLP_METRICS_ENABLED: "true"
   CERBERUS_OTLP_TRACES_ENABLED: "true"
-  CERBERUS_PROM_METADATA_LOOKBACK: "7d"
+  CERBERUS_PROM_METADATA_LOOKBACK: "45d"
   CERBERUS_QUERY_MAX_SAMPLES: "5000000"
 ---
 # Source: cerberus/templates/service.yaml
@@ -109,7 +109,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: ba8d4a9a91ee760928d8de9324a9e09a57763c1ee416281f4a504eb4cc7ffddc
+        checksum/config: 85f2c290576f9262d55a7062b7694a04324760762e5f642bef8e7061c40c9bdb
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false

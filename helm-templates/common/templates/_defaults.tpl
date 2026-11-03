@@ -44,6 +44,13 @@ global:
       serverName: ""
       caConfigMap: ""
       caKey: ca.crt
+  # How long the stack keeps each signal, in days: ClickHouse's TTLs (the clickhouse node's schema) and Cerberus's
+  # metadata lookback (CERBERUS_PROM_METADATA_LOOKBACK, which must cover the metrics) both read these, so they
+  # can't drift apart. Three weeks of traces to search, two of logs, and 90 days of metrics.
+  retention:
+    traces: 21
+    logs: 14
+    metrics: 90
   imagePullSecrets: []
   # Every container's requests and limits unless it sets its own, key by key: a container that sets only
   # limits.memory keeps these requests. Sized for a small sidecar-like service; a node writes resources only when

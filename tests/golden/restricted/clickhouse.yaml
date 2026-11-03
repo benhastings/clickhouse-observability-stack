@@ -28,7 +28,7 @@ data:
     -- CREATE TABLE IF NOT EXISTS never changes an existing table, so a change to a table already deployed
     -- is an ALTER ... IF [NOT] EXISTS added below its CREATE, and the CREATE edited to match.
     --
-    -- Retention is clickhouse.schema.ttlDays per signal. The MODIFY TTL statements at the end make a change
+    -- Retention is global.retention per signal, which Cerberus's metadata lookback also reads. The MODIFY TTL statements at the end make a change
     -- apply to existing tables; materialize_ttl_after_modify = 0 makes them metadata-only, so parts written
     -- before the change expire on their old TTL.
     
@@ -934,7 +934,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: restricted
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-a99a883f
+  name: clickhouse-schema-32dbb811
   namespace: observability
 spec:
   activeDeadlineSeconds: 900

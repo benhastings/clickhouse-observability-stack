@@ -1,4 +1,4 @@
-{{- $ttl := .Values.clickhouse.schema.ttlDays -}}
+{{- $ttl := (include "common.values" . | fromYaml).global.retention -}}
 -- The otel database, applied by the clickhouse-schema Job as otel_admin. The collector inserts as
 -- otel_writer and Cerberus reads as otel_reader; neither can change a table.
 --
@@ -12,7 +12,7 @@
 -- CREATE TABLE IF NOT EXISTS never changes an existing table, so a change to a table already deployed
 -- is an ALTER ... IF [NOT] EXISTS added below its CREATE, and the CREATE edited to match.
 --
--- Retention is clickhouse.schema.ttlDays per signal. The MODIFY TTL statements at the end make a change
+-- Retention is global.retention per signal, which Cerberus's metadata lookback also reads. The MODIFY TTL statements at the end make a change
 -- apply to existing tables; materialize_ttl_after_modify = 0 makes them metadata-only, so parts written
 -- before the change expire on their old TTL.
 

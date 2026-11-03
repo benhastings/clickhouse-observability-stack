@@ -56,6 +56,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -88,10 +92,6 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
-        configMaps:
-          env:
-            data:
-              CERBERUS_PROM_METADATA_LOOKBACK: 7d
         deployment:
           containers:
             cerberus:
@@ -115,6 +115,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -162,11 +166,6 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
-          schema:
-            ttlDays:
-              logs: 7
-              metrics: 7
-              traces: 7
           storage: 2Gi
         global:
           clickhouseOperator:
@@ -179,6 +178,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -227,6 +230,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -270,6 +277,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -325,6 +336,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
         vault:
           enabled: false
   destination:
@@ -386,6 +401,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
         rbac:
           scope: namespace
   destination:
@@ -431,6 +450,10 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
