@@ -1,5 +1,5 @@
 {{- $v := include "common.values" . | fromYaml -}}
-{{- if and $v.service.enabled (eq (include "common.mesh" .) "istio") }}
+{{- if and (include "common.serviceEnabled" .) (eq (include "common.mesh" .) "istio") }}
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule

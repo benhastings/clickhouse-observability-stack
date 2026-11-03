@@ -22,8 +22,6 @@ destinationServer: https://kubernetes.default.svc
 clusterScoped: false
 
 global:
-  labels:
-    environment: paas
   # The service owner's ClickHouse (README: The ClickHouse service contract). Every client reaches it at
   # services.clickhouse over TLS and verifies its certificate against tls.serverName and the CA bundle in the
   # ConfigMap tls.caConfigMap, which the platform puts in this namespace. The users and their Secrets
@@ -41,9 +39,7 @@ global:
     clickhouse: clickhouse.paas.example:9440
   # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
   # no Gateway is rendered. The Gateway, its TLS certificate and DNS for the host are the platform's.
-  mesh: istio
   exposure:
-    enabled: true
     hosts:
       grafana: grafana.paas.example
     gateway:
@@ -59,13 +55,34 @@ applications:
     values: {}
 
   # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats or node metrics
-  # (README: Collector RBAC: cluster-wide or one namespace, for what that loses).
+  # (README: Collector RBAC: cluster-wide or one namespace, for what that loses). OTLP stays inside the cluster,
+  # with no bearer token.
   otel-collector:
     values:
       rbac:
         scope: namespace
       exposure:
         host: ""
+      collector:
+        auth:
+          enabled: false
+      deployment:
+        containers:
+          otel-collector:
+            env:
+              OTLP_BEARER_TOKEN: null
 
-  demo-load:
-    enabled: false
+  # Credentials are Kubernetes Secrets in this namespace, not Vault, and Grafana keeps its login form: the
+  # production defaults read Grafana's from Vault and sign in through an OpenID Connect provider.
+  grafana:
+    values:
+      vault:
+        enabled: false
+      auth:
+        genericOauth:
+          enabled: false
+      deployment:
+        containers:
+          grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null

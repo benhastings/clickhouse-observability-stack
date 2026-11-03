@@ -67,5 +67,7 @@ applications:
     syncWave: 3
   vmalert:
     syncWave: 3
+  # Synthetic load for a laptop or a test cluster; an environment that wants it sets enabled: true.
   demo-load:
     syncWave: 4
+    enabled: false

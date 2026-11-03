@@ -4,7 +4,7 @@
 
 A GitOps deployment of an OpenTelemetry pipeline that stores **traces, logs and metrics in ClickHouse** and lets **Grafana query them with PromQL, LogQL and TraceQL**. Grafana doesn't talk to ClickHouse directly: Cerberus sits in between and speaks the Prometheus, Loki and Tempo APIs on ClickHouse's behalf.
 
-One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared set of templates, `helm-templates/common`. It's sized for a laptop and verified end to end on a local kind cluster.
+One Argo CD app-of-apps chart deploys everything else, per environment. Every workload is its own small chart under `cluster-nodes/`, and all of them render their Kubernetes objects through one shared set of templates, `helm-templates/common`. Its defaults are production-shaped, every environment file holds only what differs from them, and the `local` environment shrinks the stack to fit a laptop, where it is verified end to end on kind.
 
 **New here?** [docs/getting-started.md](docs/getting-started.md) walks through installing it on a real cluster
 step by step, with the Kubernetes and observability terms explained as they come up, and
@@ -198,7 +198,7 @@ With `global.mesh: istio` (the default) that renders a Gateway on 443 and a Virt
 TLS Secret from the ingress gateway's namespace. With `mesh: kubernetes` it renders an Ingress, and
 `global.exposure.ingressClassName` picks the controller. Only OTLP over HTTP is exposed. Senders then use
 `OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com` with `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`
-and the bearer token above. `values-prod.yaml` shows the whole thing with placeholder hosts.
+and the bearer token above. The defaults (`global.exposure` in `helm-templates/common/values.yaml`) do exactly this on placeholder `example.com` hosts, so an environment sets only its own hosts and TLS Secret.
 
 To stop the demo load, set `applications.demo-load.enabled: false` in `cluster-configs/overrides/values-local.yaml` and push. The app-of-apps prunes it. In a `make dev/up` cluster, run `make dev/load/stop` instead.
 
@@ -674,10 +674,10 @@ reach ClickHouse over TLS (`CLICKHOUSE_SECURE=true`) rather than exposing its HT
 `mcp-clickhouse` 0.7.0 installed with pip (the `uv run` line is the project's own): it listed both databases and
 the `otel` tables, answered a per-service error-ratio query, and gave up on a cross join after 30 seconds.
 
-Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days; 7 by default, for the
-laptop's 2 Gi volume) on the `clickhouse` app. `prod` keeps traces 21 days, logs 14 and metrics 30, and
-sets Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` to the metrics retention: without it, Grafana's metric
-and label pickers only look back 14 days. A change rewrites each table's TTL without rewriting its parts:
+Retention is `clickhouse.schema.ttlDays` (`logs`, `metrics`, `traces`, in days) on the `clickhouse` app. The
+defaults keep traces 21 days, logs 14 and metrics 30, and set Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` to
+the metrics retention: without it, Grafana's metric and label pickers only look back 14 days. The laptop
+profiles keep 7 days of each, for their 2 Gi volume. A change rewrites each table's TTL without rewriting its parts:
 data written before the change expires on the old TTL.
 
 To change a table, edit its `CREATE` in the schema file and add an `ALTER ... IF [NOT] EXISTS` below it, so
@@ -1252,24 +1252,23 @@ attribute column yet; re-run it at your own rate before deciding.
 
 ### Low-memory sizing
 
-Everything is sized for light local testing:
+The defaults are production's. The laptop profiles (`local`, and `restricted` for its kind e2e) override the
+five larger apps down to light local testing; every other container gets `global.resources` (32 Mi requested,
+a 128 Mi cap) in both:
 
-| component | memory request | memory cap |
-|---|---|---|
-| ClickHouse | 256 Mi | 1.625 Gi (128 Mi of it for the embedded Keeper) |
-| Grafana | 96 Mi | 1 Gi (peaks near 700 Mi with the Drilldown apps in use) |
-| Cerberus | 64 Mi | 384 Mi |
-| Collector | 64 Mi | 256 Mi |
-| Operator | 48 Mi | 192 Mi |
-| Alertmanager | 32 Mi | 128 Mi |
-| vmalert | 32 Mi | 128 Mi |
-| garmr sql-adapter | 16 Mi | 64 Mi |
-| garmr | 24 Mi | 64 Mi |
-| Collector agent (off; per node when on) | 32 Mi | 128 Mi |
+| component | production: memory request | production: cap | laptop: request | laptop: cap |
+|---|---|---|---|---|
+| ClickHouse | 8 Gi | 8 Gi | 256 Mi | 1.625 Gi (128 Mi of it for the embedded Keeper) |
+| Grafana | 256 Mi | 1 Gi | 96 Mi | 1 Gi (peaks near 700 Mi with the Drilldown apps in use) |
+| Cerberus (2 replicas in production) | 512 Mi | 2 Gi | 64 Mi | 384 Mi |
+| Collector | 512 Mi | 2 Gi | 64 Mi | 256 Mi |
+| Operator | 128 Mi | 512 Mi | 48 Mi | 192 Mi |
+| Alertmanager, vmalert, garmr, garmr sql-adapter, demo load | 32 Mi | 128 Mi | 32 Mi | 128 Mi |
+| Collector agent (off; per node when on) | 32 Mi | 128 Mi | 32 Mi | 128 Mi |
 
 The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
 
-ClickHouse also gets a `config.d/low_memory.xml` (in `cluster-nodes/clickhouse/values.yaml`; the `prod` environment removes it) with:
+With `clickhouse.lowMemory: true`, which the laptop profiles set, ClickHouse also gets a `config.d/low_memory.xml` (from `cluster-nodes/clickhouse/files/installation.yaml.tpl`) with:
 - a fixed memory cap at 90% of the container (`max_server_memory_usage_to_ram_ratio`,
   `memory_worker_dynamic_hard_limit: false`)
 - small caches
@@ -1317,14 +1316,18 @@ AGENTS.md                      conventions for contributors and coding agents
 
 ### Environments and overrides
 
-A value reaches a pod through four layers, each overriding the one before:
+A value reaches a pod through four layers, each overriding the one before, and each holding only what is
+particular to it:
 
-1. `helm-templates/common` defaults
-2. `cluster-nodes/<app>/values.yaml`
-3. `cluster-configs/app-of-apps/values.yaml` (the application list and sync waves)
-4. `cluster-configs/overrides/values-<env>.yaml`, under `applications.<app>.values`
+1. `helm-templates/common/values.yaml`: every default, production-shaped, including each container's default
+   size (`global.resources`) and the placeholder `example.com` hosts
+2. `cluster-nodes/<app>/values.yaml`: only what makes that app different
+3. `cluster-configs/app-of-apps/values.yaml`: the application list and sync waves
+4. `cluster-configs/overrides/values-<env>.yaml`: only what differs for that environment, under `global` and
+   `applications.<app>.values`
 
-For example, to give Cerberus more memory in prod:
+So an installation is one environment file: production with nothing in it, or a site's own copy with its hosts,
+its sizes and its secret source. For example, to give Cerberus more memory in an environment:
 
 ```yaml
 applications:
@@ -1341,14 +1344,16 @@ applications:
 Containers, ports, env vars and volumes are maps keyed by name, so this changes one field and leaves the rest
 of the container alone. `helm-templates/common/README.md` documents every key.
 
-`local` is what `scripts/kind-up.sh` deploys. `prod` is a worked example: no demo load, no low-memory tuning,
-larger resources, Secrets you create yourself (`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`
-and `clickhouse-operator-credentials`), and Grafana signing in through OAuth with its secrets in Vault (see
+`local` is what `scripts/kind-up.sh` deploys: the defaults overridden down to the laptop profile, with
+Kubernetes Secrets in place of Vault, no single sign-on, no exposure and the demo load on. `prod` is the
+defaults themselves, so its file overrides nothing: no demo load, production sizes, Secrets you create yourself
+(`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-operator-credentials` and the
+collector's `otel-collector-auth`), and Grafana signing in through OAuth with its secrets in Vault (see
 [Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)). `restricted` is the profile for a tenant
 namespace with nothing cluster-scoped (see [A restricted namespace](#a-restricted-namespace)), and `paas` the same
 profile consuming a platform's ClickHouse service (see [An external ClickHouse](#an-external-clickhouse)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
-`FORCE=1`. Every application starts from its node defaults; add only what differs.
+`FORCE=1`. An environment with nothing in it deploys as production does; add only what differs.
 
 The applications in `cluster-configs/app-of-apps/values.yaml` are the supported set. An environment file can
 turn one off with `enabled: false`, and it can add its own next to them. An added application needs a
@@ -1541,7 +1546,7 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
 
 ## Grafana sign-in with Keycloak
 
-Grafana can sign users in through Keycloak using generic OAuth. The laptop profile leaves it off (`auth.genericOauth.enabled: false` in `cluster-nodes/grafana/values.yaml`), so `make cluster/up` still logs in with the generated admin password that `make cluster/port-forward` prints. An environment turns it on by setting `auth.genericOauth` under `applications.grafana.values`; this section is the Keycloak side of that.
+Grafana can sign users in through Keycloak using generic OAuth. It is on by default, against a placeholder realm at `sso.example.com`; the laptop profile turns it off (`auth.genericOauth.enabled: false` in `values-local.yaml`), so `make cluster/up` still logs in with the generated admin password that `make cluster/port-forward` prints. An environment points it at its own provider by setting `auth.genericOauth` under `applications.grafana.values`; this section is the Keycloak side of that.
 
 Create a client in the realm with these settings:
 
@@ -1605,10 +1610,11 @@ name it in `auth.genericOauth.tlsCaConfigMap` (the key defaults to `ca.crt`, set
 and sets `tls_client_ca`. Certificate verification stays on; there is no option to skip it. A CA certificate is
 public, so a ConfigMap is enough; the client secret is the only credential.
 
-`values-prod.yaml` puts this together: OAuth on with placeholder `sso.example` endpoints, auto login, groups read
-from the `groups` claim, sessions of at most seven days, the root URL `https://grafana.example/` from its exposure,
-and Grafana's secrets (`grafana-admin` and `grafana-oauth`) from Vault through the role `grafana`. A site copies
-that block into its own environment file with its provider's URLs, client ID and host.
+The defaults in `cluster-nodes/grafana/values.yaml` put this together: OAuth on with placeholder `sso.example.com`
+endpoints, auto login, groups read from the `groups` claim, sessions of at most seven days, the root URL
+`https://grafana.example.com/` from the default exposure, and Grafana's secrets (`grafana-admin` and
+`grafana-oauth`) from Vault through the role `grafana`. A site sets its provider's URLs, client ID and host in
+its own environment file.
 
 ### What is tested, and what only the site can check
 
@@ -1648,8 +1654,8 @@ on the target cluster after the first sync, in this order:
   Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
   that enforces NetworkPolicy.
 
-- **Credentials:** no environment commits a password. `prod` expects `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr` and `clickhouse-operator-credentials` to exist, and Grafana's `grafana-admin` and `grafana-oauth` in Vault, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
-- **ClickHouse sizing:** raise the memory settings, and remove or relax the low-memory config.
+- **Credentials:** no environment commits a password. The defaults (`prod`) expect `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `clickhouse-operator-credentials` and `otel-collector-auth` to exist, and Grafana's `grafana-admin` and `grafana-oauth` in Vault, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
+- **ClickHouse sizing:** the defaults are one 8 Gi server with a 200 Gi volume; size yours from **Disk sizing** and your own ingest. The laptop's `lowMemory` tuning is for 2 GiB servers and below.
 - **Collector scaling:** use trace-ID-aware load balancing so span metrics stay consistent across replicas. The gateway's `k8sattributes` watches every pod in the cluster, so its memory grows with the pod count; the agent watches only its own node's pods.
 - **A namespace without cluster-scoped RBAC:** set `rbac.scope: namespace` on the `otel-collector` app. The
   collector then gets only a Role, watches only its own namespace and drops `kubeletstats`; see **Collector RBAC:
@@ -1657,7 +1663,7 @@ on the target cluster after the first sync, in this order:
   from the `restricted` environment (**A restricted namespace**), or from `paas` (**An external ClickHouse**) where
   the platform offers ClickHouse as a service.
 - **System metrics on more than one node:** by default the collector is a single Deployment, so `kubeletstats` only reads the kubelet on the node it runs on. Set `collector.agent.enabled: true` and `daemonset.enabled: true` on the `otel-collector` app to run a `kubeletstats`-only agent on every node. The gateway Deployment then stops scraping the kubelet. The kubelet's serving certificate is verified everywhere except `local`, which sets `collector.agent.kubelet.insecureSkipVerify: true` for kind's self-signed certificate.
-- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (7 days per signal by default; `values-prod.yaml` keeps traces 21 days, logs 14 and metrics 30). Set `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus to the metrics retention when it exceeds 14 days, as `prod` does.
+- **Retention:** set `clickhouse.schema.ttlDays` on the `clickhouse` app (traces 21 days, logs 14 and metrics 30 by default; 7 each in the laptop profiles). Keep `CERBERUS_PROM_METADATA_LOOKBACK` on Cerberus equal to the metrics retention.
 - **More than one ClickHouse shard or replica:** the schema is plain `MergeTree`, and the schema Job connects through the `clickhouse` Service, so it creates the tables on one server. Replication needs `ReplicatedMergeTree`, `ON CLUSTER` and a Keeper; that is a change to the schema file, not a value.
 - **Cerberus maturity:** it's a young project (1.x, moving fast). Pin versions and test upgrades.
 

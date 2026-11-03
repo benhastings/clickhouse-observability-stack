@@ -93,9 +93,9 @@ check/structure: ## Enforce the cluster-configs and cluster-nodes layout in AGEN
 	scripts/check-structure.bash
 
 .PHONY: check/schema
-check/schema: deps ## Fail when a values.schema.json or the common values table is stale, or the schema accepts deployment.replica
+check/schema: deps ## Fail when a values.schema.json, the common values table or common's generated defaults are stale, or the schema accepts deployment.replica
 	@tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && scripts/generate-schemas.bash "$$tmp" && \
-	for f in $$(cd "$$tmp" && find . -name values.schema.json) ./helm-templates/common/README.md; do \
+	for f in $$(cd "$$tmp" && find . -name values.schema.json) ./helm-templates/common/README.md ./helm-templates/common/templates/_defaults.tpl; do \
 	  diff -u "$$f" "$$tmp/$$f" >/dev/null || { echo "check/schema: $$f is stale; run make generate"; exit 1; }; \
 	done
 	@if helm template fixture tests/charts/common-fixture -f tests/schema/bad-replica.yaml >/dev/null 2>&1; then \

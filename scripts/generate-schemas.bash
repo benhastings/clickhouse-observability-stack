@@ -23,6 +23,21 @@ done
 mkdir -p "$out/cluster-configs/app-of-apps"
 yq -o json -I 2 '.' cluster-configs/app-of-apps/schema/values.schema.yaml >"$out/cluster-configs/app-of-apps/values.schema.json"
 
+# common's defaults: helm-templates/common/values.yaml as the common.defaults template, since Helm reads only a
+# chart's own values.yaml and every node renders through common's templates.
+defaults=helm-templates/common/values.yaml
+if grep -q '{{' "$defaults"; then
+  echo "generate-schemas: $defaults is not templated, so it must not contain {{" >&2
+  exit 1
+fi
+mkdir -p "$out/helm-templates/common/templates"
+{
+  echo '{{- /* Generated from helm-templates/common/values.yaml by make generate: edit that file, not this one. */ -}}'
+  echo '{{- define "common.defaults" -}}'
+  grep -v '^#' "$defaults" | sed '/./,$!d'
+  echo '{{- end -}}'
+} >"$out/helm-templates/common/templates/_defaults.tpl"
+
 # The values table in helm-templates/common/README.md is generated from the same schema. make check/schema
 # passes --check through CHECK_REFERENCE.
 yq -o json -I 2 '.' "$common" >"$out/node.schema.json.tmp"

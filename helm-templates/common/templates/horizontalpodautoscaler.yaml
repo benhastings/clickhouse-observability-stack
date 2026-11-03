@@ -1,6 +1,6 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $a := $v.autoscaling -}}
-{{- if and $v.deployment.enabled $a.enabled }}
+{{- if and (include "common.deploymentEnabled" .) $a.enabled }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

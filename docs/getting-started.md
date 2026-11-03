@@ -111,9 +111,9 @@ Everything that follows runs from this directory.
 
 ## 4. Describe your environment
 
-An **environment** is one file of settings for one cluster. The repository ships three: `local` (the kind
-laptop cluster), `dev` and `prod`, the last of which is a worked example of production settings. You make your
-own instead of editing theirs.
+An **environment** is one file of settings for one cluster. The defaults are production's, and an environment
+file holds only what differs from them: the repository's `prod` file is empty for that reason, and `local` (the
+kind laptop cluster) overrides the sizes down. You make your own file instead of editing theirs.
 
 Pick a short name, for example `staging`, and generate the files:
 
@@ -126,31 +126,27 @@ That writes two files:
 - `cluster-configs/overrides/values-staging.yaml`: your settings. This is the one you edit.
 - `cluster-configs/app-of-apps/app-of-apps-staging.yaml`: only used by the Argo CD path in step 6b.
 
-Open `values-staging.yaml` and replace everything after the comments with the example below. Each app starts
-from its defaults, which are sized for a laptop; you only write what's different.
+Out of the box, the defaults expect what a production cluster has: Istio, Grafana and OTLP exposed on HTTPS
+hosts, Grafana signing in through your single sign-on provider with its secrets in Vault, a bearer token on
+OTLP, and one 8 GiB ClickHouse with a 200 GiB disk. For a first test you probably have none of that yet, so
+open `values-staging.yaml` and replace everything after the comments with the example below. It turns those
+off and makes ClickHouse smaller; delete each block as you set the real thing up.
 
 ```yaml
 environment: staging
 repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
-destinationServer: https://kubernetes.default.svc
 
 global:
-  labels:
-    environment: staging      # added to every object, so `kubectl get pods -l environment=staging` finds them
   mesh: kubernetes            # no Istio. Leave this out only if the cluster runs Istio.
+  exposure:
+    enabled: false            # nothing exposed yet: step 8 reaches Grafana with kubectl port-forward
 
 applications:
   clickhouse:
     values:
       clickhouse:
         storage: 50Gi         # the ClickHouse disk. See "Disk sizing" in the README for how to size it.
-        lowMemory: false      # turns off the laptop memory tuning
-        schema:
-          ttlDays:            # how many days of each kind of data to keep; older data is deleted
-            traces: 21
-            logs: 14
-            metrics: 30
         resources:
           requests:
             cpu: "1"
@@ -158,44 +154,40 @@ applications:
           limits:
             memory: 4Gi       # the pod is killed if it goes over this, so keep it equal to the request
 
-  cerberus:
-    values:
-      configMaps:
-        env:
-          data:
-            CERBERUS_PROM_METADATA_LOOKBACK: 30d   # keep equal to ttlDays.metrics above
-      deployment:
-        containers:
-          cerberus:
-            env:
-              GOMEMLIMIT: 1717986918B              # 80% of the limit, so Go cleans up before it's killed
-            resources:
-              requests:
-                cpu: 250m
-                memory: 512Mi
-              limits:
-                memory: 2Gi
-
   otel-collector:
     values:
+      collector:
+        auth:
+          enabled: false      # no bearer token while OTLP stays inside the cluster
       deployment:
         containers:
           otel-collector:
             env:
-              GOMEMLIMIT: 1638MiB                  # 80% of the limit
-            resources:
-              requests:
-                cpu: 250m
-                memory: 512Mi
-              limits:
-                memory: 2Gi
+              OTLP_BEARER_TOKEN: null
+
+  grafana:
+    values:
+      vault:
+        enabled: false        # Grafana's admin login from the grafana-admin Secret in step 5
+      auth:
+        genericOauth:
+          enabled: false      # the login form, until you connect your sign-on provider
+      deployment:
+        containers:
+          grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
+
+  demo-load:
+    enabled: true             # synthetic traffic, which is what you want for a first test
 ```
 
-The demo load stays on, which is what you want for a first test. To turn it off later, add
-`demo-load: {enabled: false}` under `applications`.
+Every other setting is production's: the retention (21 days of traces, 14 of logs, 30 of metrics), two Cerberus
+replicas, and the collector's and Grafana's sizes. To turn the demo load off later, delete its block.
 
 The file follows three merge rules: maps merge key by key, `null` deletes a key, and a list replaces the
-default list entirely. `cluster-configs/overrides/values-prod.yaml` shows more settings, each with a comment.
+default list entirely. `helm-templates/common/values.yaml` and each `cluster-nodes/<app>/values.yaml` show
+every default, each with a comment.
 
 To see exactly what will be created, without touching the cluster:
 

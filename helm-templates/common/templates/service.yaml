@@ -1,6 +1,6 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $s := $v.service -}}
-{{- if $s.enabled }}
+{{- if include "common.serviceEnabled" . }}
 ---
 apiVersion: v1
 kind: Service

@@ -129,6 +129,8 @@ data:
     disable_plugins = grafana-pyroscope-app,grafana-advisor-app
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
+    [auth]
+    login_maximum_lifetime_duration = 7d
 ---
 # Source: grafana/templates/configmap.yaml
 apiVersion: v1
@@ -5217,7 +5219,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 543acbfb366aca5e333ab8ae0528f2c4ee773b2a619a41847834dfff135425bf
+        checksum/config: 3ef88750aa4d26828e901cdb2fae903a7351fc7978936fa307d82cad9cbbc706
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
@@ -5266,11 +5268,14 @@ spec:
               path: /api/health
               port: grafana
             initialDelaySeconds: 60
+            periodSeconds: 10
             timeoutSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: grafana
+            periodSeconds: 5
+            timeoutSeconds: 5
           resources:
             limits:
               memory: 1Gi

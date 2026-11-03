@@ -59,6 +59,8 @@ spec:
       releaseName: alertmanager
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -95,7 +97,25 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
+        configMaps:
+          env:
+            data:
+              CERBERUS_PROM_METADATA_LOOKBACK: null
+        deployment:
+          containers:
+            cerberus:
+              env:
+                GOMEMLIMIT: 322122547B
+              resources:
+                limits:
+                  memory: 384Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+          replicas: 1
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -132,7 +152,30 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
+        clickhouse:
+          analyst:
+            maxExecutionTime: 60
+            maxMemoryUsage: 268435456
+            maxRowsToRead: 200000000
+            quota:
+              executionTime: 1800
+              readRows: 2000000000
+          lowMemory: true
+          resources:
+            limits:
+              memory: 1664Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          schema:
+            ttlDays:
+              logs: 7
+              metrics: 7
+              traces: 7
+          storage: 2Gi
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -174,7 +217,18 @@ spec:
     helm:
       releaseName: clickhouse-operator
       valuesObject:
+        deployment:
+          containers:
+            clickhouse-operator:
+              resources:
+                limits:
+                  memory: 192Mi
+                requests:
+                  cpu: 25m
+                  memory: 48Mi
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -212,6 +266,8 @@ spec:
       releaseName: demo-load
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -249,6 +305,8 @@ spec:
       releaseName: garmr
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -286,6 +344,8 @@ spec:
       releaseName: garmr-sql-adapter
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -328,6 +388,9 @@ spec:
           enabled: true
           errorRatio:
             for: 1m
+        auth:
+          genericOauth:
+            enabled: false
         configMaps:
           config:
             data:
@@ -344,6 +407,14 @@ spec:
         deployment:
           containers:
             grafana:
+              env:
+                GOMEMLIMIT: 920MiB
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 96Mi
+              secretEnv:
+                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
               startupProbe:
                 failureThreshold: 60
                 httpGet:
@@ -359,6 +430,8 @@ spec:
                 medium: Memory
                 sizeLimit: 64Mi
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -373,6 +446,8 @@ spec:
                 requests:
                   storage: 1Gi
         pluginsClaim: true
+        vault:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -410,7 +485,23 @@ spec:
           agent:
             kubelet:
               insecureSkipVerify: true
+          auth:
+            enabled: false
+        deployment:
+          containers:
+            otel-collector:
+              env:
+                GOMEMLIMIT: 204MiB
+                OTLP_BEARER_TOKEN: null
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes
@@ -448,6 +539,8 @@ spec:
       releaseName: vmalert
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: local
           mesh: kubernetes

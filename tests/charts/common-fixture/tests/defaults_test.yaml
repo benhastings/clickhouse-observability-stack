@@ -1,0 +1,93 @@
+suite: common defaults
+release:
+  name: fixture
+  namespace: demo
+tests:
+  - it: gives a container without resources global.resources
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: sidecar
+      - equal:
+          path: spec.template.spec.containers[1].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+
+  - it: keeps global.resources under a container's own resources, key by key
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      global.resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: "1"
+          memory: 256Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: "1"
+              memory: 32Mi
+
+  - it: fills a declared probe's timings from probes, under the container's own keys
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      deployment.containers.app.livenessProbe:
+        httpGet:
+          path: /healthz
+          port: http
+        failureThreshold: 2
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe
+          value:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe
+          value:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 2
+
+  - it: gives a container without a probe none
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[1].livenessProbe
+      - notExists:
+          path: spec.template.spec.containers[1].readinessProbe
+      - notExists:
+          path: spec.template.spec.containers[1].startupProbe
+
+  - it: renders no Service for an app without ports, as the default service.enabled allows
+    template: templates/service.yaml
+    set:
+      service.ports: null
+    asserts:
+      - hasDocuments:
+          count: 0

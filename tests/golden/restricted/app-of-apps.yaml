@@ -49,7 +49,6 @@ spec:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -57,7 +56,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -90,11 +88,26 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
+        configMaps:
+          env:
+            data:
+              CERBERUS_PROM_METADATA_LOOKBACK: null
+        deployment:
+          containers:
+            cerberus:
+              env:
+                GOMEMLIMIT: 322122547B
+              resources:
+                limits:
+                  memory: 384Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+          replicas: 1
         global:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -102,7 +115,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -135,11 +147,31 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
+        clickhouse:
+          analyst:
+            maxExecutionTime: 60
+            maxMemoryUsage: 268435456
+            maxRowsToRead: 200000000
+            quota:
+              executionTime: 1800
+              readRows: 2000000000
+          lowMemory: true
+          resources:
+            limits:
+              memory: 1664Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          schema:
+            ttlDays:
+              logs: 7
+              metrics: 7
+              traces: 7
+          storage: 2Gi
         global:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -147,7 +179,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -189,7 +220,6 @@ spec:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -197,7 +227,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -234,7 +263,6 @@ spec:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -242,7 +270,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -275,11 +302,24 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
+        auth:
+          genericOauth:
+            enabled: false
+        deployment:
+          containers:
+            grafana:
+              env:
+                GOMEMLIMIT: 920MiB
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 96Mi
+              secretEnv:
+                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
         global:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -287,7 +327,8 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
+        vault:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -320,13 +361,27 @@ spec:
     helm:
       releaseName: otel-collector
       valuesObject:
+        collector:
+          auth:
+            enabled: false
+        deployment:
+          containers:
+            otel-collector:
+              env:
+                GOMEMLIMIT: 204MiB
+                OTLP_BEARER_TOKEN: null
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
         exposure:
           host: ""
         global:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -334,7 +389,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
         rbac:
           scope: namespace
   destination:
@@ -373,7 +427,6 @@ spec:
           clickhouseOperator:
             shared: true
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -381,7 +434,6 @@ spec:
               grafana: grafana.restricted.example
           labels:
             environment: restricted
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

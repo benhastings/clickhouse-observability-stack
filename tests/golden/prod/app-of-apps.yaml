@@ -59,16 +59,8 @@ spec:
       releaseName: alertmanager
       valuesObject:
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -107,33 +99,9 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
-        configMaps:
-          env:
-            data:
-              CERBERUS_PROM_METADATA_LOOKBACK: 30d
-        deployment:
-          containers:
-            cerberus:
-              env:
-                GOMEMLIMIT: 1717986918B
-              resources:
-                limits:
-                  memory: 2Gi
-                requests:
-                  cpu: 250m
-                  memory: 512Mi
-          replicas: 2
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -172,39 +140,9 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
-        clickhouse:
-          analyst:
-            maxConcurrentQueries: 2
-            maxExecutionTime: 300
-            maxMemoryUsage: 2147483648
-            maxRowsToRead: 10000000000
-            quota:
-              executionTime: 7200
-              readRows: 100000000000
-          lowMemory: false
-          resources:
-            limits:
-              memory: 8Gi
-            requests:
-              cpu: "2"
-              memory: 8Gi
-          schema:
-            ttlDays:
-              logs: 14
-              metrics: 30
-              traces: 21
-          storage: 200Gi
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -248,26 +186,9 @@ spec:
     helm:
       releaseName: clickhouse-operator
       valuesObject:
-        deployment:
-          containers:
-            clickhouse-operator:
-              resources:
-                limits:
-                  memory: 512Mi
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: clickhouse-operator
@@ -307,16 +228,8 @@ spec:
       releaseName: garmr
       valuesObject:
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -356,16 +269,8 @@ spec:
       releaseName: garmr-sql-adapter
       valuesObject:
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -404,45 +309,9 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
-        auth:
-          genericOauth:
-            apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
-            authUrl: https://sso.example/realms/platform/protocol/openid-connect/auth
-            autoLogin: true
-            clientId: grafana
-            enabled: true
-            groupsAttributePath: groups
-            tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
-          loginMaximumLifetimeDuration: 7d
-        deployment:
-          containers:
-            grafana:
-              env:
-                GOMEMLIMIT: 921MiB
-              resources:
-                limits:
-                  memory: 1Gi
-                requests:
-                  cpu: 100m
-                  memory: 256Mi
-              secretEnv:
-                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
-                  key: client-secret
-                  secret: grafana-oauth
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
-        vault:
-          enabled: true
-          role: grafana
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -481,36 +350,9 @@ spec:
     helm:
       releaseName: otel-collector
       valuesObject:
-        collector:
-          auth:
-            enabled: true
-        deployment:
-          containers:
-            otel-collector:
-              env:
-                GOMEMLIMIT: 1638MiB
-                OTLP_BEARER_TOKEN:
-                  valueFrom:
-                    secretKeyRef:
-                      key: token
-                      name: otel-collector-auth
-              resources:
-                limits:
-                  memory: 2Gi
-                requests:
-                  cpu: 500m
-                  memory: 512Mi
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -550,16 +392,8 @@ spec:
       releaseName: vmalert
       valuesObject:
         global:
-          exposure:
-            enabled: true
-            hosts:
-              grafana: grafana.example
-              otlp: otlp.example
-            tls:
-              credentialName: observability-tls
           labels:
             environment: prod
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

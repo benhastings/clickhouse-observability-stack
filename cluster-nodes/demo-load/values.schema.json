@@ -113,6 +113,28 @@
       ],
       "x-doc-leaf": true
     },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "timings filled into each probe a container declares, under the container's own keys; a container without a probe gets none",
+      "properties": {
+        "livenessProbe": {
+          "type": "object",
+          "description": "",
+          "x-default": "`periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6`"
+        },
+        "readinessProbe": {
+          "type": "object",
+          "description": "",
+          "x-default": "`periodSeconds: 5, timeoutSeconds: 5`"
+        },
+        "startupProbe": {
+          "type": "object",
+          "description": "",
+          "x-default": "`{}`"
+        }
+      }
+    },
     "podDisruptionBudget": {
       "type": "object",
       "additionalProperties": false,
@@ -177,8 +199,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "render a Service selecting the Deployment's pods",
-          "x-default": "`false`"
+          "description": "render a Service selecting the Deployment's pods once `ports` lists one; `false` renders none",
+          "x-default": "`true`"
         },
         "type": {
           "type": "string",
@@ -490,6 +512,11 @@
             }
           }
         },
+        "resources": {
+          "type": "object",
+          "description": "every container's requests and limits unless it sets its own; a container's `resources` override these key by key, so a container that sets only `limits.memory` keeps these requests. An environment resizes every app here",
+          "x-default": "`requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}`"
+        },
         "imagePullSecrets": {
           "type": "array",
           "items": {
@@ -589,12 +616,12 @@
             "enabled": {
               "type": "boolean",
               "description": "make the apps that set `exposure.host` reachable from outside the cluster",
-              "x-default": "`false`"
+              "x-default": "`true`"
             },
             "hosts": {
               "$ref": "#/definitions/stringMap",
               "description": "the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty",
-              "x-default": "`{}`",
+              "x-default": "`{grafana: grafana.example.com, otlp: otlp.example.com}`",
               "x-doc-key": "<key>"
             },
             "ingressClassName": {
@@ -609,7 +636,7 @@
                 "credentialName": {
                   "type": "string",
                   "description": "a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`)",
-                  "x-default": "`\"\"`"
+                  "x-default": "`observability-tls`"
                 }
               }
             },
@@ -682,8 +709,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "render a Deployment",
-          "x-default": "`false`"
+          "description": "render the workload once it lists containers: on by default for `deployment`, off for `daemonset`",
+          "x-default": "`true` (`deployment`), `false` (`daemonset`)"
         },
         "reloader": {
           "type": "boolean",
@@ -719,8 +746,8 @@
         },
         "podSecurityContext": {
           "type": "object",
-          "description": "",
-          "x-default": "`{}`"
+          "description": "merged key by key under a node's own, so a node sets only what it adds, such as runAsUser",
+          "x-default": "`{runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}`"
         },
         "containerSecurityContext": {
           "type": "object"

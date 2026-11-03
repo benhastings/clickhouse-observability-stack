@@ -20,6 +20,7 @@ cluster-configs/overrides/values-<env>.yaml   per-environment values the app-of-
 cluster-configs/argocd/values.yaml            Argo CD's own Helm values: footprint and the custom health checks
 cluster-nodes/<app>/                          one chart per installed app, rendered entirely through common
 helm-templates/common/                        the templates every object is rendered through, one file per kind (see its README)
+helm-templates/common/values.yaml             every default, production-shaped; make generate copies it into templates/_defaults.tpl
 tests/charts/common-fixture/                  an application chart that exercises common, with its unit tests
 tests/golden/<env>/                           every node rendered as Argo CD deploys it, per environment (generated)
 scripts/render.bash                           produces tests/golden, or one environment with its CRDs
@@ -37,11 +38,20 @@ git/hooks/                                    the pre-commit hook (`make setup/h
 ### How a value reaches a pod
 
 ```text
-helm-templates/common/templates/_defaults.tpl     library defaults
-  < cluster-nodes/<app>/values.yaml               the app, environment-neutral
-  < cluster-configs/app-of-apps/values.yaml        global: {} and the application list (waves, namespaces)
-  < cluster-configs/overrides/values-<env>.yaml    global: and applications.<app>.values for this environment
+helm-templates/common/values.yaml                every default, production-shaped (generated into _defaults.tpl)
+  < cluster-nodes/<app>/values.yaml               only what makes this app different from those defaults
+  < cluster-configs/app-of-apps/values.yaml        the application list (waves, namespaces, demo-load off)
+  < cluster-configs/overrides/values-<env>.yaml    only what differs for this environment; prod sets nothing
 ```
+
+**Each layer holds only what is particular to it.** Production is the default, so `values-prod.yaml` names
+the environment and its revision and nothing else, and every other environment overrides only what it changes
+(the laptop profiles carry the laptop sizes, Kubernetes Secrets instead of Vault, and no single sign-on). A node
+writes a value only when it differs from `helm-templates/common/values.yaml`: no `deployment.enabled` or
+`service.enabled` (on once there are containers and ports), no security context the defaults already set, no
+probe timings `probes` already gives, and `resources` only when the app needs materially more than
+`global.resources`. Edit `helm-templates/common/values.yaml`, never `templates/_defaults.tpl`; `check/schema`
+fails when the generated file is stale.
 
 The app-of-apps chart renders each child Application with `helm.valuesObject` set to `global` merged with
 `applications.<app>.values`, so an environment changes an app by writing the keys it wants under
@@ -178,9 +188,10 @@ tests/*_test.yaml        helm-unittest suites
   link). If a node needs something `common` can't express, add it to `common` with a fixture test, or use
   `objects` for a one-off manifest such as a custom resource. A helm-unittest suite names no template, or the
   common template it means (`templates/deployment.yaml`); `hasDocuments` counts per template.
-- **A node's `values.yaml` is environment-neutral.** It holds what every environment shares, sized for the
-  laptop profile that is actually tested. Credentials are never in a node: a Secret there is `create: false`,
-  and an environment turns it on or pre-creates it.
+- **A node's `values.yaml` is production-shaped and holds only its differences.** It says what makes the app
+  itself (image, ports, config, probes' paths, a size when it needs more than `global.resources`) and nothing
+  the common defaults already say. Credentials are never in a node: a Secret there is `create: false`, and an
+  environment pre-creates it, or Vault holds it.
 - **Content with literal `{{` goes in a file, not in values**: Grafana dashboards live in
   `cluster-nodes/grafana/dashboards/*.json`, vmalert's rules in `cluster-nodes/vmalert/files/rules/`, and the
   operator's ClickHouse config in `cluster-nodes/clickhouse-operator/files/`. All three are loaded with a `files` glob.
@@ -220,9 +231,9 @@ tests/*_test.yaml        helm-unittest suites
 - **Child Applications are generated.** Their finalizer, automated prune and self-heal, `CreateNamespace` and
   `ServerSideApply` come from `templates/application.yaml`; change them there, with a test in
   `cluster-configs/app-of-apps/tests/`.
-- `local` is the kind cluster and the only environment that is actually deployed and tested. `prod` is a
-  worked example of production overrides: no demo load, no laptop tuning, larger resources, and every Secret
-  pre-created. `restricted` is the supported profile for a tenant namespace with nothing cluster-scoped
+- `local` is the kind cluster and the only environment that is actually deployed and tested; it overrides the
+  production defaults down to the laptop profile and turns the demo load on. `prod` is the defaults themselves:
+  its file overrides nothing. `restricted` is the supported profile for a tenant namespace with nothing cluster-scoped
   (`clusterScoped: false`, a shared operator, a namespace-scoped collector); keep it passing `check/restricted`.
   `paas` is the same tenant profile consuming a service owner's ClickHouse (`global.clickhouse.external`): no
   operator and no ClickHouseInstallation, every client over verified TLS with the platform's CA bundle, and never
@@ -245,10 +256,11 @@ custom resource that later waves depend on, add a health check for it there too.
    `clickhouse` for a custom resource), rename it in `Chart.yaml`, write `values.yaml`, run `make deps`, and
    add a `tests/<app>_test.yaml` that pins whatever other apps depend on.
 2. **Application** — add `<app>: {syncWave: N}` to `cluster-configs/app-of-apps/values.yaml`.
-3. **Environments** — add whatever differs per environment to each `values-<env>.yaml`; credentials only
-   in `values-local.yaml`.
-4. **Resources** — every container sets a CPU and memory request and a memory limit (`make check` enforces
-   the limit). The local stack has to fit a laptop (about 2.4 GB measured); say what the new component costs.
+3. **Environments** — production is the node's own values; add to each other `values-<env>.yaml` only what it
+   changes (the laptop sizes in `local` and `restricted`). No credential in any of them.
+4. **Resources** — every container gets `global.resources` (10m and 32Mi requested, a 128Mi memory limit) unless
+   the node sets more; `make check` enforces a memory limit. The local stack has to fit a laptop (about 2.4 GB
+   measured); say what the new component costs, in production and in `values-local.yaml`.
 5. **README** — update the Components table, the sync-wave table, the sizing table, and the layout or
    troubleshooting sections if they change.
 6. `make generate`, `make check`, `make test`, then deploy to kind (below).
@@ -318,7 +330,7 @@ scans this repository.
   get two or three options with tradeoffs first.
 - **Never fork or vendor an upstream chart without approval.** Prefer values, a pinned version, or an
   upstream issue.
-- **Keep it laptop-sized.** Production hardening (HA ClickHouse, collector load balancing, real secrets) is
+- **Keep the laptop profile working.** Production hardening (HA ClickHouse, collector load balancing, real secrets) is
   listed in the README's **Before using this beyond a laptop**; don't fold it into unrelated changes.
 
 ### Say it once

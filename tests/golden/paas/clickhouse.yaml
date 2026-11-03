@@ -76,7 +76,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Timestamp)
     ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
-    TTL toDateTime(Timestamp) + toIntervalDay(7)
+    TTL toDateTime(Timestamp) + toIntervalDay(21)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     -- The first and last span time of each trace, so a lookup by trace ID reads one small table instead of
@@ -91,7 +91,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Start)
     ORDER BY (TraceId, Start)
-    TTL toDateTime(Start) + toIntervalDay(7)
+    TTL toDateTime(Start) + toIntervalDay(21)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE MATERIALIZED VIEW IF NOT EXISTS otel.otel_traces_trace_id_ts_mv TO otel.otel_traces_trace_id_ts
@@ -150,7 +150,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Timestamp)
     ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
-    TTL toDateTime(Timestamp) + toIntervalDay(7)
+    TTL toDateTime(Timestamp) + toIntervalDay(14)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     -- Metrics: one table per OTLP point type. Every table but summary and exponential histogram carries two
@@ -193,7 +193,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_sum
@@ -236,7 +236,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_histogram
@@ -283,7 +283,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_exponential_histogram
@@ -331,7 +331,7 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     CREATE TABLE IF NOT EXISTS otel.otel_metrics_summary
@@ -367,19 +367,19 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(TimeUnix)
     ORDER BY (MetricName, Attributes, ServiceName, toUnixTimestamp64Nano(TimeUnix))
-    TTL toDateTime(TimeUnix) + toIntervalDay(7)
+    TTL toDateTime(TimeUnix) + toIntervalDay(30)
     SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
     
     -- Retention
     
-    ALTER TABLE otel.otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalDay(7);
-    ALTER TABLE otel.otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalDay(7);
-    ALTER TABLE otel.otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_gauge MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
-    ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
+    ALTER TABLE otel.otel_traces MODIFY TTL toDateTime(Timestamp) + toIntervalDay(21);
+    ALTER TABLE otel.otel_traces_trace_id_ts MODIFY TTL toDateTime(Start) + toIntervalDay(21);
+    ALTER TABLE otel.otel_logs MODIFY TTL toDateTime(Timestamp) + toIntervalDay(14);
+    ALTER TABLE otel.otel_metrics_gauge MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_sum MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
+    ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(30);
     -- Feature tables for models and notebooks (otel_analyst reads them), in their own database so the Cerberus
     -- schema comparison is unaffected. TTLs follow the signal each is built from.
     --   trace_summary  one row per trace, written five minutes after its root span starts so the trace can finish
@@ -404,9 +404,9 @@ data:
     ENGINE = ReplacingMergeTree
     PARTITION BY toDate(Start)
     ORDER BY (RootService, Start, TraceId)
-    TTL toDateTime(Start) + toIntervalDay(7)
+    TTL toDateTime(Start) + toIntervalDay(21)
     SETTINGS ttl_only_drop_parts = 1;
-    ALTER TABLE otel_features.trace_summary MODIFY TTL toDateTime(Start) + toIntervalDay(7);
+    ALTER TABLE otel_features.trace_summary MODIFY TTL toDateTime(Start) + toIntervalDay(21);
     
     CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.trace_summary_mv
     REFRESH EVERY 1 MINUTE APPEND TO otel_features.trace_summary
@@ -446,9 +446,9 @@ data:
     ENGINE = ReplacingMergeTree
     PARTITION BY toDate(Minute)
     ORDER BY (ServiceName, Minute, SeverityText, TemplateHash)
-    TTL Minute + toIntervalDay(7)
+    TTL Minute + toIntervalDay(14)
     SETTINGS ttl_only_drop_parts = 1;
-    ALTER TABLE otel_features.log_templates MODIFY TTL Minute + toIntervalDay(7);
+    ALTER TABLE otel_features.log_templates MODIFY TTL Minute + toIntervalDay(14);
     
     CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.log_templates_mv
     REFRESH EVERY 1 MINUTE APPEND TO otel_features.log_templates
@@ -484,9 +484,9 @@ data:
     ENGINE = MergeTree
     PARTITION BY toDate(Time)
     ORDER BY (Model, ServiceName, Signal, Time)
-    TTL toDateTime(Time) + toIntervalDay(7)
+    TTL toDateTime(Time) + toIntervalDay(30)
     SETTINGS ttl_only_drop_parts = 1;
-    ALTER TABLE otel_ml.scores MODIFY TTL toDateTime(Time) + toIntervalDay(7);
+    ALTER TABLE otel_ml.scores MODIFY TTL toDateTime(Time) + toIntervalDay(30);
     
     CREATE MATERIALIZED VIEW IF NOT EXISTS otel_ml.scores_series_mv TO otel.otel_metrics_gauge
     DEFINER = otel_admin SQL SECURITY DEFINER
@@ -934,7 +934,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: paas
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-a99a883f
+  name: clickhouse-schema-9ed1d629
   namespace: observability
 spec:
   activeDeadlineSeconds: 900

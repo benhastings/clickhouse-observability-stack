@@ -599,13 +599,18 @@ spec:
                   key: token
                   name: otel-collector-auth
           livenessProbe:
+            failureThreshold: 6
             httpGet:
               path: /
               port: 13133
+            periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /
               port: 13133
+            periodSeconds: 5
+            timeoutSeconds: 5
           resources:
             limits:
               memory: 2Gi
@@ -673,7 +678,7 @@ spec:
         mode: SIMPLE
         credentialName: observability-tls
       hosts:
-        - otlp.example
+        - otlp.example.com
 ---
 # Source: otel-collector/templates/gateway.yaml
 apiVersion: networking.istio.io/v1
@@ -691,7 +696,7 @@ metadata:
     environment: prod
 spec:
   hosts:
-    - otlp.example
+    - otlp.example.com
   gateways:
     - observability/otel-collector
   http:

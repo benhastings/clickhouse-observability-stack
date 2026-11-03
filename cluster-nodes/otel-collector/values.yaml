@@ -16,20 +16,19 @@
 #       logs:
 #         receivers: [syslog]
 #
-# collector.auth.enabled makes the OTLP receiver require a bearer token on both gRPC and HTTP, checked by
-# the bearertokenauth extension against ${env:OTLP_BEARER_TOKEN}. The token is never in git: an
-# environment that turns auth on pre-creates the Secret otel-collector-auth with key token (or sets
-# secrets.auth.create: true with stringData.token, local only) and adds this to the collector's env:
+# collector.auth.enabled, on by default, makes the OTLP receiver require a bearer token on both gRPC and HTTP,
+# checked by the bearertokenauth extension against ${env:OTLP_BEARER_TOKEN}, which the gateway reads from the
+# Secret otel-collector-auth, key token. The token is never in git: the environment pre-creates that Secret (or
+# sets secrets.auth.create: true with stringData.token, local only). Clients then send
+# "Authorization: Bearer <token>". An environment whose OTLP only the cluster reaches may turn it off:
+#   collector:
+#     auth:
+#       enabled: false
 #   deployment:
 #     containers:
 #       otel-collector:
 #         env:
-#           OTLP_BEARER_TOKEN:
-#             valueFrom:
-#               secretKeyRef:
-#                 name: otel-collector-auth
-#                 key: token
-# Clients then send "Authorization: Bearer <token>".
+#           OTLP_BEARER_TOKEN: null
 #
 # Exposing the collector outside the cluster (global.exposure.enabled) requires auth: the render fails
 # unless collector.auth.enabled is set, or collector.auth.allowUnauthenticatedExposure is set for a
@@ -62,7 +61,7 @@ collector:
   spanMetrics:
     cardinalityLimit: 5000
   auth:
-    enabled: false
+    enabled: true
     allowUnauthenticatedExposure: false
   extraReceivers: {}
   extraPipelines: {}
@@ -475,7 +474,7 @@ configMaps:
 # and k8sattributes to the API server, where it watches pods, namespaces and (for deployment names)
 # replicasets. k8s_cluster lists and watches the workload kinds it reports, and holds its Lease here.
 #
-# rbac.scope: namespace is for a namespace that forbids cluster-scoped RBAC. No ClusterRole or
+# rbac.scope (cluster by default) set to namespace is for a namespace that forbids cluster-scoped RBAC. No ClusterRole or
 # ClusterRoleBinding is rendered; the Role grants namespaceRules, the namespaced part of clusterRules, in
 # the release namespace only. relay.yaml follows the same key: k8sattributes, k8s_cluster and k8sobjects
 # watch only the release namespace, and kubeletstats is off, because the kubelet's nodes/stats is
@@ -485,7 +484,6 @@ serviceAccount:
   automountToken: true
 
 rbac:
-  scope: cluster
   clusterRules:
     - apiGroups: [""]
       resources: [nodes/stats]
@@ -525,7 +523,6 @@ rbac:
       verbs: [get, list, watch, create, update, patch]
 
 service:
-  enabled: true
   ports:
     otlp:
       port: 4317
@@ -543,7 +540,6 @@ exposure:
   port: otlp-http
 
 deployment:
-  enabled: true
   containers:
     otel-collector:
       image: &image
@@ -567,7 +563,12 @@ deployment:
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
-        GOMEMLIMIT: 204MiB
+        GOMEMLIMIT: 1638MiB
+        OTLP_BEARER_TOKEN:
+          valueFrom:
+            secretKeyRef:
+              name: otel-collector-auth
+              key: token
       secretEnv:
         CLICKHOUSE_PASSWORD:
           secret: clickhouse-writer
@@ -579,10 +580,10 @@ deployment:
       readinessProbe: *probe
       resources:
         requests:
-          cpu: 25m
-          memory: 64Mi
+          cpu: 500m
+          memory: 512Mi
         limits:
-          memory: 256Mi
+          memory: 2Gi
       # The external ClickHouse's CA bundle, for the exporter's tls.ca_file (global.clickhouse.external only).
       clickhouseCA: true
       volumeMounts:
@@ -595,8 +596,8 @@ deployment:
 
 # The agent: kubeletstats only, one pod per node. Its own name label keeps it off the otel-collector
 # Service, since it has no OTLP receiver, and apart from the gateway's selector.
+# Off by default (daemonset.enabled); see collector.agent above to turn it on.
 daemonset:
-  enabled: false
   selectorLabels:
     app.kubernetes.io/name: otel-collector-agent
   containers:
@@ -695,12 +696,6 @@ daemonset:
           key: password
       livenessProbe: *probe
       readinessProbe: *probe
-      resources:
-        requests:
-          cpu: 10m
-          memory: 32Mi
-        limits:
-          memory: 128Mi
       clickhouseCA: true
 
 # With global.networkPolicy.enabled: one policy for the gateway and the agent. Any pod in the cluster may

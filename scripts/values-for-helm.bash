@@ -14,10 +14,18 @@ overrides="cluster-configs/overrides/values-$env.yaml"
 [[ -f "$overrides" ]] || { echo "values-for-helm: no $overrides" >&2; exit 1; }
 mkdir -p "$out"
 
+# The app-of-apps chart's own defaults come first, as Argo CD would apply them: each application's enabled flag
+# (demo-load is off unless an environment turns it on), and global.labels.environment set to the environment's name.
+merged="$out/merged.yaml"
+yq ea 'select(fileIndex == 0) * select(fileIndex == 1)
+  | .global.labels.environment = (.global.labels.environment // .environment)' \
+  cluster-configs/app-of-apps/values.yaml "$overrides" >"$merged"
+
 yq '{"global": (.global // {})} * (.applications // {}
   | del(.["clickhouse-operator"])
   | with_entries(.value = ((.value.values // {}) * (.value | pick(["enabled"])))))' \
-  "$overrides" >"$out/stack.yaml"
+  "$merged" >"$out/stack.yaml"
 
 yq '{"global": (.global // {})} * (.applications."clickhouse-operator".values // {})' \
-  "$overrides" >"$out/clickhouse-operator.yaml"
+  "$merged" >"$out/clickhouse-operator.yaml"
+rm -f "$merged"

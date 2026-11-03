@@ -7,7 +7,14 @@
 {{- if not (or $app.path $app.chart $app.repoURL (has $name ($.Values.nodes | default list))) }}
 {{- fail (printf "applications.%s is not a chart under cluster-nodes/ (nodes lists them); set its path, chart or repoURL, or check the name" $name) }}
 {{- end }}
-{{- $values := mustMergeOverwrite (dict "global" (deepCopy $.Values.global)) (deepCopy (default dict $app.values)) }}
+{{- /* Every app's objects carry the environment's name as a label unless global.labels sets one. */}}
+{{- $global := deepCopy (default dict $.Values.global) }}
+{{- $labels := default dict $global.labels }}
+{{- if not (hasKey $labels "environment") }}
+{{- $_ := set $labels "environment" $env }}
+{{- end }}
+{{- $_ := set $global "labels" $labels }}
+{{- $values := mustMergeOverwrite (dict "global" $global) (deepCopy (default dict $app.values)) }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

@@ -11,7 +11,7 @@ tests:
   - it: renders one Application per enabled app, suffixed with the environment
     asserts:
       - hasDocuments:
-          count: 10
+          count: 9
       - equal:
           path: metadata.name
           value: alertmanager-test
@@ -61,7 +61,9 @@ tests:
             helm:
               releaseName: grafana
               valuesObject:
-                global: {}
+                global:
+                  labels:
+                    environment: test
         documentSelector:
           path: metadata.name
           value: grafana-test
@@ -110,17 +112,17 @@ tests:
 
   - it: skips an app an environment disables
     set:
-      applications.demo-load.enabled: false
+      applications.vmalert.enabled: false
     asserts:
       - hasDocuments:
-          count: 9
+          count: 8
 
   - it: renders no operator Application when a platform team runs a shared ClickHouse operator
     set:
       global.clickhouseOperator.shared: true
     asserts:
       - hasDocuments:
-          count: 9
+          count: 8
       - containsDocument:
           kind: Application
           apiVersion: argoproj.io/v1alpha1
@@ -154,7 +156,7 @@ tests:
       global.clickhouse.external: true
     asserts:
       - hasDocuments:
-          count: 9
+          count: 8
       - containsDocument:
           kind: Application
           apiVersion: argoproj.io/v1alpha1
@@ -187,7 +189,7 @@ tests:
       applications.otel-collector.values.rbac.scope: namespace
     asserts:
       - hasDocuments:
-          count: 9
+          count: 8
       - equal:
           path: spec.syncPolicy.syncOptions
           value:
@@ -235,7 +237,44 @@ tests:
       - equal:
           path: spec.source.helm.valuesObject
           value:
-            global: {}
+            global:
+              labels:
+                environment: test
+
+  - it: labels every app's objects with the environment's name, unless global.labels sets one
+    documentSelector:
+      path: metadata.name
+      value: grafana-test
+    asserts:
+      - equal:
+          path: spec.source.helm.valuesObject.global.labels.environment
+          value: test
+
+  - it: keeps an environment label an environment sets itself
+    set:
+      global.labels.environment: staging
+    documentSelector:
+      path: metadata.name
+      value: grafana-test
+    asserts:
+      - equal:
+          path: spec.source.helm.valuesObject.global.labels.environment
+          value: staging
+
+  - it: renders no demo load unless an environment turns it on
+    asserts:
+      - hasDocuments:
+          count: 9
+      - notMatchRegex:
+          path: metadata.name
+          pattern: ^demo-load
+
+  - it: renders the demo load when an environment turns it on
+    set:
+      applications.demo-load.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 10
 
   - it: requires an environment
     set:
@@ -369,7 +408,7 @@ tests:
       applications.otel-collector.values.rbac.scope: namespace
     asserts:
       - hasDocuments:
-          count: 9
+          count: 8
       - equal:
           path: spec.syncPolicy.syncOptions
           value:
@@ -412,4 +451,4 @@ tests:
       applications.otel-collector.enabled: false
     asserts:
       - hasDocuments:
-          count: 8
+          count: 7

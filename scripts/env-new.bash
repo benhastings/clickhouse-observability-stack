@@ -27,13 +27,12 @@ if [[ "${FORCE:-}" != 1 ]]; then
 fi
 
 cat >"$values" <<YAML
-# Values for the $name environment. The app-of-apps chart reads this file; each child Application gets
-# \`global\` merged with \`applications.<app>.values\`, on top of the node's own values.yaml.
+# Values for the $name environment. The defaults are production's: helm-templates/common/values.yaml, then each
+# cluster-nodes/<app>/values.yaml. This file holds only what differs for $name; with nothing below, $name
+# deploys exactly as prod does. Each child Application gets \`global\` merged with \`applications.<app>.values\`.
 #
 # Merge rules: maps deep-merge, \`null\` deletes a key, and lists replace whole.
 # Every key a node accepts is documented in helm-templates/common/README.md.
-#
-# Every application starts from its node defaults. Add only what differs for this environment.
 environment: $name
 
 # The repository and revision Argo CD deploys from. They must match the bootstrap Application in
@@ -41,16 +40,25 @@ environment: $name
 repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
 
-# The cluster the child Applications deploy into.
-destinationServer: https://kubernetes.default.svc
-
 # For a tenant namespace that may not create cluster-scoped objects or manage Namespace metadata, start from
 # values-restricted.yaml instead (README: A restricted namespace); it sets clusterScoped: false.
 
-# Applied to every application's values. Uncomment and edit as needed.
+# What most sites change first. Uncomment and edit as needed.
 # global:
-#   labels:
-#     environment: $name
+#   # Grafana and OTLP over HTTPS on these hosts, with the TLS Secret named here.
+#   exposure:
+#     hosts:
+#       grafana: grafana.<your-domain>
+#       otlp: otlp.<your-domain>
+#     tls:
+#       credentialName: observability-tls
+#   # Every container's default requests and limits; apps that need more set their own.
+#   resources:
+#     requests:
+#       cpu: 10m
+#       memory: 32Mi
+#     limits:
+#       memory: 128Mi
 #   # When a platform team already runs the ClickHouse operator, use theirs and install no CRD, ClusterRole
 #   # or ClusterRoleBinding for it (README: A shared ClickHouse operator).
 #   clickhouseOperator:
@@ -58,16 +66,19 @@ destinationServer: https://kubernetes.default.svc
 
 # Change one app by writing only the keys you want under applications.<app>.values, for example:
 # applications:
-#   cerberus:
+#   grafana:
 #     values:
-#       deployment:
-#         containers:
-#           cerberus:
-#             resources:
-#               limits:
-#                 memory: 2Gi
+#       auth:
+#         genericOauth:
+#           authUrl: https://sso.<your-domain>/realms/<realm>/protocol/openid-connect/auth
+#           tokenUrl: https://sso.<your-domain>/realms/<realm>/protocol/openid-connect/token
+#           apiUrl: https://sso.<your-domain>/realms/<realm>/protocol/openid-connect/userinfo
+#   clickhouse:
+#     values:
+#       clickhouse:
+#         storage: 500Gi
 #   demo-load:
-#     enabled: false
+#     enabled: true
 YAML
 
 cat >"$bootstrap" <<YAML

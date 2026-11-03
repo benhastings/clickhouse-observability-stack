@@ -1,6 +1,6 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $p := $v.podDisruptionBudget -}}
-{{- if and $v.deployment.enabled $p.enabled }}
+{{- if and (include "common.deploymentEnabled" .) $p.enabled }}
 {{- $hasMin := not (kindIs "invalid" $p.minAvailable) -}}
 {{- $hasMax := not (kindIs "invalid" $p.maxUnavailable) -}}
 {{- if and $hasMin $hasMax }}

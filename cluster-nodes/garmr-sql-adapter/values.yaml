@@ -19,7 +19,6 @@ configMaps:
       GARMR_LOG_FORMAT: json
 
 service:
-  enabled: true
   ports:
     http:
       port: 8080
@@ -27,14 +26,10 @@ service:
       appProtocol: http
 
 deployment:
-  enabled: true
   podSecurityContext:
     fsGroup: 65532
     runAsGroup: 65532
-    runAsNonRoot: true
     runAsUser: 65532
-    seccompProfile:
-      type: RuntimeDefault
   containers:
     garmr:
       image:
@@ -63,29 +58,11 @@ deployment:
         httpGet:
           path: /-/healthy
           port: http
-        periodSeconds: 10
-        timeoutSeconds: 5
-        failureThreshold: 6
       # Ready once ClickHouse answers a ping.
       readinessProbe:
         httpGet:
           path: /-/ready
           port: http
-        periodSeconds: 5
-        timeoutSeconds: 5
-      resources:
-        requests:
-          cpu: 10m
-          memory: 16Mi
-        limits:
-          memory: 64Mi
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
-        privileged: false
-        readOnlyRootFilesystem: true
 
 # With global.networkPolicy.enabled: only vmalert queries the adapter, and the adapter reaches only ClickHouse.
 networkPolicy:

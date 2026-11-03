@@ -1,6 +1,6 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $d := $v.deployment -}}
-{{- if $d.enabled }}
+{{- if include "common.deploymentEnabled" . }}
 ---
 apiVersion: apps/v1
 kind: Deployment

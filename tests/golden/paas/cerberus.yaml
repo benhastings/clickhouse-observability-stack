@@ -52,6 +52,7 @@ data:
   CERBERUS_OTLP_LOGS_ENABLED: "true"
   CERBERUS_OTLP_METRICS_ENABLED: "true"
   CERBERUS_OTLP_TRACES_ENABLED: "true"
+  CERBERUS_PROM_METADATA_LOOKBACK: "30d"
   CERBERUS_QUERY_MAX_SAMPLES: "5000000"
 ---
 # Source: cerberus/templates/service.yaml
@@ -95,7 +96,7 @@ metadata:
     app.kubernetes.io/version: "1.22.0"
     environment: paas
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
     type: RollingUpdate
   selector:
@@ -108,7 +109,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: a1c759fb22cdbfd3b3830c0c59bea0a17c3426d17e2e5718835a5939db3f8fcb
+        checksum/config: 88d678f4a20ff3df276bed9349a359d9c6f3d2464a44e3b510fcc054d8a40c62
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false
@@ -135,7 +136,7 @@ spec:
                   key: password
                   name: clickhouse-reader
             - name: GOMEMLIMIT
-              value: "322122547B"
+              value: "1717986918B"
           envFrom:
             - configMapRef:
                 name: 'cerberus-env'
@@ -157,10 +158,10 @@ spec:
             timeoutSeconds: 5
           resources:
             limits:
-              memory: 384Mi
+              memory: 2Gi
             requests:
-              cpu: 25m
-              memory: 64Mi
+              cpu: 250m
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
