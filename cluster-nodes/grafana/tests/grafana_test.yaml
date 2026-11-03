@@ -47,7 +47,27 @@ tests:
       - exists:
           path: data["span-metrics.json"]
 
-  - it: reads the admin login from grafana-admin
+  - it: reads the admin login and the OAuth client secret from Vault by default, as grafana-admin and grafana-oauth
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: grafana
+      - exists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-grafana-admin-admin-password"]
+      - exists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-grafana-oauth-client-secret"]
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_SECURITY_ADMIN_PASSWORD
+          any: true
+
+  - it: reads the admin login from the grafana-admin Secret with Vault off
+    set:
+      vault.enabled: false
     documentSelector:
       path: kind
       value: Deployment
@@ -94,7 +114,9 @@ tests:
           path: spec.ports[0].targetPort
           value: grafana
 
-  - it: leaves generic OAuth out of grafana.ini by default
+  - it: leaves generic OAuth out of grafana.ini when it is off
+    set:
+      auth.genericOauth.enabled: false
     documentSelector:
       path: metadata.name
       value: grafana-config
@@ -135,6 +157,7 @@ tests:
         enabled: true
         rootUrl: https://grafana.example.com/
         clientId: grafana
+        authUrl: ""
         tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
         apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
     asserts:
@@ -143,6 +166,7 @@ tests:
 
   - it: fails the render when generic OAuth is enabled without a root URL
     set:
+      global.exposure.enabled: false
       auth.genericOauth:
         enabled: true
         clientId: grafana
@@ -153,7 +177,11 @@ tests:
       - failedTemplate:
           errorPattern: auth.genericOauth.rootUrl is required
 
-  - it: leaves root_url, client_secret and the OAuth secret env out by default
+  - it: leaves root_url, client_secret and the OAuth secret env out without OAuth or exposure
+    set:
+      global.exposure.enabled: false
+      auth.genericOauth.enabled: false
+      deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
     asserts:
       - notMatchRegex:
           path: data["grafana.ini"]
@@ -172,6 +200,8 @@ tests:
 
   - it: reads the OAuth client secret from grafana-oauth through the environment
     set:
+      vault.enabled: false
+      deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
       auth.genericOauth:
         enabled: true
         rootUrl: https://grafana.example.com/
@@ -250,6 +280,7 @@ tests:
 
   - it: refuses to hide the login form without OAuth
     set:
+      auth.genericOauth.enabled: false
       auth.disableLoginForm: true
     asserts:
       - failedTemplate:
@@ -281,12 +312,15 @@ tests:
           path: data["grafana.ini"]
           pattern: '(?m)^email_attribute_path = upn\ngroups_attribute_path = groups\nauto_login = true\nuse_refresh_token = true$'
 
-  - it: leaves auto login off, refreshes tokens and sets no email, groups or lifetime by default
+  - it: leaves auto login off, refreshes tokens and sets no email, groups or lifetime unless asked
     documentSelector:
       path: metadata.name
       value: grafana-config
     set:
+      auth.loginMaximumLifetimeDuration: ""
       auth.genericOauth:
+        autoLogin: false
+        groupsAttributePath: ""
         enabled: true
         rootUrl: https://grafana.example.com/
         clientId: grafana
@@ -568,6 +602,7 @@ tests:
 
   - it: reads a secretEnv OAuth client secret through $__env with Vault off
     set:
+      vault.enabled: false
       auth.genericOauth:
         enabled: true
         rootUrl: https://grafana.example.com/

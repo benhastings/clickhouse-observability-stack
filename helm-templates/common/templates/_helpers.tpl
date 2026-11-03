@@ -25,175 +25,6 @@
 
 {{- /* cspell:words daemonset */ -}}
 
-{{- define "common.defaults" -}}
-nameOverride: ""
-global:
-  mesh: istio
-  namespace: ""
-  labels: {}
-  imageRegistry: ""
-  externalSecrets:
-    enabled: false
-    secretStoreRef:
-      name: ""
-      kind: ClusterSecretStore
-    remotePath: observability
-    refreshInterval: 1h
-  networkPolicy:
-    enabled: false
-    # Namespaces whose pods may reach an exposed app: the Istio ingress gateway or the Ingress controller.
-    exposureNamespaces: []
-    istioNamespace: istio-system
-    # Where the stack runs, for rules that cross from the operator's namespace to ClickHouse's.
-    namespaces:
-      stack: observability
-      operator: clickhouse-operator
-  # Who runs the Altinity ClickHouse operator. false: this stack installs it, as the clickhouse-operator
-  # application with its CRDs, ClusterRole and ClusterRoleBinding. true: a platform team already runs one that
-  # watches the stack's namespace (in global.networkPolicy.namespaces.operator), and the stack renders nothing
-  # cluster-scoped for ClickHouse. podLabels select the operator's pods, for the NetworkPolicy and preflight.
-  clickhouseOperator:
-    shared: false
-    podLabels:
-      app.kubernetes.io/name: clickhouse-operator
-  # Who runs ClickHouse. external false: this stack does, through the operator. true: a service owner does, at
-  # global.services.clickhouse, and the stack renders no operator and no ClickHouseInstallation (README: An
-  # external ClickHouse). An external ClickHouse is always reached over TLS with the server's certificate
-  # verified: tls.serverName is the name it must carry and tls.caConfigMap the ConfigMap, in the stack's
-  # namespace, with the CA bundle that signed it (key tls.caKey). The platform or the service owner provides that
-  # ConfigMap; the stack never creates a certificate, and there is no way to skip verification.
-  # networkPolicyPeers are the NetworkPolicy peers the address resolves to; empty allows its port anywhere.
-  clickhouse:
-    external: false
-    networkPolicyPeers: []
-    tls:
-      serverName: ""
-      caConfigMap: ""
-      caKey: ca.crt
-  imagePullSecrets: []
-  services:
-    clickhouse: clickhouse:9000
-    cerberus: http://cerberus:8080
-    otlpGrpc: otel-collector:4317
-    alertmanager: http://alertmanager:9093
-    sqlAdapter: http://garmr-sql-adapter:8080
-    garmr: http://garmr:8080
-    alertHistory: http://otel-collector:8088/alertmanager
-  exposure:
-    enabled: false
-    hosts: {}
-    ingressClassName: ""
-    tls:
-      credentialName: ""
-    gateway:
-      name: ""
-      namespace: ""
-      selector:
-        istio: ingressgateway
-serviceAccount:
-  create: true
-  name: ""
-  automountToken: false
-  annotations: {}
-rbac:
-  scope: cluster
-  clusterRules: []
-  rules: []
-  namespaceRules: []
-deployment:
-  enabled: false
-  reloader: false
-  replicas: 1
-  strategy:
-    type: RollingUpdate
-  podLabels: {}
-  podAnnotations: {}
-  # Restricted by default; a node sets only what it changes. readOnlyRootFilesystem stays true: a
-  # container that writes mounts an emptyDir there, or sets the field false with a comment saying why.
-  podSecurityContext:
-    runAsNonRoot: true
-    seccompProfile:
-      type: RuntimeDefault
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    privileged: false
-    readOnlyRootFilesystem: true
-    capabilities:
-      drop:
-        - ALL
-  terminationGracePeriodSeconds: 30
-  nodeSelector: {}
-  affinity: {}
-  tolerations: []
-  topologySpreadConstraints: []
-  priorityClassName: ""
-  runtimeClassName: ""
-  imagePullSecrets: []
-  containers: {}
-  volumes: {}
-daemonset:
-  enabled: false
-  reloader: false
-  updateStrategy:
-    type: RollingUpdate
-  selectorLabels: {}
-  podLabels: {}
-  podAnnotations: {}
-  # Restricted by default; a node sets only what it changes. readOnlyRootFilesystem stays true: a
-  # container that writes mounts an emptyDir there, or sets the field false with a comment saying why.
-  podSecurityContext:
-    runAsNonRoot: true
-    seccompProfile:
-      type: RuntimeDefault
-  containerSecurityContext:
-    allowPrivilegeEscalation: false
-    privileged: false
-    readOnlyRootFilesystem: true
-    capabilities:
-      drop:
-        - ALL
-  terminationGracePeriodSeconds: 30
-  nodeSelector: {}
-  affinity: {}
-  tolerations: []
-  topologySpreadConstraints: []
-  priorityClassName: ""
-  runtimeClassName: ""
-  imagePullSecrets: []
-  containers: {}
-  volumes: {}
-podDisruptionBudget:
-  enabled: false
-  minAvailable: 1
-autoscaling:
-  enabled: false
-  minReplicas: 2
-  maxReplicas: 6
-  targetCPUUtilizationPercentage: 70
-service:
-  enabled: false
-  type: ClusterIP
-  annotations: {}
-  ports: {}
-networkPolicy:
-  enabled: true
-  podSelector: {}
-  ingress: []
-  egress: []
-exposure:
-  host: ""
-  port: ""
-  annotations: {}
-configMaps: {}
-secrets: {}
-vault:
-  enabled: false
-  role: ""
-  path: secret/data
-  annotations: {}
-objects: {}
-{{- end -}}
-
 {{- define "common.values" -}}
 {{- $defaults := include "common.defaults" . | fromYaml -}}
 {{- $values := mustMergeOverwrite (deepCopy $defaults) (deepCopy .Values.AsMap) -}}
@@ -260,17 +91,19 @@ objects: {}
   envFrom:
     {{- tpl (toYaml .) $root | nindent 4 }}
   {{- end }}
+  {{- $v := include "common.values" $root | fromYaml }}
   {{- range $probe := list "startupProbe" "livenessProbe" "readinessProbe" }}
   {{- with index $c $probe }}
   {{ $probe }}:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml (mustMergeOverwrite (deepCopy (index $v.probes $probe | default dict)) (deepCopy .)) | nindent 4 }}
   {{- end }}
   {{- end }}
-  {{- with $c.resources }}
+  {{- /* global.resources, with the container's own resources over it key by key. */}}
+  {{- with mustMergeOverwrite (deepCopy ($v.global.resources | default dict)) (deepCopy ($c.resources | default dict)) }}
   resources:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- $workload := index (include "common.values" $root | fromYaml) $key }}
+  {{- $workload := index $v $key }}
   {{- with mustMergeOverwrite (deepCopy ($workload.containerSecurityContext | default dict)) (deepCopy ($c.securityContext | default dict)) }}
   securityContext:
     {{- toYaml . | nindent 4 }}
@@ -702,4 +535,18 @@ paths both set to the app's name.
 {{- end }}
 {{- end }}
 {{- toYaml (mustMergeOverwrite $annotations (default (dict) $v.vault.annotations)) -}}
+{{- end -}}
+
+{{- /* "true" when the app renders a Service: service.enabled and at least one port. */ -}}
+
+{{- define "common.serviceEnabled" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- if and $v.service.enabled $v.service.ports }}true{{ end -}}
+{{- end -}}
+
+{{- /* "true" when the app renders a Deployment: deployment.enabled and at least one container. */ -}}
+
+{{- define "common.deploymentEnabled" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- if and $v.deployment.enabled $v.deployment.containers }}true{{ end -}}
 {{- end -}}

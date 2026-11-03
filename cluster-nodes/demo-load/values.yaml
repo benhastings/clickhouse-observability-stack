@@ -1,6 +1,5 @@
 # yaml-language-server: $schema=values.schema.json
 deployment:
-  enabled: true
   containers:
     # Each request is a checkout that calls payments; every log is written inside a span of
     # that request, so logs and traces link both ways. See the generator's README for the
@@ -35,12 +34,6 @@ deployment:
               fieldPath: metadata.uid
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://{{ include "common.serviceAddress" (list $ "otlpGrpc") }}'
         OTEL_RESOURCE_ATTRIBUTES: k8s.pod.name=$(K8S_POD_NAME),k8s.pod.uid=$(K8S_POD_UID)
-      resources:
-        requests:
-          cpu: 10m
-          memory: 16Mi
-        limits:
-          memory: 64Mi
 
 # With global.networkPolicy.enabled: the demo load only sends OTLP to the collector.
 networkPolicy:

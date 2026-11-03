@@ -6,8 +6,8 @@
 {{- if not $host }}
 {{- fail (printf "global.exposure.enabled is true but global.exposure.hosts.%s is empty" $key) }}
 {{- end }}
-{{- if not $v.service.enabled }}
-{{- fail (printf "exposure.host is %s but service.enabled is false, so there is nothing to route to" $key) }}
+{{- if not (include "common.serviceEnabled" .) }}
+{{- fail (printf "exposure.host is %s but the app renders no Service (service.enabled is false or service.ports is empty), so there is nothing to route to" $key) }}
 {{- end }}
 {{- $port := $v.exposure.port -}}
 {{- if not (hasKey $v.service.ports $port) }}

@@ -55,44 +55,50 @@ secrets:
 clickhouse:
   shards: 1
   replicas: 1
-  storage: 2Gi
+  # About 400 spans/s, 300 log records/s and 400 metric samples/s at the retention below, with 50% headroom
+  # (README: Disk sizing). Measure your own bytes per row before trusting the formula with real attributes.
+  storage: 200Gi
   storageClassName: ""
   image:
     repository: clickhouse/clickhouse-server
     tag: "26.9.5.2"
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
-    # ClickHouse checks its memory cap (90% of this, files/installation.yaml.tpl) against its resident memory,
-    # which carries about 460 MiB of its own binary and what jemalloc keeps resident. 1 Gi left too little
-    # room after a few hours of uptime (#206); the cgroup itself stays near 460 MiB.
-    # Plus 128 MiB for the embedded Keeper (clickhouse.keeper), which counts against the same cap.
+      cpu: "2"
+      memory: 8Gi
+    # ClickHouse checks its memory cap against its resident memory, which carries about 460 MiB of its own
+    # binary and what jemalloc keeps resident, plus 128 MiB for the embedded Keeper (clickhouse.keeper). The
+    # laptop profile's 1664Mi with lowMemory is the smallest that stays up (#206).
     limits:
-      memory: 1664Mi
-  lowMemory: true
-  # otel_analyst's settings profile and hourly quota, so a notebook can't starve ingestion or Grafana. Each
+      memory: 8Gi
+  lowMemory: false
+  # lowMemory: true is the laptop tuning (the max_threads and max_memory_usage profiles and
+  # config.d/low_memory.xml, in files/installation.yaml.tpl) for a server of 2 GiB or less.
+  # otel_analyst's settings profile and hourly quota, so a notebook can't starve ingestion or Grafana: a quarter
+  # of the server for one notebook query, five minutes per query, two at a time. Each
   # limit is also a constraint: the analyst may lower it for a session but not raise it. priority runs its
   # queries after everyone else's (the other users are at 0, and a higher number runs later).
   analyst:
-    maxMemoryUsage: 268435456
-    maxExecutionTime: 60
-    maxRowsToRead: 200000000
+    maxMemoryUsage: 2147483648
+    maxExecutionTime: 300
+    maxRowsToRead: 10000000000
     maxConcurrentQueries: 2
     priority: 10
     quota:
       queries: 600
-      readRows: 2000000000
-      executionTime: 1800
+      readRows: 100000000000
+      executionTime: 7200
   # The otel database's tables are files/schema.sql.tpl, applied as otel_admin by a Job that runs whenever
   # the rendered SQL changes. ttlDays is the retention per signal, in days. The Job connects to one server
   # through the clickhouse Service, so with more than one shard or replica the tables exist on one of them:
-  # see "Before using this beyond a laptop" in the README.
+  # see "Before using this beyond a laptop" in the README. Three weeks of traces to search, two of logs, and a
+  # month of metrics so a dashboard can compare with the same day four weeks back; Cerberus's metadata lookback
+  # (CERBERUS_PROM_METADATA_LOOKBACK in the cerberus node) follows the longest of these.
   schema:
     ttlDays:
-      logs: 7
-      metrics: 7
-      traces: 7
+      logs: 14
+      metrics: 30
+      traces: 21
     backoffLimit: 3
     activeDeadlineSeconds: 900
     resources:

@@ -14,10 +14,12 @@ The other way to share templates, a dependency, was rejected: Helm scopes a depe
 so every values file and environment file would nest its keys under `common:`.
 
 [`templates/_helpers.tpl`](templates/_helpers.tpl) holds the shared helpers and no object: names, labels and
-metadata, the container and pod template both workloads use, the Vault annotations, and the defaults. Helm only
-merges a chart's own `values.yaml`, and the templates run in each node's chart, so the defaults are a helper,
-`common.defaults`, deep-merged under the node's values by `common.values`; there `null` deletes a key, maps
-merge, and lists replace whole.
+metadata, the container and pod template both workloads use, and the Vault annotations. Every default lives in
+[`values.yaml`](values.yaml), production-shaped. Helm only merges a chart's own `values.yaml`, and the templates
+run in each node's chart, so `make generate` copies that file into `templates/_defaults.tpl` as the
+`common.defaults` helper, which `common.values` deep-merges under the node's values; there `null` deletes a key,
+maps merge, and lists replace whole. Edit `values.yaml`, never `_defaults.tpl`: `make check/schema` fails when
+the copy is stale. A node's own `values.yaml` then holds only what differs from these defaults.
 
 ## Why maps instead of lists
 
@@ -61,6 +63,7 @@ schema, and to the template in the same change.
 | `global.clickhouse.tls.serverName` | `""` | with `external`, required: the name the server's certificate must carry. Every client connects over TLS and verifies it; there is no option to skip verification, and no client presents a certificate of its own |
 | `global.clickhouse.tls.caConfigMap` | `""` | with `external`, required: a ConfigMap in the stack's namespace with the CA bundle that signed the server's certificate. The platform or the service owner provides it; the stack never creates a certificate |
 | `global.clickhouse.tls.caKey` | `ca.crt` | the key of the CA bundle in `caConfigMap` |
+| `global.resources` | `requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}` | every container's requests and limits unless it sets its own; a container's `resources` override these key by key, so a container that sets only `limits.memory` keeps these requests. An environment resizes every app here |
 | `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
 | `global.vault` |  | the same keys as `vault`, for every app at once; an app's own `vault` wins |
 | `global.services.clickhouse` | `clickhouse:9000` | where the collector, Cerberus, garmr and the schema Job reach ClickHouse's native protocol, as `host:port`; with `global.clickhouse.external`, the service owner's endpoint (`9440` is the usual TLS port) |
@@ -74,10 +77,10 @@ schema, and to the template in the same change.
 | `global.externalSecrets.secretStoreRef` | `{name: "", kind: ClusterSecretStore}` | the store the site runs; an enabled render fails without a name |
 | `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |
 | `global.externalSecrets.refreshInterval` | `1h` | how often the operator re-reads the store |
-| `global.exposure.enabled` | `false` | make the apps that set `exposure.host` reachable from outside the cluster |
-| `global.exposure.hosts.<key>` | `{}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
+| `global.exposure.enabled` | `true` | make the apps that set `exposure.host` reachable from outside the cluster |
+| `global.exposure.hosts.<key>` | `{grafana: grafana.example.com, otlp: otlp.example.com}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
 | `global.exposure.ingressClassName` | `""` | the Ingress class; empty uses the cluster default |
-| `global.exposure.tls.credentialName` | `""` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`) |
+| `global.exposure.tls.credentialName` | `observability-tls` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`) |
 | `global.exposure.gateway.name` | `""` | with `istio`, an existing Gateway to bind every VirtualService to; no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without) |
 | `global.exposure.gateway.namespace` | release namespace | the namespace of that existing Gateway |
 | `global.exposure.gateway.selector.<name>` | `{istio: ingressgateway}` | which ingress gateway pods the rendered Gateways select |
@@ -93,13 +96,13 @@ schema, and to the template in the same change.
 | `rbac.rules` | `[]` | when set, a Role and RoleBinding in the release namespace |
 | `rbac.scope` | `cluster` | `namespace` renders no ClusterRole or ClusterRoleBinding: `clusterRules` is ignored and `namespaceRules` joins `rules` in the Role, for a namespace that forbids cluster-scoped RBAC |
 | `rbac.namespaceRules` | `[]` | with `scope: namespace`, added to the Role in place of `clusterRules`: the namespaced part of what the app reads cluster-wide |
-| `deployment.enabled` | `false` | render a Deployment |
+| `deployment.enabled` | `true` (`deployment`), `false` (`daemonset`) | render the workload once it lists containers: on by default for `deployment`, off for `daemonset` |
 | `deployment.reloader` | `false` | annotate the Deployment for Stakater Reloader, so a changed Secret or ConfigMap rolls it; see Rollouts |
 | `deployment.replicas` | `1` | omitted when `autoscaling.enabled`; see Disruption budget and autoscaling |
 | `deployment.strategy` | `RollingUpdate` |  |
 | `deployment.podLabels.<name>` | `{}` |  |
 | `deployment.podAnnotations.<name>` | `{}` |  |
-| `deployment.podSecurityContext` | `{}` |  |
+| `deployment.podSecurityContext` | `{runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}` | merged key by key under a node's own, so a node sets only what it adds, such as runAsUser |
 | `deployment.terminationGracePeriodSeconds` | `30` |  |
 | `deployment.nodeSelector.<name>` | `{}` | passed through to the pod spec; omitted when empty |
 | `deployment.affinity` | `{}` | passed through to the pod spec; omitted when empty |
@@ -114,6 +117,10 @@ schema, and to the template in the same change.
 | `daemonset.updateStrategy` | `RollingUpdate` |  |
 | `daemonset.selectorLabels` | `{}` | merged over the base selector labels on the DaemonSet's selector and pods |
 | `daemonset.podLabels … daemonset.volumes` | as `deployment` | the same pod, scheduling, container and volume keys as `deployment`, except `replicas` and `strategy` |
+| `probes` |  | timings filled into each probe a container declares, under the container's own keys; a container without a probe gets none |
+| `probes.livenessProbe` | `periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6` |  |
+| `probes.readinessProbe` | `periodSeconds: 5, timeoutSeconds: 5` |  |
+| `probes.startupProbe` | `{}` |  |
 | `podDisruptionBudget.enabled` | `false` | render a `policy/v1` PodDisruptionBudget selecting the Deployment's pods |
 | `podDisruptionBudget.minAvailable` | `1` | a count or a percentage; set to `null` to use `maxUnavailable` |
 | `podDisruptionBudget.maxUnavailable` | unset | a count or a percentage; mutually exclusive with `minAvailable` |
@@ -121,7 +128,7 @@ schema, and to the template in the same change.
 | `autoscaling.minReplicas` | `2` |  |
 | `autoscaling.maxReplicas` | `6` |  |
 | `autoscaling.targetCPUUtilizationPercentage` | `70` | average CPU utilization, relative to the containers' CPU requests |
-| `service.enabled` | `false` | render a Service selecting the Deployment's pods |
+| `service.enabled` | `true` | render a Service selecting the Deployment's pods once `ports` lists one; `false` renders none |
 | `service.type` | `ClusterIP` |  |
 | `service.annotations.<name>` | `{}` |  |
 | `service.ports.<name>` |  | `port`, `targetPort` (defaults to the port name), `protocol` (`TCP`), `appProtocol` |

@@ -28,9 +28,11 @@ configMaps:
       CERBERUS_HTTP_ADDR: ":8080"
       CERBERUS_LOG_LEVEL: info
       CERBERUS_LOG_FORMAT: json
+      # Grafana's metric and label pickers ask Cerberus without a time range, and Cerberus then looks back this
+      # far. Keep it equal to the clickhouse node's clickhouse.schema.ttlDays.metrics.
+      CERBERUS_PROM_METADATA_LOOKBACK: 30d
 
 service:
-  enabled: true
   ports:
     http:
       port: 8080
@@ -38,14 +40,10 @@ service:
       appProtocol: http
 
 deployment:
-  enabled: true
   podSecurityContext:
     fsGroup: 65532
     runAsGroup: 65532
-    runAsNonRoot: true
     runAsUser: 65532
-    seccompProfile:
-      type: RuntimeDefault
   containers:
     cerberus:
       image:
@@ -55,7 +53,8 @@ deployment:
         http:
           containerPort: 8080
       env:
-        GOMEMLIMIT: 322122547B
+        # 80% of the memory limit, so Go collects before the kernel kills it.
+        GOMEMLIMIT: 1717986918B
       secretEnv:
         CERBERUS_CH_PASSWORD:
           secret: clickhouse-reader
@@ -73,30 +72,21 @@ deployment:
           path: /healthz
           port: http
         initialDelaySeconds: 10
-        periodSeconds: 10
-        timeoutSeconds: 5
-        failureThreshold: 6
       readinessProbe:
         httpGet:
           path: /readyz
           port: http
         initialDelaySeconds: 2
         periodSeconds: 3
-        timeoutSeconds: 5
         failureThreshold: 5
       resources:
         requests:
-          cpu: 25m
-          memory: 64Mi
+          cpu: 250m
+          memory: 512Mi
         limits:
-          memory: 384Mi
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
-        privileged: false
-        readOnlyRootFilesystem: true
+          memory: 2Gi
+  # Two, so a rollout or a lost node never leaves Grafana without a query path.
+  replicas: 2
 
 # With global.networkPolicy.enabled: only Grafana queries Cerberus, and the collector scrapes its metrics;
 # Cerberus reaches only ClickHouse.

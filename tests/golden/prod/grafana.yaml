@@ -132,16 +132,16 @@ data:
     [auth]
     login_maximum_lifetime_duration = 7d
     [server]
-    root_url = https://grafana.example/
+    root_url = https://grafana.example.com/
     [auth.generic_oauth]
     enabled = true
     name = Keycloak
     client_id = grafana
     client_secret = $__file{/vault/secrets/grafana-oauth-client-secret}
     scopes = openid email profile
-    auth_url = https://sso.example/realms/platform/protocol/openid-connect/auth
-    token_url = https://sso.example/realms/platform/protocol/openid-connect/token
-    api_url = https://sso.example/realms/platform/protocol/openid-connect/userinfo
+    auth_url = https://sso.example.com/realms/platform/protocol/openid-connect/auth
+    token_url = https://sso.example.com/realms/platform/protocol/openid-connect/token
+    api_url = https://sso.example.com/realms/platform/protocol/openid-connect/userinfo
     allow_sign_up = true
     role_attribute_path = contains(realm_access.roles[*], 'grafana-admin') && 'Admin' || contains(realm_access.roles[*], 'grafana-editor') && 'Editor' || 'Viewer'
     login_attribute_path = preferred_username
@@ -5238,7 +5238,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: b446929209b07226fdce3a6b112fc82952627301742ad62279ef47c177f9484b
+        checksum/config: 0be158063f33a23f34e58c2b7f18dde91e81840cc19444de17f1e19208436de5
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/agent-inject-secret-grafana-admin-admin-password: secret/data/grafana-admin
         vault.hashicorp.com/agent-inject-secret-grafana-admin-admin-user: secret/data/grafana-admin
@@ -5293,11 +5293,14 @@ spec:
               path: /api/health
               port: grafana
             initialDelaySeconds: 60
+            periodSeconds: 10
             timeoutSeconds: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: grafana
+            periodSeconds: 5
+            timeoutSeconds: 5
           resources:
             limits:
               memory: 1Gi
@@ -5406,7 +5409,7 @@ spec:
         mode: SIMPLE
         credentialName: observability-tls
       hosts:
-        - grafana.example
+        - grafana.example.com
 ---
 # Source: grafana/templates/gateway.yaml
 apiVersion: networking.istio.io/v1
@@ -5424,7 +5427,7 @@ metadata:
     environment: prod
 spec:
   hosts:
-    - grafana.example
+    - grafana.example.com
   gateways:
     - observability/grafana
   http:

@@ -505,7 +505,7 @@ spec:
                   key: password
                   name: clickhouse-writer
             - name: GOMEMLIMIT
-              value: "204MiB"
+              value: "1638MiB"
             - name: K8S_NODE_IP
               valueFrom:
                 fieldRef:
@@ -515,19 +515,24 @@ spec:
                 fieldRef:
                   fieldPath: status.podIP
           livenessProbe:
+            failureThreshold: 6
             httpGet:
               path: /
               port: 13133
+            periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /
               port: 13133
+            periodSeconds: 5
+            timeoutSeconds: 5
           resources:
             limits:
-              memory: 256Mi
+              memory: 2Gi
             requests:
-              cpu: 25m
-              memory: 64Mi
+              cpu: 500m
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

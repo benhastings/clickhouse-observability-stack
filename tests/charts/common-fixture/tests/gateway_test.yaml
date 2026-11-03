@@ -65,6 +65,7 @@ tests:
 
   - it: serves plain HTTP on 80 when no TLS credential is set
     set:
+      global.exposure.tls.credentialName: ""
       global.exposure.enabled: true
       global.exposure.hosts.web: web.example
       exposure.host: web

@@ -59,9 +59,10 @@ spec:
       releaseName: alertmanager
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -100,22 +101,15 @@ spec:
     helm:
       releaseName: cerberus
       valuesObject:
-        deployment:
-          containers:
-            cerberus:
-              env:
-                GOMEMLIMIT: 1717986918B
-              resources:
-                limits:
-                  memory: 2Gi
-                requests:
-                  cpu: 250m
-                  memory: 512Mi
-          replicas: 2
+        configMaps:
+          env:
+            data:
+              CERBERUS_PROM_METADATA_LOOKBACK: null
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -155,18 +149,23 @@ spec:
       releaseName: clickhouse
       valuesObject:
         clickhouse:
-          lowMemory: false
-          resources:
-            limits:
-              memory: 8Gi
-            requests:
-              cpu: "2"
-              memory: 8Gi
-          storage: 200Gi
+          analyst:
+            maxExecutionTime: 60
+            maxMemoryUsage: 268435456
+            maxRowsToRead: 200000000
+            quota:
+              executionTime: 1800
+              readRows: 2000000000
+          schema:
+            ttlDays:
+              logs: 7
+              metrics: 7
+              traces: 7
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -210,19 +209,11 @@ spec:
     helm:
       releaseName: clickhouse-operator
       valuesObject:
-        deployment:
-          containers:
-            clickhouse-operator:
-              resources:
-                limits:
-                  memory: 512Mi
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
         secrets:
           credentials:
             create: false
@@ -265,9 +256,10 @@ spec:
       releaseName: garmr
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -307,9 +299,10 @@ spec:
       releaseName: garmr-sql-adapter
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -348,21 +341,21 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
+        auth:
+          genericOauth:
+            enabled: false
         deployment:
           containers:
             grafana:
-              env:
-                GOMEMLIMIT: 921MiB
-              resources:
-                limits:
-                  memory: 1Gi
-                requests:
-                  cpu: 100m
-                  memory: 256Mi
+              secretEnv:
+                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
+        vault:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -401,21 +394,19 @@ spec:
     helm:
       releaseName: otel-collector
       valuesObject:
+        collector:
+          auth:
+            enabled: false
         deployment:
           containers:
             otel-collector:
               env:
-                GOMEMLIMIT: 1638MiB
-              resources:
-                limits:
-                  memory: 2Gi
-                requests:
-                  cpu: 500m
-                  memory: 512Mi
+                OTLP_BEARER_TOKEN: null
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -455,9 +446,10 @@ spec:
       releaseName: vmalert
       valuesObject:
         global:
+          exposure:
+            enabled: false
           labels:
             environment: dev
-          mesh: istio
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

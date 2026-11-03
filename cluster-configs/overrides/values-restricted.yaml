@@ -20,8 +20,6 @@ destinationServer: https://kubernetes.default.svc
 clusterScoped: false
 
 global:
-  labels:
-    environment: restricted
   # The platform team's ClickHouse operator, with its CRDs and cluster RBAC (README: A shared ClickHouse
   # operator). It has to watch this stack's namespace. Set podLabels and networkPolicy.namespaces.operator to
   # where it runs when that is not the clickhouse-operator namespace and labels.
@@ -30,9 +28,7 @@ global:
   # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
   # no Gateway is rendered. The Gateway, its TLS certificate and DNS for the host are the platform's; the gateway
   # name, its namespace and the host are placeholders.
-  mesh: istio
   exposure:
-    enabled: true
     hosts:
       grafana: grafana.restricted.example
     gateway:
@@ -40,15 +36,92 @@ global:
       namespace: istio-ingress
 
 applications:
+  # The laptop profile, as in values-local.yaml: make test/e2e ENV=restricted deploys this environment to kind.
+  clickhouse:
+    values:
+      clickhouse:
+        storage: 2Gi
+        lowMemory: true
+        schema:
+          ttlDays:
+            logs: 7
+            metrics: 7
+            traces: 7
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1664Mi
+        analyst:
+          maxMemoryUsage: 268435456
+          maxExecutionTime: 60
+          maxRowsToRead: 200000000
+          quota:
+            readRows: 2000000000
+            executionTime: 1800
+
+  cerberus:
+    values:
+      configMaps:
+        env:
+          data:
+            CERBERUS_PROM_METADATA_LOOKBACK: null
+      deployment:
+        replicas: 1
+        containers:
+          cerberus:
+            env:
+              GOMEMLIMIT: 322122547B
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 384Mi
+
   # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats (README: Collector
-  # RBAC: cluster-wide or one namespace, for what that loses). The collector stays inside the cluster: exposing
-  # OTLP as well takes a hosts.otlp entry and collector.auth, as in values-prod.yaml.
+  # RBAC: cluster-wide or one namespace, for what that loses). The collector stays inside the cluster, with no
+  # bearer token: exposing OTLP as well takes a hosts.otlp entry and collector.auth.
   otel-collector:
     values:
       rbac:
         scope: namespace
       exposure:
         host: ""
+      collector:
+        auth:
+          enabled: false
+      deployment:
+        containers:
+          otel-collector:
+            env:
+              GOMEMLIMIT: 204MiB
+              OTLP_BEARER_TOKEN: null
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
 
-  demo-load:
-    enabled: false
+  # Credentials are Kubernetes Secrets in this namespace, not Vault, and Grafana keeps its login form: the
+  # production defaults read Grafana's from Vault and sign in through an OpenID Connect provider.
+  grafana:
+    values:
+      vault:
+        enabled: false
+      auth:
+        genericOauth:
+          enabled: false
+      deployment:
+        containers:
+          grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
+            env:
+              GOMEMLIMIT: 920MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 96Mi

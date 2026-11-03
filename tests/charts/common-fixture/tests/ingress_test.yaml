@@ -36,6 +36,7 @@ tests:
 
   - it: routes the app's host to its Service port when the mesh is kubernetes
     set:
+      global.exposure.tls.credentialName: ""
       global.mesh: kubernetes
       global.exposure.enabled: true
       global.exposure.hosts.web: web.example
@@ -133,4 +134,4 @@ tests:
       service.enabled: false
     asserts:
       - failedTemplate:
-          errorPattern: "exposure.host is web but service.enabled is false"
+          errorPattern: "exposure.host is web but the app renders no Service"

@@ -13,21 +13,16 @@ secrets:
     # With global.externalSecrets.enabled, synced from <remotePath>/grafana-admin.
     external:
       keys: [admin-user, admin-password]
-  # grafana-oauth, key client-secret: the generic OAuth client secret. Never created here; an
-  # environment that turns OAuth on pre-creates it (or stores it in Vault) and declares it once:
-  #   deployment:
-  #     containers:
-  #       grafana:
-  #         secretEnv:
-  #           GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
-  #             secret: grafana-oauth
-  #             key: client-secret
-  # grafana.ini then reads it with $__env{...}, or with $__file{...} when vault.enabled.
+  # grafana-oauth, key client-secret: the generic OAuth client secret, which the Deployment's secretEnv below
+  # reads. Never created here: it is in Vault by default, or pre-created as a Secret with vault.enabled: false.
+  # grafana.ini reads it with $__file{...} under Vault, $__env{...} without. An environment without single
+  # sign-on drops it with GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null under the container's secretEnv.
   oauth:
     create: false
 
-# Sign-in through any OpenID Connect provider, rendered into grafana.ini below. Off by default;
-# an environment turns it on and sets the URLs. Keycloak is the worked example, with
+# Sign-in through any OpenID Connect provider, rendered into grafana.ini below. On by default, against a
+# placeholder Keycloak realm at sso.example.com: an environment sets its own provider's URLs, or turns it off
+# with genericOauth.enabled: false. Keycloak is the worked example, with
 # <realm> standing in for the realm name:
 #   authUrl:  https://keycloak.example.com/realms/<realm>/protocol/openid-connect/auth
 #   tokenUrl: https://keycloak.example.com/realms/<realm>/protocol/openid-connect/token
@@ -40,15 +35,15 @@ auth:
   # render fails. The admin user and its secret are unchanged.
   disableLoginForm: false
   # How long a session lasts before signing in again, for example 7d. Empty keeps Grafana's 30d.
-  loginMaximumLifetimeDuration: ""
+  loginMaximumLifetimeDuration: 7d
   genericOauth:
-    enabled: false
+    enabled: true
     rootUrl: ""
     name: Keycloak
-    clientId: ""
-    authUrl: ""
-    tokenUrl: ""
-    apiUrl: ""
+    clientId: grafana
+    authUrl: https://sso.example.com/realms/platform/protocol/openid-connect/auth
+    tokenUrl: https://sso.example.com/realms/platform/protocol/openid-connect/token
+    apiUrl: https://sso.example.com/realms/platform/protocol/openid-connect/userinfo
     scopes: openid email profile
     allowSignUp: true
     # Keycloak realm roles grafana-admin and grafana-editor map to Admin and Editor; anyone else is a Viewer.
@@ -59,9 +54,9 @@ auth:
     emailAttributePath: ""
     # A JMESPath to the user's groups, for example groups with Keycloak's group membership mapper. Empty
     # leaves groups unread; roleAttributePath can still test them.
-    groupsAttributePath: ""
+    groupsAttributePath: groups
     # Sends a signed-out user straight to the provider instead of Grafana's login page.
-    autoLogin: false
+    autoLogin: true
     # Renews the access token with the provider's refresh token, so a session outlives one access token.
     # Some providers issue one only with offline_access in scopes; Keycloak issues one by default.
     useRefreshToken: true
@@ -270,7 +265,6 @@ objects:
   alerts: '--{{ "-" }}{{ if .Values.alerts.enabled }}{{ tpl (.Files.Get "files/alerts.yaml.tpl") . }}{{ end }}'
 
 service:
-  enabled: true
   ports:
     http:
       port: 80
@@ -283,11 +277,9 @@ exposure:
   port: http
 
 deployment:
-  enabled: true
   podSecurityContext:
     fsGroup: 472
     runAsGroup: 472
-    runAsNonRoot: true
     runAsUser: 472
   containers:
     grafana:
@@ -303,7 +295,7 @@ deployment:
         GF_PATHS_PLUGINS: /var/lib/grafana/plugins
         GF_PATHS_PROVISIONING: /etc/grafana/provisioning
         GF_UNIFIED_STORAGE_INDEX_PATH: /var/lib/grafana-search/bleve
-        GOMEMLIMIT: 920MiB  # about 90% of the limit
+        GOMEMLIMIT: 921MiB  # about 90% of the limit
       secretEnv:
         GF_SECURITY_ADMIN_USER:
           secret: '{{ include "common.fullname" . }}-admin'
@@ -315,6 +307,9 @@ deployment:
           key: admin-password
           vault:
             env: GF_SECURITY_ADMIN_PASSWORD__FILE
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+          secret: grafana-oauth
+          key: client-secret
       livenessProbe:
         httpGet:
           path: /api/health
@@ -331,17 +326,11 @@ deployment:
       # 679Mi, so the limit leaves about 50% headroom.
       resources:
         requests:
-          cpu: 25m
-          memory: 96Mi
+          cpu: 100m
+          memory: 256Mi
         limits:
           memory: 1Gi
       securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
-        privileged: false
-        readOnlyRootFilesystem: true
         seccompProfile:
           type: RuntimeDefault
       volumeMounts:
@@ -446,3 +435,11 @@ networkPolicy:
     - ports:
         - port: 443
           protocol: TCP
+
+# Grafana reads its secrets from Vault: the Vault Agent Injector writes <vault.path>/grafana-admin and
+# <vault.path>/grafana-oauth (key client-secret) into the pod, and the pod authenticates with Vault's Kubernetes
+# auth role grafana, bound to its ServiceAccount. vault.enabled: false reads the Kubernetes Secrets of the same
+# names instead.
+vault:
+  enabled: true
+  role: grafana

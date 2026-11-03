@@ -54,7 +54,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -62,7 +61,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -106,7 +104,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -114,7 +111,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -158,7 +154,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -166,7 +161,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -215,7 +209,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -223,7 +216,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -267,7 +259,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -275,7 +266,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -310,6 +300,14 @@ spec:
     helm:
       releaseName: grafana
       valuesObject:
+        auth:
+          genericOauth:
+            enabled: false
+        deployment:
+          containers:
+            grafana:
+              secretEnv:
+                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
         global:
           clickhouse:
             external: true
@@ -319,7 +317,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -327,9 +324,10 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
+        vault:
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -362,6 +360,14 @@ spec:
     helm:
       releaseName: otel-collector
       valuesObject:
+        collector:
+          auth:
+            enabled: false
+        deployment:
+          containers:
+            otel-collector:
+              env:
+                OTLP_BEARER_TOKEN: null
         exposure:
           host: ""
         global:
@@ -373,7 +379,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -381,7 +386,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
         rbac:
@@ -427,7 +431,6 @@ spec:
               caKey: ca.crt
               serverName: clickhouse.paas.example
           exposure:
-            enabled: true
             gateway:
               name: shared-gateway
               namespace: istio-ingress
@@ -435,7 +438,6 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
-          mesh: istio
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:

@@ -4,82 +4,62 @@ repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
 targetRevision: main
 
 global:
-  labels:
-    environment: dev
-  # Istio, the chart default, set explicitly. dev exposes nothing outside the cluster until a site gives it
-  # hostnames under exposure (see values-prod.yaml).
-  mesh: istio
+  # dev exposes nothing outside the cluster until a site gives it hostnames under exposure.
+  exposure:
+    enabled: false
 
+# Production's sizes, with a week of retention, the laptop's analyst limits, Kubernetes Secrets and no single
+# sign-on.
 applications:
   clickhouse-operator:
     values:
       secrets:
         credentials:
           create: false
-      deployment:
-        containers:
-          clickhouse-operator:
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                memory: 512Mi
 
   clickhouse:
     values:
       clickhouse:
-        storage: 200Gi
-        lowMemory: false
-        resources:
-          requests:
-            cpu: "2"
-            memory: 8Gi
-          limits:
-            memory: 8Gi
+        schema:
+          ttlDays:
+            logs: 7
+            metrics: 7
+            traces: 7
+        analyst:
+          maxMemoryUsage: 268435456
+          maxExecutionTime: 60
+          maxRowsToRead: 200000000
+          quota:
+            readRows: 2000000000
+            executionTime: 1800
 
   cerberus:
     values:
-      deployment:
-        replicas: 2
-        containers:
-          cerberus:
-            env:
-              GOMEMLIMIT: 1717986918B
-            resources:
-              requests:
-                cpu: 250m
-                memory: 512Mi
-              limits:
-                memory: 2Gi
+      configMaps:
+        env:
+          data:
+            CERBERUS_PROM_METADATA_LOOKBACK: null
 
   otel-collector:
     values:
+      collector:
+        auth:
+          enabled: false
       deployment:
         containers:
           otel-collector:
             env:
-              GOMEMLIMIT: 1638MiB
-            resources:
-              requests:
-                cpu: 500m
-                memory: 512Mi
-              limits:
-                memory: 2Gi
+              OTLP_BEARER_TOKEN: null
 
   grafana:
     values:
+      vault:
+        enabled: false
+      auth:
+        genericOauth:
+          enabled: false
       deployment:
         containers:
           grafana:
-            env:
-              GOMEMLIMIT: 921MiB
-            resources:
-              requests:
-                cpu: 100m
-                memory: 256Mi
-              limits:
-                memory: 1Gi
-
-  demo-load:
-    enabled: false
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null

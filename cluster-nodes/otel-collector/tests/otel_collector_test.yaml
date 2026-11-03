@@ -31,6 +31,8 @@ tests:
               protocol: TCP
 
   - it: listens for OTLP on every interface, so kubectl port-forward can reach it through localhost
+    set:
+      collector.auth.enabled: false
     documentSelector:
       path: kind
       value: ConfigMap
@@ -258,6 +260,8 @@ tests:
           errorPattern: "rbac.scope: namespace can't run the agent"
 
   - it: holds k8s_cluster's Lease in its own namespace, so one gateway replica reports the cluster
+    set:
+      collector.auth.enabled: false
     asserts:
       - equal:
           path: rules
@@ -400,7 +404,30 @@ tests:
           path: data["relay.yaml"]
           pattern: "traces:\\n(\\s+\\S.*\\n)*?\\s+receivers:\\n\\s+- otlp\\n\\s+telemetry:"
 
-  - it: has no bearer token auth by default
+  - it: requires a bearer token on OTLP by default, from otel-collector-auth
+    asserts:
+      - matchRegex:
+          path: data["relay.yaml"]
+          pattern: "bearertokenauth"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTLP_BEARER_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: otel-collector-auth
+                key: token
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: has no bearer token auth when collector.auth is off
+    set:
+      collector.auth.enabled: false
+      deployment.containers.otel-collector.env.OTLP_BEARER_TOKEN: null
     documentSelector:
       path: kind
       value: ConfigMap
@@ -598,6 +625,9 @@ tests:
           enabled: true
           hosts:
             otlp: otlp.example
+      collector:
+        auth:
+          enabled: false
     asserts:
       - failedTemplate:
           errorPattern: "global.exposure.enabled puts the collector outside the cluster: set collector.auth.enabled"
@@ -631,6 +661,7 @@ tests:
             otlp: otlp.example
       collector:
         auth:
+          enabled: false
           allowUnauthenticatedExposure: true
     asserts:
       - notFailedTemplate: {}
