@@ -85,7 +85,7 @@ tests:
               - port: 15090
                 protocol: TCP
 
-  - it: sends to each in-mesh peer over HBONE too, and needs no istiod egress
+  - it: sends to each in-mesh peer over HBONE too, to anywhere for a rule with no peers, and needs no istiod egress
     template: templates/networkpolicy.yaml
     set:
       global.networkPolicy.enabled: true
@@ -113,9 +113,18 @@ tests:
             ports:
               - port: 15008
                 protocol: TCP
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 15008
+                protocol: TCP
       - notContains:
           path: spec.egress
           content:
+            to:
+              - ipBlock:
+                  cidr: 192.0.2.0/24
             ports:
               - port: 15008
                 protocol: TCP
