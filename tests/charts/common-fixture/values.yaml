@@ -162,4 +162,19 @@ objects:
   # Renders to nothing unless ghostEnabled is set, which common.objects must skip.
   ghost: '--{{ "-" }}{{ if .Values.ghostEnabled }}{{ dict "apiVersion" "example.com/v1" "kind" "Ghost" | toYaml }}{{ end }}'
 
+  # A Job written under objects, as a node's schema Job is, with its secrets through common.secretEnv.
+  job: '--{{ "-" }}{{ if .Values.job.enabled }}{{ tpl (.Files.Get "files/job.yaml.tpl") . }}{{ end }}'
+
 ghostEnabled: false
+
+job:
+  enabled: false
+  secretEnv:
+    DB_PASSWORD:
+      secret: '{{ include "common.fullname" . }}-credentials'
+      key: password
+    API_TOKEN:
+      secret: '{{ include "common.fullname" . }}-credentials'
+      key: token
+      vault:
+        env: API_TOKEN_FILE

@@ -224,3 +224,111 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: '^fixture: vault.enabled and global.externalSecrets.enabled are both true'
+
+  - it: gives a Job under objects each secretEnv entry as a secretKeyRef when Vault is off
+    set:
+      job.enabled: true
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: MODE
+              value: once
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fixture-credentials
+                  key: token
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fixture-credentials
+                  key: password
+      - notExists:
+          path: spec.template.metadata.annotations
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].command[2]
+          value: "exec /bin/job\n"
+
+  - it: injects a Job's secretEnv through a pre-populate-only Vault agent, so its pod can complete
+    set:
+      job.enabled: true
+      vault.enabled: true
+      vault.secret: OBS_SECRET
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-pre-populate-only"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: fixture
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-fixture-credentials-password"]
+          value: secret/data/OBS_SECRET
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-fixture-credentials-token"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "fixture-credentials-token" }}{{- end -}}'
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+      # Only the vault.env entry is an env var, and it holds a path, never a value.
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: MODE
+              value: once
+            - name: API_TOKEN_FILE
+              value: /vault/secrets/fixture-credentials-token
+      - equal:
+          path: spec.template.spec.containers[0].command[2]
+          value: |
+            API_TOKEN="$(cat '/vault/secrets/fixture-credentials-token')"
+            export API_TOKEN
+            DB_PASSWORD="$(cat '/vault/secrets/fixture-credentials-password')"
+            export DB_PASSWORD
+            exec /bin/job
+
+  - it: lets vault.annotations override a Job's pre-populate-only
+    set:
+      job.enabled: true
+      vault.enabled: true
+      vault.annotations:
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-pre-populate-only"]
+          value: "false"
+
+  - it: renders a Job with no secretEnv without an agent, even with Vault on
+    set:
+      job.enabled: true
+      job.secretEnv: null
+      vault.enabled: true
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false

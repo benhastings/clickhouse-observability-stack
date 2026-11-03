@@ -1,10 +1,3 @@
-{{- /*
-The server (through the operator) and this Job read their users' passwords only from the clickhouse-<user> Secrets,
-so Vault cannot deliver them yet; a clickhouse on Vault would wait for Secrets nothing produces.
-*/}}
-{{- if include "common.vaultEnabled" . }}
-{{- fail (printf "%s: vault.enabled is true, but the ClickHouse server and the schema Job read their users' passwords only from the Kubernetes Secrets %s-<user>; set vault.enabled: false for it and its clients (cerberus, otel-collector, garmr, garmr-sql-adapter), and use pre-created Secrets or global.externalSecrets (README: Credentials)" (include "common.fullname" .) (include "common.fullname" .)) }}
-{{- end }}
 {{- $ch := .Values.clickhouse }}
 {{- $s := $ch.schema }}
 {{- $address := splitList ":" (include "common.serviceAddress" (list $ "clickhouse")) }}
@@ -29,14 +22,21 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: clickhouse-schema
-      {{- if include "common.istioSidecar" $ }}
-      # A native sidecar stops when the Job's container exits; a classic one would keep the pod running.
+      {{- $vault := include "common.jobVaultAnnotations" (list $ $s.secretEnv) }}
+      {{- if or $vault (include "common.istioSidecar" $) }}
       annotations:
+        {{- if include "common.istioSidecar" $ }}
+        # A native sidecar stops when the Job's container exits; a classic one would keep the pod running.
         sidecar.istio.io/nativeSidecar: "true"
+        {{- end }}
+        {{- with $vault }}
+        {{- . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       restartPolicy: Never
-      automountServiceAccountToken: false
+      # The Vault agent logs in with the pod's ServiceAccount token.
+      automountServiceAccountToken: {{ ne $vault "" }}
       {{- with include "common.imagePullSecrets" (list $ list) | trim }}
       {{- . | nindent 6 }}
       {{- end }}
@@ -54,6 +54,9 @@ spec:
             - /bin/sh
             - -c
             - |
+              {{- with include "common.secretEnvExports" (list $ $s.secretEnv) | trim }}
+              {{- . | nindent 14 }}
+              {{- end }}
               {{- if $external }}
               # clickhouse-client takes its CA only from a config file. Verification is strict, and a certificate
               # that fails it is refused, never accepted.
@@ -91,11 +94,9 @@ spec:
               value: {{ last $address | quote }}
             - name: CLICKHOUSE_USER
               value: otel_admin
-            - name: CLICKHOUSE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "common.fullname" . }}-admin
-                  key: password
+            {{- with include "common.secretEnv" (list $ $s.secretEnv) }}
+            {{- . | nindent 12 }}
+            {{- end }}
             - name: HOME
               value: /tmp
             {{- if $external }}

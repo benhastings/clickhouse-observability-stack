@@ -59,21 +59,7 @@
       protocol: {{ $port.protocol | default "TCP" }}
     {{- end }}
   {{- end }}
-  {{- $vaultEnabled := include "common.vaultEnabled" $root -}}
-  {{- $env := deepCopy (default (dict) $c.env) -}}
-  {{- range $envName, $s := $c.secretEnv }}
-  {{- if include "common.entryEnabled" (list $root $s) }}
-  {{- $secret := tpl (required (printf "%s.containers.%s.secretEnv.%s.secret is required" $key $name $envName) $s.secret) $root -}}
-  {{- $secretKey := required (printf "%s.containers.%s.secretEnv.%s.key is required" $key $name $envName) $s.key -}}
-  {{- if $vaultEnabled }}
-  {{- with (default (dict) $s.vault).env }}
-  {{- $_ := set $env . (include "common.secretFilePath" (list $root $s)) -}}
-  {{- end }}
-  {{- else }}
-  {{- $_ := set $env $envName (dict "valueFrom" (dict "secretKeyRef" (dict "name" $secret "key" $secretKey))) -}}
-  {{- end }}
-  {{- end }}
-  {{- end }}
+  {{- $env := mustMergeOverwrite (deepCopy (default (dict) $c.env)) (include "common.secretEnvMap" (list $root $c.secretEnv (printf "%s.containers.%s.secretEnv" $key $name)) | fromYaml) -}}
   {{- with $env }}
   env:
     {{- range $envName, $envValue := . }}
@@ -470,6 +456,83 @@ paths both set to the app's name.
 {{- end }}
 {{- end }}
 {{- end -}}
+{{- end -}}
+
+{{- /*
+(list $root $secretEnv $where): the env vars a secretEnv map renders, as a map of name to value. Vault off, each
+entry is a secretKeyRef; Vault on, an entry with vault.env sets that variable to the injected file's path, and
+any other entry renders nothing. $where names the map in a missing-key error.
+*/ -}}
+
+{{- define "common.secretEnvMap" -}}
+{{- $root := index . 0 -}}
+{{- $where := index . 2 -}}
+{{- $vaultEnabled := include "common.vaultEnabled" $root -}}
+{{- $env := dict -}}
+{{- range $envName, $s := index . 1 }}
+{{- if include "common.entryEnabled" (list $root $s) }}
+{{- $secret := tpl (required (printf "%s.%s.secret is required" $where $envName) $s.secret) $root -}}
+{{- $secretKey := required (printf "%s.%s.key is required" $where $envName) $s.key -}}
+{{- if $vaultEnabled }}
+{{- with (default (dict) $s.vault).env }}
+{{- $_ := set $env . (include "common.secretFilePath" (list $root $s)) -}}
+{{- end }}
+{{- else }}
+{{- $_ := set $env $envName (dict "valueFrom" (dict "secretKeyRef" (dict "name" $secret "key" $secretKey))) -}}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- toYaml $env -}}
+{{- end -}}
+
+{{- /*
+The secretEnv delivery a Deployment's container gets, for a pod a node writes itself under objects (a Job or a
+CronJob). Each takes (list $root $secretEnv), $secretEnv being a map in the secretEnv shape:
+
+  common.secretEnv            the container's env list entries: a secretKeyRef per entry with Vault off, the
+                              vault.env file paths with it on
+  common.jobVaultAnnotations  the pod's Vault Agent Injector annotations, with agent-pre-populate-only so the
+                              agent runs only as an init container and the Job's pod can complete; empty with
+                              Vault off or no entry
+  common.secretEnvExports     shell lines that export each entry's variable from its injected file, for an app
+                              that reads its secret only from the environment; empty with Vault off
+
+The pod sets automountServiceAccountToken to whether common.jobVaultAnnotations renders anything, because the
+agent logs in with the pod's ServiceAccount token.
+*/ -}}
+
+{{- define "common.secretEnv" -}}
+{{- $root := index . 0 -}}
+{{- range $envName, $envValue := include "common.secretEnvMap" (list $root (index . 1) "secretEnv") | fromYaml }}
+- name: {{ $envName }}
+  {{- if kindIs "map" $envValue }}
+  {{- toYaml $envValue | nindent 2 }}
+  {{- else }}
+  value: {{ $envValue | quote }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "common.jobVaultAnnotations" -}}
+{{- $root := index . 0 -}}
+{{- $pod := dict "containers" (dict "job" (dict "secretEnv" (index . 1))) -}}
+{{- if include "common.vaultInjected" (list $root $pod) -}}
+{{- $v := include "common.values" $root | fromYaml -}}
+{{- $annotations := include "common.vaultAnnotations" (list $root $pod) | fromYaml -}}
+{{- toYaml (mustMergeOverwrite $annotations (dict "vault.hashicorp.com/agent-pre-populate-only" "true") (default (dict) $v.vault.annotations)) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "common.secretEnvExports" -}}
+{{- $root := index . 0 -}}
+{{- if include "common.vaultEnabled" $root }}
+{{- range $envName, $s := index . 1 }}
+{{- if include "common.entryEnabled" (list $root $s) }}
+{{ $envName }}="$(cat {{ include "common.secretFilePath" (list $root $s) | squote }})"
+export {{ $envName }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- end -}}
 
 {{- define "common.secretFilePath" -}}

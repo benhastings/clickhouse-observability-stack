@@ -910,6 +910,49 @@
         }
       }
     },
+    "secretEnv": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "secret": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "if": {
+            "type": [
+              "string",
+              "boolean"
+            ],
+            "description": "templated; the entry is left out when it renders empty or false"
+          },
+          "vault": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "env": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "yamlKey": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "container": {
       "type": "object",
       "additionalProperties": false,
@@ -954,47 +997,7 @@
           }
         },
         "secretEnv": {
-          "type": "object",
-          "additionalProperties": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "secret": {
-                "type": "string"
-              },
-              "key": {
-                "type": "string"
-              },
-              "if": {
-                "type": [
-                  "string",
-                  "boolean"
-                ],
-                "description": "templated; the entry is left out when it renders empty or false"
-              },
-              "vault": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "env": {
-                    "type": "string"
-                  },
-                  "file": {
-                    "type": "string"
-                  },
-                  "yamlKey": {
-                    "type": "string"
-                  },
-                  "field": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
+          "$ref": "#/definitions/secretEnv"
         },
         "envFrom": {
           "type": "array"
