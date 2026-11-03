@@ -1,6 +1,7 @@
-# The Istio profile of the end-to-end test: kind with Istio, the local environment with global.mesh istio and
-# Grafana and OTLP exposed through the ingress gateway, then the usual queries plus the mesh checks, the last
-# of them with PeerAuthentication STRICT. It is heavier than the laptop e2e, so it runs on demand and on pull
+# The Istio profiles of the end-to-end test, sidecar and ambient side by side: kind with Istio, the local
+# environment with global.mesh istio and Grafana and OTLP exposed through the ingress gateway, then the usual
+# queries plus the mesh checks, the last of them with PeerAuthentication STRICT. Ambient also turns network
+# policies on. It is heavier than the laptop e2e, so it runs on demand and on pull
 # requests labelled `mesh`, not on every push.
 name: End to end (Istio)
 on:
@@ -18,6 +19,11 @@ concurrency:
 jobs:
   kind-istio:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'mesh')
+    strategy:
+      fail-fast: false
+      matrix:
+        mesh: [istio, ambient]
+    name: kind-${{ matrix.mesh }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -42,13 +48,14 @@ jobs:
       - name: Put the tools on PATH
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-      - name: Deploy this commit to kind with Istio and query the stack
+      - name: Deploy this commit to kind with Istio (${{ matrix.mesh }}) and query the stack
         env:
           REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           # The injected incident is the laptop e2e's to check; the mesh changes nothing about it.
           E2E_INCIDENT: "0"
+          MESH: ${{ matrix.mesh }}
         run: |
-          make test/e2e MESH=istio REVISION="$REVISION"
+          make test/e2e MESH="$MESH" REVISION="$REVISION"
       - name: Memory the kind node used
         if: always()
         run: |

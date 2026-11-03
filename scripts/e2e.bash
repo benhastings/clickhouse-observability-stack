@@ -240,9 +240,9 @@ poll "  trace $cross_trace has the external root and its in-cluster child" \
   "$cerberus/api/traces/$cross_trace"
 # The collector's k8sattributes labels what a pod sends with the pod it came from, matched here by the connection's
 # source IP. The sender sets no Kubernetes attributes itself, and waits 5 seconds before sending so the processor's
-# pod watch has seen its IP. Under Istio the sidecar hides that IP (a sender sets k8s.pod.uid instead), so this
+# pod watch has seen its IP. Under Istio the mesh may hide that IP (a sender sets k8s.pod.uid instead), so this
 # runs without the mesh.
-if [[ "${MESH:-kubernetes}" != istio ]]; then
+if [[ "${MESH:-kubernetes}" == kubernetes ]]; then
   poll "  k8sattributes: TraceQL finds the in-cluster span by the pod and namespace that sent it" \
     "[.traces[].traceID | (32 - length) as \$n | (if \$n > 0 then \"0\" * \$n else \"\" end) + .] | index(\"$cross_trace\") != null" \
     "$cerberus/api/search" \
@@ -746,16 +746,37 @@ else
   step "demo load: the injected incident and its alerts are skipped (E2E_INCIDENT=0)"
 fi
 
-# MESH=istio (make test/e2e MESH=istio): the stack runs in Istio and Grafana and OTLP are exposed through
-# the ingress gateway on sslip.io hosts. Check the sidecars, both routes, then the same with STRICT mTLS.
-if [[ "${MESH:-kubernetes}" == istio ]]; then
-  step "Istio: Grafana, Cerberus, the collector, Alertmanager, vmalert and garmr sql-adapter run with a sidecar"
+# MESH=istio or ambient (make test/e2e MESH=...): the stack runs in Istio and Grafana and OTLP are exposed
+# through the ingress gateway on sslip.io hosts. Check how each pod joined the mesh, both routes, then the same
+# with STRICT mTLS. Under ambient, network policies are on too (tests/mesh/local-ambient.values.yaml), so every
+# query in this script has also crossed them over HBONE.
+if [[ "${MESH:-kubernetes}" == istio || "${MESH:-kubernetes}" == ambient ]]; then
+  if [[ "$MESH" == istio ]]; then
+    step "Istio: Grafana, Cerberus, the collector, Alertmanager, vmalert and garmr sql-adapter run with a sidecar"
+  else
+    step "Istio ambient: ztunnel redirects Grafana's, Cerberus's, the collector's, Alertmanager's, vmalert's, garmr sql-adapter's and ClickHouse's pods, none with a sidecar"
+  fi
   for app in grafana cerberus otel-collector alertmanager vmalert garmr-sql-adapter; do
     containers="$(kubectl -n observability get pods -l "app.kubernetes.io/name=$app" \
       -o jsonpath='{.items[0].spec.initContainers[*].name} {.items[0].spec.containers[*].name}')"
-    [[ " $containers " == *" istio-proxy "* ]] || { echo "  $app has no istio-proxy: $containers"; exit 1; }
-    echo "  $app: istio-proxy"
+    if [[ "$MESH" == istio ]]; then
+      [[ " $containers " == *" istio-proxy "* ]] || { echo "  $app has no istio-proxy: $containers"; exit 1; }
+      echo "  $app: istio-proxy"
+    else
+      [[ " $containers " != *" istio-proxy "* ]] || { echo "  $app has a sidecar under ambient: $containers"; exit 1; }
+      redirection="$(kubectl -n observability get pods -l "app.kubernetes.io/name=$app" \
+        -o jsonpath='{.items[0].metadata.annotations.ambient\.istio\.io/redirection}')"
+      [[ "$redirection" == enabled ]] || { echo "  $app is not redirected by ztunnel: ${redirection:-no annotation}"; exit 1; }
+      echo "  $app: ambient, no sidecar"
+    fi
   done
+  if [[ "$MESH" == ambient ]]; then
+    redirection="$(kubectl -n observability get pods -l clickhouse.altinity.com/chi=otel \
+      -o jsonpath='{.items[0].metadata.annotations.ambient\.istio\.io/redirection} {.items[0].spec.containers[*].name}')"
+    [[ "$redirection" == enabled* && "$redirection" != *istio-proxy* ]] ||
+      { echo "  ClickHouse is not ambient-only: $redirection"; exit 1; }
+    echo "  clickhouse: ambient, no sidecar"
+  fi
 
   kubectl -n istio-ingress port-forward svc/istio-ingressgateway 18088:80 >/dev/null 2>&1 &
   sleep 3

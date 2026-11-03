@@ -56,6 +56,16 @@ global:
     traces: 21
     logs: 14
     metrics: 90
+  # With mesh: istio, how pods join the mesh. sidecar: an istio-proxy container in each pod (the namespace is
+  # labelled istio-injection: enabled). ambient: no sidecar; the node's ztunnel carries every pod's traffic over
+  # HBONE (port 15008) with mTLS, and the namespace is labelled istio.io/dataplane-mode: ambient. waypoint names
+  # a waypoint the platform already runs, for L7 policy: every Service is labelled to use it. The stack never
+  # renders a waypoint, which needs the Gateway API CRDs.
+  istio:
+    dataplaneMode: sidecar
+    waypoint:
+      name: ""
+      namespace: ""
   imagePullSecrets: []
   # Every container's requests and limits unless it sets its own, key by key: a container that sets only
   # limits.memory keeps these requests. Sized for a small sidecar-like service; a node writes resources only when

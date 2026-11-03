@@ -71,6 +71,9 @@ if [[ -n "$min_version" ]] && [[ "$(printf '%s\n%s\n' "$min_version" "$server_ve
 fi
 
 mesh="$(yq '.global.mesh // "istio"' "$values")"
+# The namespace label the mesh needs before any pod starts: sidecar injection, or ambient's dataplane mode.
+mesh_label=istio-injection=enabled
+[[ "$(yq '.global.istio.dataplaneMode // "sidecar"' "$values")" != ambient ]] || mesh_label=istio.io/dataplane-mode=ambient
 # clusterScoped: false is the restricted-namespace profile: nothing creates or labels a namespace, so each one
 # has to exist already, labelled for Istio injection when the mesh is istio. A tenant often may not read
 # Namespace objects, so a namespace it cannot read is found through its default ServiceAccount instead, and its
@@ -89,12 +92,12 @@ done | sort -u); do
       fail "namespace $ns does not exist and this context cannot create namespaces"
     fi
   elif namespace_json="$(kubectl get namespace "$ns" -o json 2>/dev/null)"; then
-    if [[ "$mesh" == istio && "$(yq -p json '.metadata.labels."istio-injection" // ""' <<<"$namespace_json")" != enabled ]]; then
-      fail "namespace $ns is not labelled istio-injection=enabled; with clusterScoped: false the stack does not label it, so ask the platform team to"
+    if [[ "$mesh" == istio && "$(yq -p json ".metadata.labels.\"${mesh_label%%=*}\" // \"\"" <<<"$namespace_json")" != "${mesh_label#*=}" ]]; then
+      fail "namespace $ns is not labelled $mesh_label; with clusterScoped: false the stack does not label it, so ask the platform team to"
     fi
   elif kubectl -n "$ns" get serviceaccount default >/dev/null 2>&1; then
     [[ "$mesh" != istio ]] ||
-      echo "WARN: cannot read namespace $ns to see its labels; confirm with the platform team that it is labelled istio-injection=enabled" >&2
+      echo "WARN: cannot read namespace $ns to see its labels; confirm with the platform team that it is labelled $mesh_label" >&2
   else
     fail "namespace $ns does not exist, or this context cannot use it; with clusterScoped: false the platform team creates it"
   fi

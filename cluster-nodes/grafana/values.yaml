@@ -138,13 +138,13 @@ configMaps:
         name = {{ required "auth.genericOauth.name is required when auth.genericOauth.enabled" .name }}
         client_id = {{ required "auth.genericOauth.clientId is required when auth.genericOauth.enabled" .clientId }}
         {{- $grafana := $.Values.deployment.containers.grafana }}
-        {{- if hasKey ($grafana.secretEnv | default dict) "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" }}
+        {{- if include "common.entryEnabled" (list $ (index ($grafana.secretEnv | default dict) "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET")) }}
         {{- if (include "common.values" $ | fromYaml).vault.enabled }}
         client_secret = $__file{{ "{" }}{{ include "common.secretFile" (list $ "grafana" "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET") }}{{ "}" }}
         {{- else }}
         client_secret = $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
         {{- end }}
-        {{- else if hasKey ($grafana.env | default dict) "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" }}
+        {{- else if include "common.entryEnabled" (list $ (index ($grafana.env | default dict) "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET")) }}
         client_secret = $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
         {{- end }}
         scopes = {{ .scopes }}

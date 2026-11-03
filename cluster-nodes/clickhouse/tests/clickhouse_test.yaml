@@ -252,6 +252,17 @@ tests:
           path: spec.template.metadata.annotations["sidecar.istio.io/nativeSidecar"]
           value: "true"
 
+  - it: asks for no sidecar on the schema Job under Istio ambient mode, which has none
+    set:
+      global.mesh: istio
+      global.istio.dataplaneMode: ambient
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
   - it: asks for no sidecar on the schema Job without Istio
     set:
       global.mesh: kubernetes
@@ -769,6 +780,16 @@ tests:
       - equal:
           path: spec.templates.podTemplates[0].metadata.labels["sidecar.istio.io/inject"]
           value: "true"
+
+  - it: asks for no sidecar on the ClickHouse pods under Istio ambient mode, and keeps 8123 in the mesh
+    set:
+      global.istio.dataplaneMode: ambient
+    documentSelector:
+      path: kind
+      value: ClickHouseInstallation
+    asserts:
+      - notExists:
+          path: spec.templates.podTemplates[0].metadata
 
   - it: leaves the ClickHouse pods alone when the mesh is kubernetes
     set:

@@ -1,0 +1,47 @@
+# Merged over values-local.yaml when make cluster/up or make test/e2e runs with MESH=ambient (kind only; never an
+# environment of its own): local-istio.values.yaml with Istio in ambient mode, so no pod has a sidecar and ztunnel
+# carries every connection over HBONE, and with network policies on, so their HBONE rules are exercised too.
+global:
+  mesh: istio
+  istio:
+    dataplaneMode: ambient
+  networkPolicy:
+    enabled: true
+    # The ingress gateway reaches Grafana and the collector over HBONE.
+    exposureNamespaces: [istio-ingress]
+  exposure:
+    enabled: true
+    hosts:
+      grafana: grafana.127.0.0.1.sslip.io
+      otlp: otlp.127.0.0.1.sslip.io
+    # Plain HTTP on 80, which e2e reaches the gateway on: no observability-tls credential exists on kind, and
+    # Grafana's root URL then starts with http://, as the OAuth redirect check expects.
+    tls:
+      credentialName: ""
+applications:
+  otel-collector:
+    values:
+      collector:
+        auth:
+          allowUnauthenticatedExposure: true
+  # Grafana's generic OAuth, pointed at a placeholder provider no one runs: e2e checks that a signed-out
+  # visitor through the gateway is sent to it with the redirect URI built from the exposed host. Grafana never
+  # calls the provider before a user comes back from it, so no client secret and no provider are needed. The
+  # admin user still signs in with its password, as the rest of e2e does through the API.
+  grafana:
+    values:
+      auth:
+        genericOauth:
+          enabled: true
+          clientId: grafana
+          authUrl: https://sso.example/realms/platform/protocol/openid-connect/auth
+          tokenUrl: https://sso.example/realms/platform/protocol/openid-connect/token
+          apiUrl: https://sso.example/realms/platform/protocol/openid-connect/userinfo
+          autoLogin: true
+      # So no grafana-oauth secret is read either: this kind cluster has none, and Grafana needs none to redirect.
+      deployment:
+        containers:
+          grafana:
+            secretEnv:
+              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+                if: "false"

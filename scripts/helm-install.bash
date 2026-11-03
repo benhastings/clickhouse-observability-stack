@@ -38,14 +38,17 @@ case "$action" in
   install)
     ENV="$env" scripts/preflight.bash
     scripts/values-for-helm.bash "$env" "$out"
-    # Under Istio the namespaces need the injection label before any pod starts; Argo CD sets it through
-    # managedNamespaceMetadata, so the Helm path sets it here.
-    if [[ ${#create_ns[@]} -gt 0 && "$(yq '.global.mesh // "istio"' "cluster-configs/overrides/values-$env.yaml")" == istio ]]; then
+    # Under Istio the namespaces need the mesh's label before any pod starts: sidecar injection, or ambient's
+    # dataplane mode. Argo CD sets it through managedNamespaceMetadata, so the Helm path sets it here.
+    env_values="cluster-configs/overrides/values-$env.yaml"
+    mesh_label=istio-injection=enabled
+    [[ "$(yq '.global.istio.dataplaneMode // "sidecar"' "$env_values")" != ambient ]] || mesh_label=istio.io/dataplane-mode=ambient
+    if [[ ${#create_ns[@]} -gt 0 && "$(yq '.global.mesh // "istio"' "$env_values")" == istio ]]; then
       namespaces=("$stack_ns")
       [[ "$shared" == true ]] || namespaces+=("$operator_ns")
       for ns in "${namespaces[@]}"; do
         kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-        kubectl label namespace "$ns" istio-injection=enabled --overwrite >/dev/null
+        kubectl label namespace "$ns" "$mesh_label" --overwrite >/dev/null
       done
     fi
     if [[ "$external" == true ]]; then

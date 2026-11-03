@@ -19,14 +19,18 @@ fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 
 create_local_secrets
-# MESH=istio installs Istio first and deploys local with the mesh, and exposure through its gateway, on.
+# MESH=istio installs Istio first and deploys local with the mesh, and exposure through its gateway, on;
+# MESH=ambient does the same with Istio in ambient mode.
 if [[ "$ENV" == restricted ]]; then
   scripts/kind-istio.bash
   scripts/kind-platform.bash restricted
   KIND_CLUSTER="$CLUSTER" scripts/bootstrap.bash restricted "$REVISION"
 elif [[ "${MESH:-kubernetes}" == istio ]]; then
-  scripts/kind-istio.bash
+  scripts/kind-istio.bash sidecar
   KIND_CLUSTER="$CLUSTER" EXTRA_VALUES=tests/mesh/local-istio.values.yaml scripts/bootstrap.bash local "$REVISION"
+elif [[ "${MESH:-kubernetes}" == ambient ]]; then
+  scripts/kind-istio.bash ambient
+  KIND_CLUSTER="$CLUSTER" EXTRA_VALUES=tests/mesh/local-ambient.values.yaml scripts/bootstrap.bash local "$REVISION"
 else
   KIND_CLUSTER="$CLUSTER" scripts/bootstrap.bash local "$REVISION"
 fi

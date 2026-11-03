@@ -198,6 +198,33 @@ tests:
           path: kind
           value: Deployment
 
+  - it: with OAuth on and its secret entry turned off by if, reads no grafana-oauth and writes no client_secret
+    set:
+      vault.enabled: false
+      auth.genericOauth:
+        enabled: true
+        rootUrl: https://grafana.example.com/
+        clientId: grafana
+        authUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/auth
+        tokenUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/token
+        apiUrl: https://keycloak.example.com/realms/demo/protocol/openid-connect/userinfo
+      deployment.containers.grafana.secretEnv.GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET.if: "false"
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: client_secret
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+
   - it: reads the OAuth client secret from grafana-oauth through the environment
     set:
       vault.enabled: false

@@ -1,9 +1,16 @@
 {{- $v := include "common.values" . | fromYaml -}}
 {{- $np := $v.networkPolicy -}}
 {{- if and $v.global.networkPolicy.enabled (ne $np.enabled false) }}
-{{- $istio := eq (include "common.mesh" .) "istio" }}
+{{- $sidecar := include "common.istioSidecar" . }}
+{{- $ambient := include "common.istioAmbient" . }}
 {{- $ingress := include "common.networkPolicy.rules" (list . $np.ingress) }}
 {{- $egress := include "common.networkPolicy.rules" (list . $np.egress) }}
+{{- $hboneIn := "" }}
+{{- $hboneOut := "" }}
+{{- if $ambient }}
+{{- $hboneIn = include "common.networkPolicy.hbone" (list . $ingress "from") }}
+{{- $hboneOut = include "common.networkPolicy.hbone" (list . $egress "to") }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -22,12 +29,22 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  {{- if or $ingress $istio }}
+  {{- if or $ingress $sidecar $ambient }}
   ingress:
     {{- with $ingress }}
     {{- . | nindent 4 }}
     {{- end }}
-    {{- if $istio }}
+    {{- with $hboneIn }}
+    # Ambient: the same peers over HBONE, which ztunnel delivers on 15008.
+    {{- . | nindent 4 }}
+    {{- end }}
+    {{- if $ambient }}
+    # Ambient: kubelet's health probes, which ztunnel rewrites to come from this link-local address.
+    - from:
+        - ipBlock:
+            cidr: 169.254.7.127/32
+    {{- end }}
+    {{- if $sidecar }}
     # The sidecar's health and telemetry ports, which the mesh and kubelet reach.
     - ports:
         - port: 15020
@@ -51,7 +68,7 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    {{- if $istio }}
+    {{- if $sidecar }}
     - to:
         - namespaceSelector:
             matchLabels:
@@ -63,6 +80,10 @@ spec:
           protocol: TCP
     {{- end }}
     {{- with $egress }}
+    {{- . | nindent 4 }}
+    {{- end }}
+    {{- with $hboneOut }}
+    # Ambient: the same peers over HBONE, which ztunnel sends to on 15008.
     {{- . | nindent 4 }}
     {{- end }}
 {{- end }}
