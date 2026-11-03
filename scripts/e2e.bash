@@ -32,7 +32,7 @@ if kubectl get crd applications.argoproj.io >/dev/null 2>&1 && kubectl get names
       exit 1
     fi
     echo "  $ready/$expected ready ($total present)"
-    sleep 15
+    sleep 5
   done
 else
   step "No Argo CD here: waiting for the workloads"
@@ -86,7 +86,7 @@ poll() {
       echo "  not satisfied within ${DATA_TIMEOUT}s: $check"
       exit 1
     fi
-    sleep 10
+    sleep 5
   done
 }
 
@@ -101,6 +101,16 @@ if [[ "$ENV" == restricted ]]; then
   echo "e2e: ok"
   exit 0
 fi
+
+# Every rule evaluator sends to Alertmanager's v2 API. Post an alert the way one would now, and read it back
+# further down: its route's group_wait, and garmr's incident for it, then pass while the other checks run.
+step "Alertmanager: posting an alert to the v2 API, to read back later"
+e2e_alert="e2e-$(openssl rand -hex 4)"
+curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "[{\"labels\": {\"alertname\": \"$e2e_alert\", \"severity\": \"none\"},
+       \"annotations\": {\"summary\": \"posted by scripts/e2e.bash\"}}]" \
+  "$alertmanager/api/v2/alerts"
+history_start=$(($(date +%s) - 300))
 
 poll "PromQL: span metrics exist for checkout and payments" \
   '[.data.result[].metric.service_name] | contains(["checkout", "payments"])' \
@@ -420,20 +430,6 @@ analyst_limited "SELECT length(groupArray(randomString(1000))) FROM (SELECT 1 FR
   ARRAY JOIN range(1000000) AS r" MEMORY_LIMIT_EXCEEDED
 analyst_limited "SET max_memory_usage = 100000000000" SETTING_CONSTRAINT_VIOLATION
 analyst_limited "SET priority = 0" SETTING_CONSTRAINT_VIOLATION
-# otel_features: one row per trace, five minutes after its root span, and each service's log templates per minute.
-step "ClickHouse: otel_analyst reads the demo's traces in trace_summary and its log templates"
-features_query="SELECT (SELECT count() FROM otel_features.trace_summary WHERE RootService = 'web' AND has(Services, 'payments')),
-  (SELECT uniqExact(ServiceName) FROM otel_features.log_templates WHERE ServiceName IN ('checkout', 'payments', 'web')) FORMAT TSV"
-deadline=$((SECONDS + DATA_TIMEOUT))
-until features="$(clickhouse_as analyst "$features_query")" && awk -F'\t' '{exit !($1 > 0 && $2 == 3)}' <<<"$features"; do
-  if ((SECONDS > deadline)); then
-    clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_features'"
-    echo "  expected traces through payments and templates for checkout, payments and web; got: $features"
-    exit 1
-  fi
-  sleep 10
-done
-awk -F'\t' '{printf "  %s traces from web through payments, log templates for %s services\n", $1, $2}' <<<"$features"
 # A model writes scores to otel_ml.scores as otel_analyst; a view publishes each as an ml:<model>:<signal> series.
 step "ClickHouse: otel_analyst writes a score to otel_ml.scores"
 clickhouse_as analyst "INSERT INTO otel_ml.scores (Model, ServiceName, Signal, Value) VALUES ('e2e', 'payments', 'check', 42)" </dev/null
@@ -478,7 +474,7 @@ until [[ "$(clickhouse_as admin "SELECT count() FROM otel_baseline.signal_1m WHE
     echo "  otel_baseline.signal_1m has no payments rows after ${DATA_TIMEOUT}s"
     exit 1
   fi
-  sleep 10
+  sleep 5
 done
 echo "  ok"
 # baseline_series_mv writes series for the current hour of the week only, from signal_1m, which lags two
@@ -518,7 +514,7 @@ until slo="$(clickhouse_as reader "$slo_query")" && slo_settled "$slo"; do
     awk '{print "    " $0}' <<<"$slo"
     exit 1
   fi
-  sleep 10
+  sleep 5
 done
 echo "$slo" | awk -F'\t' '{printf "  %s: availability %s against %s, burn rate %s, budget left %s, latency threshold %s ms\n", $1, $2, $3, $4, $5, $6}'
 # The SLOs dashboard reads the same views, written back every minute as slo:* series.
@@ -531,13 +527,6 @@ analyst_slo="$(clickhouse_as analyst "SELECT count() FROM otel_slo.budget(at = n
 [[ "$analyst_slo" == 2 ]] || { echo "  otel_analyst read $analyst_slo of the demo services' error budgets, not 2"; exit 1; }
 echo "  otel_analyst reads both demo services' error budgets"
 
-# Every rule evaluator sends to Alertmanager's v2 API. Post an alert the way one would, and read it back.
-step "Alertmanager: an alert posted to the v2 API is grouped and listed"
-e2e_alert="e2e-$(openssl rand -hex 4)"
-curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' \
-  -d "[{\"labels\": {\"alertname\": \"$e2e_alert\", \"severity\": \"none\"},
-       \"annotations\": {\"summary\": \"posted by scripts/e2e.bash\"}}]" \
-  "$alertmanager/api/v2/alerts"
 poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
   "[.[] | select(.labels.alertname == \"$e2e_alert\" and .status.state == \"active\")
    | .receivers[].name] | index(\"default\") != null" \
@@ -549,7 +538,6 @@ poll "Grafana: the Alertmanager datasource lists $e2e_alert" \
 
 # Alertmanager's history receiver posts every notification to the collector, which keeps it in otel_logs as a
 # log of service alertmanager with the alert's labels as attributes.
-history_start=$(($(date +%s) - 300))
 poll "LogQL: the history receiver kept $e2e_alert's notification as a log" \
   "[.data.result[] | select(.stream.status == \"firing\") | .values[]] | length > 0" \
   "$cerberus/loki/api/v1/query_range" \
@@ -570,7 +558,7 @@ garmr_until() {
       kubectl -n observability logs deploy/garmr --tail=50 || true
       exit 1
     fi
-    sleep 10
+    sleep 5
   done
   echo "  ok"
 }
@@ -654,6 +642,21 @@ poll "Alertmanager: Grafana's span error ratio rule fires for payments" \
   '[.[] | select(.labels.grafana_folder == "Observability stack" and .status.state == "active")
    | .labels.service_name] | index("payments") != null' \
   "$alertmanager/api/v2/alerts"
+# otel_features: one row per trace, five minutes after its root span, and each service's log templates per minute.
+# The first traces land about five minutes after the demo load starts, so this runs after everything else.
+step "ClickHouse: otel_analyst reads the demo's traces in trace_summary and its log templates"
+features_query="SELECT (SELECT count() FROM otel_features.trace_summary WHERE RootService = 'web' AND has(Services, 'payments')),
+  (SELECT uniqExact(ServiceName) FROM otel_features.log_templates WHERE ServiceName IN ('checkout', 'payments', 'web')) FORMAT TSV"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until features="$(clickhouse_as analyst "$features_query")" && awk -F'\t' '{exit !($1 > 0 && $2 == 3)}' <<<"$features"; do
+  if ((SECONDS > deadline)); then
+    clickhouse_as admin "SELECT view, status, last_success_time, exception FROM system.view_refreshes WHERE database = 'otel_features'"
+    echo "  expected traces through payments and templates for checkout, payments and web; got: $features"
+    exit 1
+  fi
+  sleep 5
+done
+awk -F'\t' '{printf "  %s traces from web through payments, log templates for %s services\n", $1, $2}' <<<"$features"
 # E2E_INCIDENT=0 skips the injected incident and the alerts it drives, which wait on the demo load's schedule
 # for about 25 minutes. Pull requests skip it; pushes to main, the nightly run and the slow label run it
 # (.github/workflows/e2e.yml).
@@ -803,7 +806,7 @@ if [[ "${MESH:-kubernetes}" == istio || "${MESH:-kubernetes}" == ambient ]]; the
         echo "  not matched within ${DATA_TIMEOUT}s: $pattern"
         exit 1
       fi
-      sleep 10
+      sleep 5
     done
   }
 
