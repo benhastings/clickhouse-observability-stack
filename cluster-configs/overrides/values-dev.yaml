@@ -38,18 +38,13 @@ applications:
       configMaps:
         env:
           data:
-            CERBERUS_PROM_METADATA_LOOKBACK: null
+            CERBERUS_PROM_METADATA_LOOKBACK: 7d
 
   otel-collector:
     values:
       collector:
         auth:
           enabled: false
-      deployment:
-        containers:
-          otel-collector:
-            env:
-              OTLP_BEARER_TOKEN: null
 
   grafana:
     values:
@@ -58,8 +53,3 @@ applications:
       auth:
         genericOauth:
           enabled: false
-      deployment:
-        containers:
-          grafana:
-            secretEnv:
-              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null

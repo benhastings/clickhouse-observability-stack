@@ -66,11 +66,6 @@ applications:
       collector:
         auth:
           enabled: false
-      deployment:
-        containers:
-          otel-collector:
-            env:
-              OTLP_BEARER_TOKEN: null
 
   # Credentials are Kubernetes Secrets in this namespace, not Vault, and Grafana keeps its login form: the
   # production defaults read Grafana's from Vault and sign in through an OpenID Connect provider.
@@ -81,8 +76,3 @@ applications:
       auth:
         genericOauth:
           enabled: false
-      deployment:
-        containers:
-          grafana:
-            secretEnv:
-              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null

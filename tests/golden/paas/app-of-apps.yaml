@@ -303,11 +303,6 @@ spec:
         auth:
           genericOauth:
             enabled: false
-        deployment:
-          containers:
-            grafana:
-              secretEnv:
-                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
         global:
           clickhouse:
             external: true
@@ -363,11 +358,6 @@ spec:
         collector:
           auth:
             enabled: false
-        deployment:
-          containers:
-            otel-collector:
-              env:
-                OTLP_BEARER_TOKEN: null
         exposure:
           host: ""
         global:

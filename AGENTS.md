@@ -55,7 +55,11 @@ fails when the generated file is stale.
 
 The app-of-apps chart renders each child Application with `helm.valuesObject` set to `global` merged with
 `applications.<app>.values`, so an environment changes an app by writing the keys it wants under
-`applications.<app>.values` and nothing else. Maps deep-merge; `null` deletes; lists replace whole.
+`applications.<app>.values` and nothing else. Maps deep-merge and lists replace whole. **Never write `null` in an
+environment file:** the API server drops nulls from the Application's `valuesObject`, so the chart never sees one
+and the default stays (the golden renders would still show it deleted). Turn a default off with the key that
+owns it instead (an env or secretEnv entry takes `if:`, templated, so it follows its feature), and
+`check/structure` fails on a null.
 
 ## Working in this repository
 

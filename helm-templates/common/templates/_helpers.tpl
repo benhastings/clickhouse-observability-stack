@@ -62,7 +62,7 @@
   {{- $vaultEnabled := include "common.vaultEnabled" $root -}}
   {{- $env := deepCopy (default (dict) $c.env) -}}
   {{- range $envName, $s := $c.secretEnv }}
-  {{- if $s }}
+  {{- if include "common.entryEnabled" (list $root $s) }}
   {{- $secret := tpl (required (printf "%s.containers.%s.secretEnv.%s.secret is required" $key $name $envName) $s.secret) $root -}}
   {{- $secretKey := required (printf "%s.containers.%s.secretEnv.%s.key is required" $key $name $envName) $s.key -}}
   {{- if $vaultEnabled }}
@@ -77,10 +77,10 @@
   {{- with $env }}
   env:
     {{- range $envName, $envValue := . }}
-    {{- if not (kindIs "invalid" $envValue) }}
+    {{- if include "common.entryEnabled" (list $root $envValue) }}
     - name: {{ $envName }}
       {{- if kindIs "map" $envValue }}
-      {{- tpl (toYaml $envValue) $root | nindent 6 }}
+      {{- tpl (toYaml (omit $envValue "if")) $root | nindent 6 }}
       {{- else }}
       value: {{ tpl (toString $envValue) $root | quote }}
       {{- end }}
@@ -465,7 +465,9 @@ paths both set to the app's name.
 {{- $d := index . 1 -}}
 {{- if include "common.vaultEnabled" $root }}
 {{- range $name, $c := $d.containers }}
-{{- if and $c $c.secretEnv }}true{{ end }}
+{{- if $c }}
+{{- range $envName, $s := $c.secretEnv }}{{ if include "common.entryEnabled" (list $root $s) }}true{{ end }}{{ end }}
+{{- end }}
 {{- end }}
 {{- end -}}
 {{- end -}}
@@ -522,7 +524,7 @@ paths both set to the app's name.
 {{- range $name, $c := $d.containers }}
 {{- if $c }}
 {{- range $envName, $s := $c.secretEnv }}
-{{- if $s }}
+{{- if include "common.entryEnabled" (list $root $s) }}
 {{- $file := include "common.secretFilePath" (list $root $s) -}}
 {{- $path := printf "%s/%s" (trimSuffix "/" $v.vault.path) (tpl $s.secret $root) -}}
 {{- $_ := set $annotations (printf "vault.hashicorp.com/agent-inject-secret-%s" (base $file)) $path -}}
@@ -549,4 +551,28 @@ paths both set to the app's name.
 {{- define "common.deploymentEnabled" -}}
 {{- $v := include "common.values" . | fromYaml -}}
 {{- if and $v.deployment.enabled $v.deployment.containers }}true{{ end -}}
+{{- end -}}
+
+{{- /*
+(list $root $entry): "true" when an env or secretEnv entry is rendered. An entry is off when it is null, or when
+it is a map whose "if" key, templated, renders empty or "false"; "if" is never rendered itself. A node turns an
+entry on with the feature it belongs to, such as
+
+  OTLP_BEARER_TOKEN:
+    if: '{{ .Values.collector.auth.enabled }}'
+    valueFrom: ...
+
+so no environment has to delete it: Argo CD drops null values from an Application's valuesObject, so an
+environment's null never reaches the chart.
+*/ -}}
+
+{{- define "common.entryEnabled" -}}
+{{- $root := index . 0 -}}
+{{- $e := index . 1 -}}
+{{- if not (kindIs "invalid" $e) -}}
+{{- if and (kindIs "map" $e) (hasKey $e "if") -}}
+{{- $on := trim (tpl (toString (index $e "if")) $root) -}}
+{{- if and $on (ne $on "false") }}true{{ end -}}
+{{- else }}true{{ end -}}
+{{- end -}}
 {{- end -}}

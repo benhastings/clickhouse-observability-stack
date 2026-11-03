@@ -16,7 +16,7 @@ secrets:
   # grafana-oauth, key client-secret: the generic OAuth client secret, which the Deployment's secretEnv below
   # reads. Never created here: it is in Vault by default, or pre-created as a Secret with vault.enabled: false.
   # grafana.ini reads it with $__file{...} under Vault, $__env{...} without. An environment without single
-  # sign-on drops it with GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null under the container's secretEnv.
+  # sign-on needs none: the entry is only rendered with auth.genericOauth.enabled.
   oauth:
     create: false
 
@@ -307,7 +307,9 @@ deployment:
           key: admin-password
           vault:
             env: GF_SECURITY_ADMIN_PASSWORD__FILE
+        # Only with auth.genericOauth.enabled, so Grafana without single sign-on needs no grafana-oauth secret.
         GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+          if: '{{ .Values.auth.genericOauth.enabled }}'
           secret: grafana-oauth
           key: client-secret
       livenessProbe:

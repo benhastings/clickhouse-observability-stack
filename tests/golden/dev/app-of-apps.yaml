@@ -104,7 +104,7 @@ spec:
         configMaps:
           env:
             data:
-              CERBERUS_PROM_METADATA_LOOKBACK: null
+              CERBERUS_PROM_METADATA_LOOKBACK: 7d
         global:
           exposure:
             enabled: false
@@ -344,11 +344,6 @@ spec:
         auth:
           genericOauth:
             enabled: false
-        deployment:
-          containers:
-            grafana:
-              secretEnv:
-                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
         global:
           exposure:
             enabled: false
@@ -397,11 +392,6 @@ spec:
         collector:
           auth:
             enabled: false
-        deployment:
-          containers:
-            otel-collector:
-              env:
-                OTLP_BEARER_TOKEN: null
         global:
           exposure:
             enabled: false

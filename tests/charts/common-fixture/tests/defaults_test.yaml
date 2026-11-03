@@ -91,3 +91,65 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: leaves out an env or secretEnv entry whose if renders false, and never renders if itself
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      global.exposure.enabled: false
+      deployment.containers.app.env.TOKEN:
+        if: '{{ .Values.global.exposure.enabled }}'
+        valueFrom:
+          secretKeyRef:
+            name: token
+            key: token
+      deployment.containers.app.secretEnv.OAUTH:
+        if: '{{ .Values.global.exposure.enabled }}'
+        secret: oauth
+        key: secret
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TOKEN
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH
+          any: true
+
+  - it: renders an env or secretEnv entry whose if renders true, without the if key
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      global.exposure.enabled: true
+      deployment.containers.app.env.TOKEN:
+        if: '{{ .Values.global.exposure.enabled }}'
+        valueFrom:
+          secretKeyRef:
+            name: token
+            key: token
+      deployment.containers.app.secretEnv.OAUTH:
+        if: '{{ .Values.global.exposure.enabled }}'
+        secret: oauth
+        key: secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: token
+                key: token
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH
+            valueFrom:
+              secretKeyRef:
+                name: oauth
+                key: secret
