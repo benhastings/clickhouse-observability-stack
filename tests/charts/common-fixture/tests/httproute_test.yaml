@@ -66,7 +66,8 @@ tests:
           errorPattern: global.exposure.gateway.name is empty
 
   - it: refuses an Istio Gateway without the mesh
-    template: templates/gateway.yaml
+    # Every exposure template checks the API; Helm stops at the first, ingress.yaml.
+    template: templates/ingress.yaml
     set:
       global.mesh: kubernetes
       global.exposure.api: istio
