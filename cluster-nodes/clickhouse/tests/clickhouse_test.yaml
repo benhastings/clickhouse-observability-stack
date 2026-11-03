@@ -1005,3 +1005,20 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: global.clickhouse.tls.caConfigMap is empty
+
+  - it: fails on vault.enabled, because the server and the schema Job read only Kubernetes Secrets
+    set:
+      global.vault.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: '^clickhouse: vault.enabled is true, but the ClickHouse server and the schema Job read their users'' passwords only from the Kubernetes Secrets clickhouse-<user>'
+
+  - it: fails on vault.enabled with an external ClickHouse too, where the schema Job still reads clickhouse-admin
+    set:
+      vault.enabled: true
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.example.com
+      global.clickhouse.tls.caConfigMap: clickhouse-ca
+    asserts:
+      - failedTemplate:
+          errorPattern: '^clickhouse: vault.enabled is true'

@@ -492,11 +492,13 @@ paths both set to the app's name.
 {{- include "common.secretFilePath" (list $root (required (printf "common.secretFile: no secretEnv %s in container %s" (index . 2) (index . 1)) $s)) -}}
 {{- end -}}
 
+{{- /* (list $path $s $field): the agent template that writes field $field of record $path. */ -}}
+
 {{- define "common.vaultTemplate" -}}
 {{- $path := index . 0 -}}
 {{- $s := index . 1 -}}
 {{- $vault := default (dict) $s.vault -}}
-{{- $value := printf "index .Data.data %q" $s.key -}}
+{{- $value := printf "index .Data.data %q" (index . 2) -}}
 {{- if $vault.yamlKey -}}
 {{- $keys := splitList "." $vault.yamlKey -}}
 {{- $body := "" -}}
@@ -514,6 +516,27 @@ paths both set to the app's name.
 {{- end -}}
 {{- end -}}
 
+{{- /*
+(list $root $secretEnv): where Vault holds one secretEnv entry, as {path, field}. With vault.secret, every entry
+is a field of that one record, named <Secret name>-<key> unless the entry sets vault.field; without it, each
+Secret name is its own record and the field is the key.
+*/ -}}
+
+{{- define "common.vaultRecord" -}}
+{{- $root := index . 0 -}}
+{{- $s := index . 1 -}}
+{{- $v := include "common.values" $root | fromYaml -}}
+{{- $secret := tpl $s.secret $root -}}
+{{- $field := (default (dict) $s.vault).field -}}
+{{- if $v.vault.secret -}}
+path: {{ printf "%s/%s" (trimSuffix "/" $v.vault.path) $v.vault.secret | quote }}
+field: {{ default (printf "%s-%s" $secret $s.key) $field | quote }}
+{{- else -}}
+path: {{ printf "%s/%s" (trimSuffix "/" $v.vault.path) $secret | quote }}
+field: {{ default $s.key $field | quote }}
+{{- end -}}
+{{- end -}}
+
 {{- /* (list $root $workload): the Vault Agent Injector annotations for one pod. */ -}}
 
 {{- define "common.vaultAnnotations" -}}
@@ -526,9 +549,9 @@ paths both set to the app's name.
 {{- range $envName, $s := $c.secretEnv }}
 {{- if include "common.entryEnabled" (list $root $s) }}
 {{- $file := include "common.secretFilePath" (list $root $s) -}}
-{{- $path := printf "%s/%s" (trimSuffix "/" $v.vault.path) (tpl $s.secret $root) -}}
-{{- $_ := set $annotations (printf "vault.hashicorp.com/agent-inject-secret-%s" (base $file)) $path -}}
-{{- $_ := set $annotations (printf "vault.hashicorp.com/agent-inject-template-%s" (base $file)) (include "common.vaultTemplate" (list $path $s)) -}}
+{{- $record := include "common.vaultRecord" (list $root $s) | fromYaml -}}
+{{- $_ := set $annotations (printf "vault.hashicorp.com/agent-inject-secret-%s" (base $file)) $record.path -}}
+{{- $_ := set $annotations (printf "vault.hashicorp.com/agent-inject-template-%s" (base $file)) (include "common.vaultTemplate" (list $record.path $s $record.field)) -}}
 {{- if ne (dir $file) "/vault/secrets" }}
 {{- $_ := set $annotations (printf "vault.hashicorp.com/secret-volume-path-%s" (base $file)) (dir $file) -}}
 {{- end }}

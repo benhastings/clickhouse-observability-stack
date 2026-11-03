@@ -11,6 +11,7 @@ source scripts/local-secrets.bash
 # profile kind-up.sh merges over it, which the golden renders never include, and fail when
 #   - a pod reads a Secret that neither the render nor create_local_secrets creates (an optional reference is
 #     allowed): on kind it sits in CreateContainerConfigError
+#   - scripts/secret-records.bash, which preflight prints, leaves out a Secret a pod reads
 #   - an Istio Gateway serves anything but plain HTTP on 80, which is all e2e reaches the ingress gateway on and
 #     all kind can serve: no TLS credential exists there
 KUBE_VERSION=${KUBE_VERSION:?KUBE_VERSION must be set}
@@ -35,11 +36,14 @@ for profile in "" tests/mesh/*.yaml; do
   label="values-local.yaml${profile:+ + $profile}"
   render_app_of_apps local --kube-version "$KUBE_VERSION" "${extra[@]}" >"$work/app-of-apps.yaml"
   : >"$work/all.yaml"
+  rm -rf "$work/apps" && mkdir "$work/apps"
   while IFS= read -r app; do
     load_app "$work/app-of-apps.yaml" "$app" "$work/values.yaml"
-    { helm template "$app_release" "$app_path" --namespace "$app_namespace" --kube-version "$KUBE_VERSION" \
-      -f "$work/values.yaml" 2>/dev/null; echo '---'; } >>"$work/all.yaml"
+    helm template "$app_release" "$app_path" --namespace "$app_namespace" --kube-version "$KUBE_VERSION" \
+      -f "$work/values.yaml" 2>/dev/null >"$work/apps/$app_release.yaml"
+    { cat "$work/apps/$app_release.yaml"; echo '---'; } >>"$work/all.yaml"
   done < <(app_names "$work/app-of-apps.yaml")
+  records="$(scripts/secret-records.bash "$work/apps")"
 
   rendered="$(yq ea 'select(.kind == "Secret") | .metadata.name' "$work/all.yaml" | sort -u)"
   read_names="$(yq ea '[.. | select(has("secretKeyRef")) | .secretKeyRef | select(.optional != true) | .name] +
@@ -50,6 +54,10 @@ for profile in "" tests/mesh/*.yaml; do
     [[ -z "$name" ]] && continue
     if ! grep -qxF "$name" <<<"$created"$'\n'"$rendered"; then
       echo "check-kind-profiles: $label: a pod reads Secret $name, which kind never creates" >&2
+      failed=1
+    fi
+    if ! grep -qxF "$name" <<<"$rendered" && ! grep -qF "Secret $name, " <<<"$records"; then
+      echo "check-kind-profiles: $label: a pod reads Secret $name, which secret-records.bash does not list" >&2
       failed=1
     fi
   done <<<"$read_names"
