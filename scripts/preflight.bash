@@ -10,6 +10,11 @@
 # With global.clickhouse.external it checks the service contract instead (README: The ClickHouse service
 # contract): the CA bundle's ConfigMap and key, and each credential Secret an enabled app reads. It never reads a
 # Secret's data, only whether the Secret exists.
+#
+# First it renders the environment (scripts/render.bash, which fails on a mixed secret mechanism) and prints the
+# mechanism each app reads its credentials through, with every record that mechanism has to hold before the first
+# sync: Secret names and keys, Vault paths and fields, or External Secrets remote keys and properties
+# (scripts/secret-records.bash). It prints names only, never a value.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,6 +35,15 @@ if ! kubectl get --raw=/version >/dev/null 2>&1; then
   exit 1
 fi
 echo "==> Preflight for $env_name against context ${context}"
+
+# The credential records, from the environment's own render.
+render_dir="$(mktemp -d)"
+trap 'rm -rf "$render_dir"' EXIT
+KUBE_VERSION="${KUBE_VERSION:-$(sed -n 's/^KUBE_VERSION := //p' Makefile)}" scripts/render.bash "$render_dir" "$env_name" >/dev/null 2> >(grep -v "found symbolic link" >&2)
+records="$(scripts/secret-records.bash "$render_dir/$env_name")"
+echo "==> Secret mechanism: $(awk '{print $2}' <<<"$records" | sort -u | paste -sd' ' | sed 's/ /, /g') (README: Credentials)"
+echo "==> Credential records the environment needs before the first sync (app, mechanism, record):"
+while IFS= read -r record; do echo "    $record"; done <<<"$records"
 
 failures=0
 fail() {

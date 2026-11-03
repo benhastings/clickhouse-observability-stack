@@ -250,7 +250,7 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
 
 - **Secrets.** No path creates passwords. Create `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`,
   `grafana-admin` and `clickhouse-operator-credentials` (plus `otel-collector-auth` when collector auth is on), or let the
-  [External Secrets operator](#secrets-kubernetes-or-vault) create them. With
+  [External Secrets operator](#credentials) create them. With
   [a shared ClickHouse operator](#a-shared-clickhouse-operator), `clickhouse-operator-credentials` is the platform's.
 - **The mesh.** `global.mesh` defaults to `istio`; set `kubernetes` on a cluster without Istio. See
   [Service mesh](#service-mesh-istio-or-plain-kubernetes).
@@ -1071,37 +1071,48 @@ The waves are set in `cluster-configs/app-of-apps/values.yaml`. Argo CD doesn't 
 
 On the very first install, expect a few minutes of retry noise from the schema Job, which logs `waiting for ClickHouse` until the server accepts `otel_admin`. Waves keep Cerberus and the collector behind it.
 
-### Secrets: Kubernetes or Vault
+### Credentials
 
 No password is committed to this repository. Each Deployment and DaemonSet declares the secrets it needs
-once, under `secretEnv` (Secret name and key), and `vault.enabled` picks how they reach the pod:
+once, under `secretEnv` (Secret name and key). Each environment picks **one mechanism** that produces them:
 
-- **`vault.enabled: false`** (the default): each one becomes an env var read from a Kubernetes Secret with
+- **Kubernetes Secrets** (the default): each one becomes an env var read from a Kubernetes Secret with
   `secretKeyRef`. On kind, `make cluster/up` and `make dev/up` create those Secrets with random passwords
   before anything reads them. Elsewhere, you create them.
-- **`vault.enabled: true`**: the pod gets [Vault Agent Injector](https://developer.hashicorp.com/vault/docs/platform/k8s/injector)
-  annotations, and the agent writes each secret to a file, read from `<vault.path>/<Secret name>` (default
-  `secret/data`, KV v2). The app reads the file instead of an env var. Grafana uses `GF_SECURITY_ADMIN_*__FILE`,
-  the collector uses `${file:...}` in its config, and Cerberus reads `/etc/cerberus/cerberus.yaml`. The pod
-  authenticates with its ServiceAccount, so `vault.role` (default: the app's name) must be a Vault Kubernetes
-  auth role bound to it.
+- **Vault** (`vault.enabled: true`): the pod gets [Vault Agent Injector](https://developer.hashicorp.com/vault/docs/platform/k8s/injector)
+  annotations, and the agent writes each secret to a file. The app reads the file instead of an env var: Grafana
+  uses `GF_SECURITY_ADMIN_*__FILE`, the collector uses `${file:...}` in its config, and Cerberus reads
+  `/etc/cerberus/cerberus.yaml`. The pod authenticates with its ServiceAccount, so `vault.role` (default: the app's
+  name) must be a Vault Kubernetes auth role bound to it. The injector has to run in the cluster.
+- **External Secrets** (`global.externalSecrets.enabled: true`): the chart renders an `ExternalSecret` with the
+  same name in place of each Secret a node declares under `secrets.<name>.external.keys`, so the pods read the
+  same Secrets as with Kubernetes Secrets. The [External Secrets operator](https://external-secrets.io) and the
+  store you name have to exist; the chart installs neither.
 
-Vault mode needs the injector running in the cluster and the secrets already stored in Vault. The
-ClickHouse server, its schema Job, its backup CronJob and the operator don't read secrets through `secretEnv`: they read
-`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `clickhouse-backup` and `clickhouse-operator-credentials` as Kubernetes Secrets in
-both modes, so with Vault you sync those from Vault; `global.externalSecrets` below does that. The same goes for
-the optional `grafana-oauth` and `otel-collector-auth` Secrets. To turn Vault on for an environment:
+Mixing them is how credentials go missing: an app on Vault reads a record nobody wrote, while the Secret its
+peer waits for never appears. So the render refuses it, and `make generate` and Argo CD's sync fail with a
+message naming the app:
+
+- **One app, one mechanism**: an app with both `vault.enabled` and `global.externalSecrets.enabled` fails. Grafana
+  turns Vault on in its node, so an environment on External Secrets sets
+  `applications.grafana.values.vault.enabled: false`.
+- **ClickHouse and its clients agree**: `clickhouse` (the server and the schema Job), `cerberus`, `otel-collector`,
+  `garmr` and `garmr-sql-adapter` must use the same mechanism. The app-of-apps render lists each one's mechanism
+  when they don't.
+- **ClickHouse is not on Vault yet**: the server (through the operator) and the schema Job read their users'
+  passwords only from Kubernetes Secrets, so `vault.enabled` on `clickhouse` fails. Vault for ClickHouse's
+  credentials therefore means the clients only, with `applications.clickhouse.enabled: false` against
+  [an external ClickHouse](#an-external-clickhouse) whose owner applies the schema.
+
+The mechanism is the environment's secret owner's choice, made in its `values-<env>.yaml`:
 
 ```yaml
 global:
   vault:
     enabled: true
     role: observability
+    secret: OBS_SECRET            # optional: one parent record for every app, see below
 ```
-
-With the [External Secrets operator](https://external-secrets.io) in the cluster, the chart can request the
-Secrets instead of you creating them. Set `global.externalSecrets.enabled: true` and name a `SecretStore` or
-`ClusterSecretStore` you run:
 
 ```yaml
 global:
@@ -1112,11 +1123,33 @@ global:
     remotePath: observability     # each Secret is read from <remotePath>/<Secret name>
 ```
 
-`clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst` and `clickhouse-garmr` (keys `username`, `password`), `clickhouse-operator-credentials` (`username`, `password`)
-and `grafana-admin` (`admin-user`, `admin-password`) are then each an `ExternalSecret` with the same name, so the
-pods read the same Secrets as before. The chart doesn't install the operator or a store, and
-`make cluster/preflight` fails when the operator's CRD is missing. A node declares another Secret for this by
-listing its keys under `secrets.<name>.external.keys`.
+`make cluster/preflight ENV=<env>` renders the environment, names the mechanism each app uses, and lists every
+record it needs before the first sync: the Secret names and keys, the Vault paths and fields, or the External
+Secrets remote keys and properties. It prints names only, never a value.
+
+#### The credential contract
+
+Every record the stack reads, by mechanism. Vault reads `<vault.path>/<Secret name>` (default `secret/data`, KV
+v2), one field per key; with `vault.secret` set, every app reads the one record `<vault.path>/<vault.secret>`
+instead, and each key is the field `<Secret name>-<key>`. External Secrets reads
+`<remotePath>/<Secret name>`, one property per key. A dash means the mechanism can't deliver it, so that record
+stays a Kubernetes Secret.
+
+| Secret | Keys | Read by | Vault field (`vault.secret: OBS_SECRET`) | External Secrets |
+| --- | --- | --- | --- | --- |
+| `clickhouse-admin` | `username`, `password` | ClickHouse, the schema Job, the backup CronJob | - | `observability/clickhouse-admin` |
+| `clickhouse-writer` | `username`, `password` | ClickHouse; `otel-collector` (`password`) | `clickhouse-writer-password` | `observability/clickhouse-writer` |
+| `clickhouse-reader` | `username`, `password` | ClickHouse; `cerberus`, `garmr-sql-adapter` (`password`) | `clickhouse-reader-password` | `observability/clickhouse-reader` |
+| `clickhouse-analyst` | `username`, `password` | ClickHouse; notebooks and jobs | - | `observability/clickhouse-analyst` |
+| `clickhouse-garmr` | `username`, `password` | ClickHouse; `garmr` (`password`) | `clickhouse-garmr-password` | `observability/clickhouse-garmr` |
+| `clickhouse-backup` | `access_key`, `secret_key` | the backup CronJob, with `clickhouse.backup` | - | - |
+| `clickhouse-operator-credentials` | `username`, `password` | the ClickHouse operator | - | `observability/clickhouse-operator-credentials` |
+| `grafana-admin` | `admin-user`, `admin-password` | `grafana` | `grafana-admin-admin-user`, `grafana-admin-admin-password` | `observability/grafana-admin` |
+| `grafana-oauth` | `client-secret` | `grafana`, with `auth.genericOauth` | `grafana-oauth-client-secret` | - |
+| `otel-collector-auth` | `token` | `otel-collector`, with `collector.auth` | - | - |
+
+Without `vault.secret`, the Vault column is the record `<vault.path>/<Secret>` with the keys as fields. An entry
+can name its own field with `vault.field` (`helm-templates/common/README.md`).
 
 Changing a secret doesn't restart the pods that read it, because the chart never sees its value. For a
 Kubernetes Secret, set `deployment.reloader: true` on the app and run
