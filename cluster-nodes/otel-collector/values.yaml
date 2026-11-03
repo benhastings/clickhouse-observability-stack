@@ -20,15 +20,11 @@
 # checked by the bearertokenauth extension against ${env:OTLP_BEARER_TOKEN}, which the gateway reads from the
 # Secret otel-collector-auth, key token. The token is never in git: the environment pre-creates that Secret (or
 # sets secrets.auth.create: true with stringData.token, local only). Clients then send
-# "Authorization: Bearer <token>". An environment whose OTLP only the cluster reaches may turn it off:
+# "Authorization: Bearer <token>". An environment whose OTLP only the cluster reaches may turn it off, and the
+# token's env entry goes with it:
 #   collector:
 #     auth:
 #       enabled: false
-#   deployment:
-#     containers:
-#       otel-collector:
-#         env:
-#           OTLP_BEARER_TOKEN: null
 #
 # Exposing the collector outside the cluster (global.exposure.enabled) requires auth: the render fails
 # unless collector.auth.enabled is set, or collector.auth.allowUnauthenticatedExposure is set for a
@@ -564,7 +560,9 @@ deployment:
             fieldRef:
               fieldPath: status.hostIP
         GOMEMLIMIT: 1638MiB
+        # Only with collector.auth.enabled, so a collector without auth needs no otel-collector-auth Secret.
         OTLP_BEARER_TOKEN:
+          if: '{{ .Values.collector.auth.enabled }}'
           valueFrom:
             secretKeyRef:
               name: otel-collector-auth

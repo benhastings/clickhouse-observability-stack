@@ -159,11 +159,6 @@ applications:
       collector:
         auth:
           enabled: false      # no bearer token while OTLP stays inside the cluster
-      deployment:
-        containers:
-          otel-collector:
-            env:
-              OTLP_BEARER_TOKEN: null
 
   grafana:
     values:
@@ -172,11 +167,6 @@ applications:
       auth:
         genericOauth:
           enabled: false      # the login form, until you connect your sign-on provider
-      deployment:
-        containers:
-          grafana:
-            secretEnv:
-              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
 
   demo-load:
     enabled: true             # synthetic traffic, which is what you want for a first test
@@ -185,8 +175,8 @@ applications:
 Every other setting is production's: the retention (21 days of traces, 14 of logs, 30 of metrics), two Cerberus
 replicas, and the collector's and Grafana's sizes. To turn the demo load off later, delete its block.
 
-The file follows three merge rules: maps merge key by key, `null` deletes a key, and a list replaces the
-default list entirely. `helm-templates/common/values.yaml` and each `cluster-nodes/<app>/values.yaml` show
+The file follows two merge rules: maps merge key by key, and a list replaces the
+default list entirely. Never write `null`: Argo CD drops it, so it can't remove a default (`make check` fails on one). `helm-templates/common/values.yaml` and each `cluster-nodes/<app>/values.yaml` show
 every default, each with a comment.
 
 To see exactly what will be created, without touching the cluster:

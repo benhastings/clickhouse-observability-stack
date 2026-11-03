@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# cspell:words tostring
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,6 +44,16 @@ for overrides in cluster-configs/overrides/values-*.yaml; do
   env="${env#values-}"
   bootstrap="$aoa/app-of-apps-$env.yaml"
   [[ "$(yq '.environment' "$overrides")" == "$env" ]] || fail "$overrides" "environment must be $env"
+  # Argo CD's API server drops null values from an Application's valuesObject, so a null here never reaches the
+  # chart and the default it meant to delete stays.
+  for path in $(yq -o json '.global, .applications' "$overrides" | jq -r 'paths(. == null) | map(tostring) | join(".")'); do
+    fail "$overrides" "sets $path to null, which Argo CD drops; turn the default off with the key that owns it"
+  done
+  for extra in tests/mesh/*.yaml; do
+    for path in $(yq -o json '.global, .applications' "$extra" | jq -r 'paths(. == null) | map(tostring) | join(".")'); do
+      fail "$extra" "sets $path to null, which Argo CD drops; turn the default off with the key that owns it"
+    done
+  done
   [[ -f "$bootstrap" ]] || { fail "$overrides" "has no $bootstrap"; continue; }
   [[ "$(yq '.spec.source.helm.valueFiles[0]' "$bootstrap")" == "../overrides/values-$env.yaml" ]] ||
     fail "$bootstrap" "must load ../overrides/values-$env.yaml"

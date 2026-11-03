@@ -1092,6 +1092,13 @@
               "key": {
                 "type": "string"
               },
+              "if": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "templated; the entry is left out when it renders empty or false"
+              },
               "vault": {
                 "type": "object",
                 "additionalProperties": false,

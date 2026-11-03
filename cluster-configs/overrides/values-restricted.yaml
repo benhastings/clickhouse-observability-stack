@@ -66,7 +66,7 @@ applications:
       configMaps:
         env:
           data:
-            CERBERUS_PROM_METADATA_LOOKBACK: null
+            CERBERUS_PROM_METADATA_LOOKBACK: 7d
       deployment:
         replicas: 1
         containers:
@@ -97,7 +97,6 @@ applications:
           otel-collector:
             env:
               GOMEMLIMIT: 204MiB
-              OTLP_BEARER_TOKEN: null
             resources:
               requests:
                 cpu: 25m
@@ -117,8 +116,6 @@ applications:
       deployment:
         containers:
           grafana:
-            secretEnv:
-              GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
             env:
               GOMEMLIMIT: 920MiB
             resources:

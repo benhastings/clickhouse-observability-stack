@@ -100,7 +100,7 @@ spec:
         configMaps:
           env:
             data:
-              CERBERUS_PROM_METADATA_LOOKBACK: null
+              CERBERUS_PROM_METADATA_LOOKBACK: 7d
         deployment:
           containers:
             cerberus:
@@ -413,8 +413,6 @@ spec:
                 requests:
                   cpu: 25m
                   memory: 96Mi
-              secretEnv:
-                GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: null
               startupProbe:
                 failureThreshold: 60
                 httpGet:
@@ -492,7 +490,6 @@ spec:
             otel-collector:
               env:
                 GOMEMLIMIT: 204MiB
-                OTLP_BEARER_TOKEN: null
               resources:
                 limits:
                   memory: 256Mi

@@ -31,7 +31,8 @@ cat >"$values" <<YAML
 # cluster-nodes/<app>/values.yaml. This file holds only what differs for $name; with nothing below, $name
 # deploys exactly as prod does. Each child Application gets \`global\` merged with \`applications.<app>.values\`.
 #
-# Merge rules: maps deep-merge, \`null\` deletes a key, and lists replace whole.
+# Merge rules: maps deep-merge and lists replace whole. Never write \`null\`: Argo CD drops it, so it can't delete
+# a default (make check fails on one); turn a default off with the key that owns it.
 # Every key a node accepts is documented in helm-templates/common/README.md.
 environment: $name
 
