@@ -575,6 +575,7 @@ environment's null never reaches the chart.
 {{- if and $on (ne $on "false") }}true{{ end -}}
 {{- else }}true{{ end -}}
 {{- end -}}
+{{- end -}}
 
 {{- /* "true" when the mesh is istio in ambient mode: no sidecars, ztunnel carries traffic over HBONE. */ -}}
 
