@@ -112,3 +112,5 @@ data:
     disable_plugins = grafana-pyroscope-app,grafana-advisor-app
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
+    [auth]
+    login_maximum_lifetime_duration = 7d

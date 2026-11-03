@@ -68,13 +68,18 @@ spec:
                 fieldRef:
                   fieldPath: status.podIP
           livenessProbe:
+            failureThreshold: 6
             httpGet:
               path: /
               port: 13133
+            periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /
               port: 13133
+            periodSeconds: 5
+            timeoutSeconds: 5
           resources:
             limits:
               memory: 2Gi
