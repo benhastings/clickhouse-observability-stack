@@ -489,8 +489,13 @@
         },
         "path": {
           "type": "string",
-          "description": "KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>`",
+          "description": "KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>`, field `<secretEnv.key>`, or from `<path>/<secret>` when `secret` is set",
           "x-default": "`secret/data`"
+        },
+        "secret": {
+          "type": "string",
+          "description": "one parent record every app reads, such as `OBS_SECRET`: each `secretEnv` entry then reads field `<Secret name>-<key>` of `<path>/<secret>` (`clickhouse-reader-password`), unless it sets `vault.field`; empty reads one record per Secret name",
+          "x-default": "`\"\"`"
         },
         "annotations": {
           "$ref": "#/definitions/stringMap",
@@ -1048,6 +1053,9 @@
                     "type": "string"
                   },
                   "yamlKey": {
+                    "type": "string"
+                  },
+                  "field": {
                     "type": "string"
                   }
                 }

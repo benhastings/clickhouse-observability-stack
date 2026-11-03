@@ -213,6 +213,7 @@ vault:
   enabled: false
   role: ""
   path: secret/data
+  secret: ""
   annotations: {}
 objects: {}
 {{- end -}}

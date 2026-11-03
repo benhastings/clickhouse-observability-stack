@@ -165,3 +165,62 @@ tests:
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
+
+  - it: reads every entry from one parent record with vault.secret, a field named for the Secret and key
+    set:
+      global.vault:
+        enabled: true
+        secret: OBS_SECRET
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-fixture-credentials-password"]
+          value: secret/data/OBS_SECRET
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-fixture-credentials-password"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "fixture-credentials-password" }}{{- end -}}'
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-app.yaml"]
+          value: |-
+            {{- with secret "secret/data/OBS_SECRET" -}}
+            db:
+              username: {{ index .Data.data "fixture-credentials-username" | toJSON }}
+            {{- end -}}
+
+  - it: reads the field an entry names with vault.field, keeping the file it writes
+    set:
+      vault.enabled: true
+      vault.secret: OBS_SECRET
+      deployment.containers.app.secretEnv.DB_PASSWORD.vault.field: db_password
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-fixture-credentials-password"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "db_password" }}{{- end -}}'
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_PASSWORD_FILE
+            value: /vault/secrets/fixture-credentials-password
+
+  - it: fails when Vault and External Secrets are both on, naming the app and both mechanisms
+    set:
+      vault.enabled: true
+      global.externalSecrets.enabled: true
+      global.externalSecrets.secretStoreRef.name: vault-backend
+    asserts:
+      - failedTemplate:
+          errorPattern: '^fixture: vault.enabled and global.externalSecrets.enabled are both true'
+
+  - it: fails on both mechanisms when Vault comes from global
+    set:
+      global.vault.enabled: true
+      global.externalSecrets.enabled: true
+      global.externalSecrets.secretStoreRef.name: vault-backend
+    asserts:
+      - failedTemplate:
+          errorPattern: '^fixture: vault.enabled and global.externalSecrets.enabled are both true'

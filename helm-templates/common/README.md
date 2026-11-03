@@ -154,7 +154,8 @@ schema, and to the template in the same change.
 | `secrets.<key>.external.keys` |  | the keys an `ExternalSecret` fills when `global.externalSecrets.enabled`, which then replaces this Secret; `external.remoteKey` overrides the remote path |
 | `vault.enabled` | `false` | deliver every container's `secretEnv` through the Vault Agent Injector instead of `secretKeyRef`; see Secrets below |
 | `vault.role` | chart name | the Vault Kubernetes auth role the pod logs in as |
-| `vault.path` | `secret/data` | KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>` |
+| `vault.path` | `secret/data` | KV v2 prefix; a secret is read from `<path>/<secretEnv.secret>`, field `<secretEnv.key>`, or from `<path>/<secret>` when `secret` is set |
+| `vault.secret` | `""` | one parent record every app reads, such as `OBS_SECRET`: each `secretEnv` entry then reads field `<Secret name>-<key>` of `<path>/<secret>` (`clickhouse-reader-password`), unless it sets `vault.field`; empty reads one record per Secret name |
 | `vault.annotations.<name>` | `{}` | extra `vault.hashicorp.com/*` pod annotations, such as `agent-pre-populate-only` |
 | `objects.<key>` |  | any other manifest, such as a custom resource; templated, with name, namespace and labels filled in; skipped when the body renders empty |
 <!-- values-reference:end -->
@@ -202,6 +203,16 @@ secretEnv:
 | `vault.file` | `/vault/secrets/<secret>-<key>` | where the agent writes it; a directory other than `/vault/secrets` gets its own injected volume |
 | `vault.yamlKey` | | write `a.b: <value>` as nested YAML, for apps that read a config file, instead of the bare value |
 | `vault.env` | | set this env var to the file's path, for apps with a `_FILE` convention |
+| `vault.field` | `<key>`, or `<secret>-<key>` with `vault.secret` | the field of the Vault record to read |
+
+By default each Secret name is its own Vault record, `<vault.path>/<secret>`, with one field per key. With
+`vault.secret` (usually `global.vault.secret: OBS_SECRET`) every app reads one parent record instead,
+`<vault.path>/<vault.secret>`, and each entry is the field `<secret>-<key>` of it: `clickhouse-reader-password`,
+`grafana-admin-admin-password`. Those field names are the contract the Vault owner provisions against; the
+README's Credentials section lists them.
+
+An app may use Vault or External Secrets, never both: `vault.enabled` with `global.externalSecrets.enabled` fails
+the render, naming the app, because each credential would then have two producers.
 
 With neither `vault.env` nor `vault.yamlKey`, the app's config points at the file itself. Use
 `{{ include "common.secretFile" (list . "<container>" "<NAME>") }}` to get the path, and
