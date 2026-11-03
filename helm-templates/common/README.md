@@ -85,11 +85,14 @@ schema, and to the template in the same change.
 | `global.externalSecrets.remotePath` | `observability` | a Secret is read from `<remotePath>/<Secret name>`, one property per key |
 | `global.externalSecrets.refreshInterval` | `1h` | how often the operator re-reads the store |
 | `global.exposure.enabled` | `true` | make the apps that set `exposure.host` reachable from outside the cluster |
+| `global.exposure.api` | `""` | how exposure is rendered: `istio`, an Istio Gateway and VirtualService per app; `gateway-api`, an HTTPRoute per app on the Gateway API Gateway `gateway.name` names, which the platform runs and whose `allowedRoutes` admits this namespace; `ingress`, an Ingress. Empty follows the mesh: `istio`, or `ingress` with `kubernetes` |
+| `global.exposure.scheme` | `""` | the scheme of the public URLs, such as Grafana's root URL; empty is `https` with `tls.credentialName` and `http` without. Set `https` when a platform Gateway terminates TLS |
 | `global.exposure.hosts.<key>` | `{grafana: grafana.example.com, otlp: otlp.example.com}` | the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty |
 | `global.exposure.ingressClassName` | `""` | the Ingress class; empty uses the cluster default |
 | `global.exposure.tls.credentialName` | `observability-tls` | a TLS Secret the site creates, used for every exposed host; empty serves plain HTTP. With Istio, the Secret lives in the ingress gateway's namespace (usually `istio-system`) |
-| `global.exposure.gateway.name` | `""` | with `istio`, an existing Gateway to bind every VirtualService to; no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without) |
+| `global.exposure.gateway.name` | `""` | with `istio`, an existing Gateway to bind every VirtualService to, and with `gateway-api`, required: the platform's Gateway API Gateway every HTTPRoute attaches to. Either way no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without) |
 | `global.exposure.gateway.namespace` | release namespace | the namespace of that existing Gateway |
+| `global.exposure.gateway.sectionName` | `""` | with `gateway-api`, the Gateway listener every HTTPRoute attaches to; empty attaches to every listener that admits it |
 | `global.exposure.gateway.selector.<name>` | `{istio: ingressgateway}` | which ingress gateway pods the rendered Gateways select |
 | `global.networkPolicy.enabled` | `false` | render a NetworkPolicy for every app; see Network policies |
 | `global.networkPolicy.exposureNamespaces` | `[]` | namespaces whose pods may reach an exposed app (the ingress gateway or controller) |

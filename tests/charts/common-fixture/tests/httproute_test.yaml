@@ -1,0 +1,95 @@
+# cspell:words httproute
+suite: common.httpRoute
+release:
+  name: fixture
+  namespace: demo
+set:
+  global.exposure.enabled: true
+  global.exposure.api: gateway-api
+  global.exposure.hosts.web: web.example.com
+  global.exposure.gateway.name: platform-gateway
+  global.exposure.gateway.namespace: gateways
+  exposure.host: web
+  exposure.port: http
+tests:
+  # Every field the API server would default is rendered, so the stored route equals the render and Argo CD,
+  # which diffs the two, doesn't hold the Application OutOfSync.
+  - it: attaches an HTTPRoute for the app's host to the platform's Gateway, routing to the Service port
+    template: templates/httproute.yaml
+    asserts:
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: spec
+          value:
+            parentRefs:
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: platform-gateway
+                namespace: gateways
+            hostnames:
+              - web.example.com
+            rules:
+              - matches:
+                  - path:
+                      type: PathPrefix
+                      value: /
+                backendRefs:
+                  - group: ""
+                    kind: Service
+                    name: fixture
+                    port: 80
+                    weight: 1
+
+  - it: attaches to one listener with sectionName
+    template: templates/httproute.yaml
+    set:
+      global.exposure.gateway.sectionName: https
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].sectionName
+          value: https
+
+  - it: renders no Istio Gateway, VirtualService or Ingress with gateway-api
+    templates:
+      - templates/gateway.yaml
+      - templates/ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no HTTPRoute with the mesh's own exposure
+    template: templates/httproute.yaml
+    set:
+      global.exposure.api: ""
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: refuses gateway-api without the platform's Gateway
+    template: templates/httproute.yaml
+    set:
+      global.exposure.gateway.name: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: global.exposure.gateway.name is empty
+
+  - it: refuses an Istio Gateway without the mesh
+    # Every exposure template checks the API; Helm stops at the first, ingress.yaml.
+    template: templates/ingress.yaml
+    set:
+      global.mesh: kubernetes
+      global.exposure.api: istio
+    asserts:
+      - failedTemplate:
+          errorPattern: an Istio Gateway needs the mesh
+
+  - it: can render an Ingress under Istio when asked
+    template: templates/ingress.yaml
+    set:
+      global.exposure.api: ingress
+    asserts:
+      - isKind:
+          of: Ingress

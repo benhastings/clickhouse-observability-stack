@@ -677,6 +677,27 @@
               "description": "make the apps that set `exposure.host` reachable from outside the cluster",
               "x-default": "`true`"
             },
+            "api": {
+              "type": "string",
+              "enum": [
+                "",
+                "istio",
+                "gateway-api",
+                "ingress"
+              ],
+              "description": "how exposure is rendered: `istio`, an Istio Gateway and VirtualService per app; `gateway-api`, an HTTPRoute per app on the Gateway API Gateway `gateway.name` names, which the platform runs and whose `allowedRoutes` admits this namespace; `ingress`, an Ingress. Empty follows the mesh: `istio`, or `ingress` with `kubernetes`",
+              "x-default": "`\"\"`"
+            },
+            "scheme": {
+              "type": "string",
+              "enum": [
+                "",
+                "http",
+                "https"
+              ],
+              "description": "the scheme of the public URLs, such as Grafana's root URL; empty is `https` with `tls.credentialName` and `http` without. Set `https` when a platform Gateway terminates TLS",
+              "x-default": "`\"\"`"
+            },
             "hosts": {
               "$ref": "#/definitions/stringMap",
               "description": "the hostname for each key an app can name in `exposure.host`, such as `grafana` or `otlp`; an enabled exposure fails the render when an app's host is empty",
@@ -705,13 +726,18 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "description": "with `istio`, an existing Gateway to bind every VirtualService to; no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without)",
+                  "description": "with `istio`, an existing Gateway to bind every VirtualService to, and with `gateway-api`, required: the platform's Gateway API Gateway every HTTPRoute attaches to. Either way no Gateway is rendered. Empty gives each app its own Gateway for its own host (443 with a TLS credential, 80 without)",
                   "x-default": "`\"\"`"
                 },
                 "namespace": {
                   "type": "string",
                   "description": "the namespace of that existing Gateway",
                   "x-default": "release namespace"
+                },
+                "sectionName": {
+                  "type": "string",
+                  "description": "with `gateway-api`, the Gateway listener every HTTPRoute attaches to; empty attaches to every listener that admits it",
+                  "x-default": "`\"\"`"
                 },
                 "selector": {
                   "$ref": "#/definitions/stringMap",

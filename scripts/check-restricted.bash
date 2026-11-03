@@ -18,7 +18,7 @@ cd "$(dirname "$0")/.."
 golden=${GOLDEN:-tests/golden}
 kinds=(
   ConfigMap Secret Service ServiceAccount Deployment StatefulSet DaemonSet Job CronJob PersistentVolumeClaim
-  Role RoleBinding NetworkPolicy PodDisruptionBudget HorizontalPodAutoscaler Ingress DestinationRule VirtualService
+  Role RoleBinding NetworkPolicy PodDisruptionBudget HorizontalPodAutoscaler Ingress DestinationRule VirtualService HTTPRoute
   ClickHouseInstallation ExternalSecret Application AppProject
 )
 namespaced=" ${kinds[*]} "

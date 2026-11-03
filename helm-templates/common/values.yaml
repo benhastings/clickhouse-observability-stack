@@ -89,8 +89,14 @@ global:
   # Gateway on 443 and a VirtualService, and without it an Ingress. Istio reads the TLS Secret credentialName
   # from the ingress gateway's namespace (usually istio-system); the site creates it, for example with
   # cert-manager. To bind to a Gateway the site already runs, set gateway.name and gateway.namespace.
+  # api picks how: istio (an Istio Gateway and VirtualService), gateway-api (an HTTPRoute on the platform's Gateway
+  # API Gateway, named by gateway.name and gateway.namespace, one listener by gateway.sectionName), or ingress;
+  # empty follows the mesh (istio, or ingress without it). scheme is the public URLs' scheme (Grafana's root URL):
+  # empty is https with a TLS credential and http without; set https when a platform Gateway terminates TLS.
   exposure:
     enabled: true
+    api: ""
+    scheme: ""
     hosts:
       grafana: grafana.example.com
       otlp: otlp.example.com
@@ -100,6 +106,7 @@ global:
     gateway:
       name: ""
       namespace: ""
+      sectionName: ""
       selector:
         istio: ingressgateway
 serviceAccount:

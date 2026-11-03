@@ -778,7 +778,10 @@ if [[ "${MESH:-kubernetes}" == istio || "${MESH:-kubernetes}" == ambient ]]; the
     echo "  clickhouse: ambient, no sidecar"
   fi
 
-  kubectl -n istio-ingress port-forward svc/istio-ingressgateway 18088:80 >/dev/null 2>&1 &
+  # Sidecar mode routes through the Istio ingress gateway; ambient through the shared Gateway API Gateway.
+  gateway_service=istio-ingressgateway
+  [[ "$MESH" != ambient ]] || gateway_service=platform-gateway-istio
+  kubectl -n istio-ingress port-forward "svc/$gateway_service" 18088:80 >/dev/null 2>&1 &
   sleep 3
   gateway=http://localhost:18088
 
