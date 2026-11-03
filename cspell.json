@@ -39,6 +39,7 @@
     "configd",
     "configmap",
     "crds",
+    "crictl",
     "curlimages",
     "customresourcedefinitions",
     "daemonset",

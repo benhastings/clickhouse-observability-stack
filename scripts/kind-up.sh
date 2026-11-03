@@ -18,6 +18,17 @@ if ! kind get clusters | grep -qx "$CLUSTER"; then
 fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 
+# Argo CD deploys one sync wave at a time, so each wave would pull its images only once the wave before it
+# is healthy. Pull every image the environment's golden render names now, all at once and in the background,
+# while Argo CD installs; a pull that fails here is pulled again by the kubelet as usual.
+mapfile -t images < <(grep -rhoE '^[[:space:]]*image: [^[:space:]]+' "tests/golden/$ENV" |
+  awk '{gsub(/["'"'"']/, "", $2); print $2}' | sort -u)
+for node in $(kind get nodes --name "$CLUSTER"); do
+  for image in "${images[@]}"; do
+    docker exec "$node" crictl pull "$image" >/dev/null 2>&1 &
+  done
+done
+
 create_local_secrets
 # MESH=istio installs Istio first and deploys local with the mesh, and exposure through its gateway, on.
 if [[ "$ENV" == restricted ]]; then
