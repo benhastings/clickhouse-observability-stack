@@ -213,6 +213,29 @@ tests:
           path: data["schema.sql"]
           pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.log_templates_mv\\nREFRESH EVERY 1 MINUTE APPEND TO otel_features.log_templates\\nDEFINER = otel_admin SQL SECURITY DEFINER"
 
+  - it: waits traceSummary.lagMinutes for a trace to finish before summarizing it
+    set:
+      clickhouse.traceSummary.lagMinutes: 2
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "WITH toStartOfMinute\\(now\\(\\)\\) - INTERVAL 2 MINUTE AS m"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "Timestamp < m \\+ INTERVAL 3 MINUTE"
+
+  - it: defaults trace_summary to five minutes behind
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "WITH toStartOfMinute\\(now\\(\\)\\) - INTERVAL 5 MINUTE AS m"
+
   - it: publishes each score in otel_ml.scores as an ml:<model>:<signal> gauge series, kept as long as metrics
     set:
       global.retention: {traces: 21, logs: 14, metrics: 30}

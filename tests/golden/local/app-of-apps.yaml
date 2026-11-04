@@ -172,6 +172,8 @@ spec:
               cpu: 100m
               memory: 256Mi
           storage: 2Gi
+          traceSummary:
+            lagMinutes: 2
         global:
           exposure:
             enabled: false

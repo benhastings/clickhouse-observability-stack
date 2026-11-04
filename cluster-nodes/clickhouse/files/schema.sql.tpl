@@ -366,7 +366,7 @@ ALTER TABLE otel.otel_metrics_exponential_histogram MODIFY TTL toDateTime(TimeUn
 ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay({{ int $ttl.metrics }});
 -- Feature tables for models and notebooks (otel_analyst reads them), in their own database so the Cerberus
 -- schema comparison is unaffected. TTLs follow the signal each is built from.
---   trace_summary  one row per trace, written five minutes after its root span starts so the trace can finish
+--   trace_summary  one row per trace, written clickhouse.traceSummary.lagMinutes (5) after its root span starts so the trace can finish
 --   log_templates  per service and minute, each log message with numbers, UUIDs, IPs and hex IDs replaced, its
 --                  hash and count: a first step towards log pattern anomaly detection
 -- The anomaly baselines' signal_1m (below, when they're on) is the per-service-minute feature table: requests,
@@ -396,7 +396,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS otel_features.trace_summary_mv
 REFRESH EVERY 1 MINUTE APPEND TO otel_features.trace_summary
 DEFINER = otel_admin SQL SECURITY DEFINER
 AS
-WITH toStartOfMinute(now()) - INTERVAL 5 MINUTE AS m
+WITH toStartOfMinute(now()) - INTERVAL {{ int .Values.clickhouse.traceSummary.lagMinutes }} MINUTE AS m
 SELECT r.TraceId AS TraceId, r.Timestamp AS Start, r.Duration / 1e6 AS DurationMs,
        r.ServiceName AS RootService, r.SpanName AS RootOperation, r.SpanAttributes['http.route'] AS RootRoute,
        s.Spans AS Spans, s.Errors AS Errors, s.Services AS Services
@@ -411,7 +411,7 @@ INNER JOIN
     SELECT TraceId, toUInt32(count()) AS Spans, toUInt32(countIf(StatusCode = 'Error')) AS Errors,
            arraySort(groupUniqArray(ServiceName)) AS Services
     FROM otel.otel_traces
-    WHERE Timestamp >= m AND Timestamp < m + INTERVAL 6 MINUTE
+    WHERE Timestamp >= m AND Timestamp < m + INTERVAL {{ add (int .Values.clickhouse.traceSummary.lagMinutes) 1 }} MINUTE
       AND TraceId IN (SELECT TraceId FROM otel.otel_traces
                       WHERE ParentSpanId = '' AND Timestamp >= m AND Timestamp < m + INTERVAL 1 MINUTE)
     GROUP BY TraceId

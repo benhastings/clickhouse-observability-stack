@@ -482,6 +482,17 @@
             }
           }
         },
+        "traceSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lagMinutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            }
+          }
+        },
         "baselines": {
           "type": "object",
           "additionalProperties": false,

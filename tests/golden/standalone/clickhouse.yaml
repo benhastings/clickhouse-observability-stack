@@ -382,7 +382,7 @@ data:
     ALTER TABLE otel.otel_metrics_summary MODIFY TTL toDateTime(TimeUnix) + toIntervalDay(7);
     -- Feature tables for models and notebooks (otel_analyst reads them), in their own database so the Cerberus
     -- schema comparison is unaffected. TTLs follow the signal each is built from.
-    --   trace_summary  one row per trace, written five minutes after its root span starts so the trace can finish
+    --   trace_summary  one row per trace, written clickhouse.traceSummary.lagMinutes (5) after its root span starts so the trace can finish
     --   log_templates  per service and minute, each log message with numbers, UUIDs, IPs and hex IDs replaced, its
     --                  hash and count: a first step towards log pattern anomaly detection
     -- The anomaly baselines' signal_1m (below, when they're on) is the per-service-minute feature table: requests,
@@ -1560,7 +1560,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: standalone
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-909ccf2e
+  name: clickhouse-schema-f64b48da
   namespace: observability
 spec:
   activeDeadlineSeconds: 900

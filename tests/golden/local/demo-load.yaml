@@ -61,8 +61,8 @@ spec:
             - --error-ratio=0.25
             - --environment=local
             - --incident-kind=errors
-            - --incident-after=15m
-            - --incident-duration=10m
+            - --incident-after=12m
+            - --incident-duration=8m
             - --incident-every=1h
           env:
             - name: K8S_POD_NAME

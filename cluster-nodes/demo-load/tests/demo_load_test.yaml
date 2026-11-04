@@ -15,7 +15,7 @@ tests:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/benhastings/correlated-telemetrygen:v0.2.0
 
-  - it: injects an hourly payments error incident, the first fifteen minutes in
+  - it: injects an hourly payments error incident, the first twelve minutes in
     documentSelector:
       path: kind
       value: Deployment
@@ -25,10 +25,10 @@ tests:
           content: --incident-kind=errors
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --incident-after=15m
+          content: --incident-after=12m
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --incident-duration=10m
+          content: --incident-duration=8m
       - contains:
           path: spec.template.spec.containers[0].args
           content: --incident-every=1h
