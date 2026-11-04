@@ -1,6 +1,7 @@
-# The restricted-namespace profile of the end-to-end test: kind with Istio, a stand-in platform team (the labelled
-# namespace, the shared ClickHouse operator and the shared Gateway, scripts/kind-platform.bash), then the restricted
-# environment through Argo CD and its smoke checks. It runs on demand and on pull requests labelled `restricted`.
+# The restricted-namespace profiles of the end-to-end test: kind with Istio, a stand-in platform team
+# (scripts/kind-platform.bash: the labelled namespace, the shared Gateway, and either the shared ClickHouse operator for
+# restricted or, for standalone, a CA and ClickHouse's certificate made at runtime), then the environment through
+# Argo CD and its smoke checks. Both run on demand and on pull requests labelled `restricted`.
 name: End to end (restricted)
 on:
   workflow_dispatch:
@@ -17,6 +18,11 @@ concurrency:
 jobs:
   kind-restricted:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'restricted')
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [restricted, standalone]
+    name: kind (${{ matrix.env }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -55,11 +61,12 @@ jobs:
       - name: Lint
         run: |
           make check/lint
-      - name: Deploy this commit to kind as the restricted profile and query the stack
+      - name: Deploy this commit to kind as the ${{ matrix.env }} profile and query the stack
         env:
+          ENV: ${{ matrix.env }}
           REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          make test/e2e ENV=restricted REVISION="$REVISION"
+          make test/e2e ENV="$ENV" REVISION="$REVISION"
       - name: Cluster state on failure
         if: failure()
         run: |
@@ -68,4 +75,6 @@ jobs:
           kubectl get events -A --sort-by=.lastTimestamp | tail -100 || true
           kubectl -n observability logs deploy/cerberus --all-containers --tail=200 || true
           kubectl -n observability logs deploy/otel-collector --all-containers --tail=200 || true
+          kubectl -n observability logs deploy/clickhouse --all-containers --tail=200 || true
+          kubectl -n observability logs -l app.kubernetes.io/name=clickhouse-schema --all-containers --tail=200 || true
           kubectl -n clickhouse-operator logs deploy/clickhouse-operator --tail=200 || true
