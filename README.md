@@ -514,7 +514,9 @@ With `standalone: true`:
 
 Running it (first install, restart, upgrade, rollback, credential and certificate rotation, pausing a failing
 Application, sizing and backup) is
-[the runbook's Operating a standalone ClickHouse](docs/runbook.md#operating-a-standalone-clickhouse).
+[the runbook's Operating a standalone ClickHouse](docs/runbook.md#operating-a-standalone-clickhouse). Bringing it into an existing tenant
+namespace, in order and with the checks only the site can make, is
+[the runbook's Tenant rollout checklist](docs/runbook.md#tenant-rollout-checklist).
 
 `make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or

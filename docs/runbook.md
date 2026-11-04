@@ -651,6 +651,58 @@ to turn the procedures above into rehearsed ones. Record the date, revision and 
 - [ ] Take a `clickhouse.backup` (or volume) backup and restore it into a scratch server.
 - [ ] Reproduce a stale `secretKeyRef` and clear it with `--replace`.
 
+### Tenant rollout checklist
+
+The order to bring the stack into an existing tenant namespace, and the checks only the site can make. Work down it
+and keep what each step printed with the change. The release gates themselves are [go-no-go.md](go-no-go.md).
+
+**Render and pin.**
+
+- [ ] The values file declares the profile it needs and nothing it doesn't: `clusterScoped: false`, how ClickHouse
+      runs (`standalone`, `external` or a shared operator), the TLS address `<host>:9440`, `tls.serverName`, where the
+      CA and certificate come from, the dataplane mode, and **one** secret mechanism. A Vault-only platform starts
+      from `values-tenant-vault.yaml` (README: [On Vault](../README.md#on-vault)).
+- [ ] `make cluster/preflight ENV=<env>` passes: the full app-of-apps renders with no Helm error, every revision
+      is a commit SHA or a tag, the render has no `clickhouse-operator` Application, and every credential record it
+      lists exists in the secret system ([Recovering a parent that fails to render](#recovering-a-parent-that-fails-to-render)
+      if a parent is already stuck).
+- [ ] The values revision and the chart revision are the same reviewed change.
+
+**Site checks the stack can't make for you.**
+
+- [ ] **Dataplane.** The namespace's label (`istio-injection: enabled`, or `istio.io/dataplane-mode: ambient`)
+      matches `global.istio.dataplaneMode`, and `global.istio.waypoint` names the waypoint the platform runs, if
+      any. In ambient mode no pod has a sidecar; don't rely on sidecar behaviour (README:
+      [Service mesh](../README.md#service-mesh-istio-or-plain-kubernetes)).
+- [ ] **TLS through the mesh.** ClickHouse's own TLS rides inside the mesh's as opaque TCP (ports named `tcp-*`).
+      Clients verify `tls.serverName` with the platform's CA and dial `9440`; nothing sets an option to skip
+      verification. The acceptance run below checks the certificate both ways.
+- [ ] **Quota.** Every container, Job and injected Vault agent has CPU and memory requests and limits
+      (`global.quota.requireLimits` makes `make check/manifests` enforce it; README:
+      [A namespace with a resource quota](../README.md#a-namespace-with-a-resource-quota)). Size them against the
+      namespace's ResourceQuota, not the laptop defaults.
+- [ ] **Network.** With `global.networkPolicy.enabled`, `global.networkPolicy.vault` reaches Vault, and
+      `exposureNamespaces` names the ingress gateway's namespace.
+- [ ] **Volume.** `clickhouse.storage`, the StorageClass, its access mode and retention fit the tenant's real
+      telemetry volume ([Sizing and retention](#sizing-and-retention), README: [Disk sizing](../README.md#disk-sizing)),
+      not the laptop profile's 2 Gi.
+- [ ] **Backups.** Someone owns `clickhouse.backup` (bucket, credentials, schedule) and has restored from it once
+      ([Backup and restore](#backup-and-restore)).
+- [ ] **Images.** Every image the render names is pinned, approved and can be pulled under the namespace's policy
+      (`global.imageRegistry`, `global.imagePullSecrets`; `helm-templates/common/README.md`).
+
+**Reconcile and prove.**
+
+- [ ] Sync the parent `app-of-apps-<env>`, then wait for the ClickHouse server, the schema Job
+      (`clickhouse-schema-<hash>` Complete) and every client Deployment Available, in wave order.
+- [ ] `make test/acceptance ENV=<env>` passes, with `SECRET_OWNER`, `ROLLBACK_REVISION` and, with the CA in Vault,
+      `CA_FILE` set. Keep the report in `dist/acceptance/`
+      ([tenant-acceptance.md](tenant-acceptance.md#proving-it-in-the-environment)).
+- [ ] Any one-time option used to converge (a `Replace` sync) is gone, and the next sync is server-side apply with no
+      diff ([One-time convergence](#one-time-convergence-after-switching-secret-mechanisms)).
+- [ ] Recorded on the change: the deployed commit, the values revision, the secret-delivery owner, the rollback
+      revision, and this runbook as the recovery procedure.
+
 ## Making a change safely
 
 1. Edit `cluster-configs/overrides/values-<env>.yaml`.
