@@ -832,6 +832,23 @@ to allow 15008 between the same peers. A rule with no peers (any source or desti
 anywhere; a rule whose peers are only ipBlocks is outside the mesh and gets no copy.
 */ -}}
 
+{{- /* The egress rule to Vault for an app on Vault (global.networkPolicy.vault), as a YAML list, or empty. */ -}}
+
+{{- define "common.networkPolicy.vault" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $vault := default dict $v.global.networkPolicy.vault -}}
+{{- if and (include "common.vaultEnabled" .) (or $vault.namespace $vault.cidrs) -}}
+{{- $to := list -}}
+{{- if $vault.namespace -}}
+{{- $peer := dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $vault.namespace)) -}}
+{{- with $vault.podLabels }}{{ $_ := set $peer "podSelector" (dict "matchLabels" .) }}{{ end -}}
+{{- $to = append $to $peer -}}
+{{- end -}}
+{{- range $vault.cidrs }}{{ $to = append $to (dict "ipBlock" (dict "cidr" .)) }}{{ end -}}
+{{- toYaml (list (dict "to" $to "ports" (list (dict "port" (int (default 8200 $vault.port)) "protocol" "TCP")))) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "common.networkPolicy.hbone" -}}
 {{- $rules := index . 1 -}}
 {{- $field := index . 2 -}}

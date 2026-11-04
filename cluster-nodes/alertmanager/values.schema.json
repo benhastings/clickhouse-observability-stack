@@ -884,6 +884,32 @@
               },
               "description": "the stack's and the operator's namespaces, for rules that cross between them",
               "x-default": "`{stack: observability, operator: clickhouse-operator}`"
+            },
+            "vault": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "namespace": {
+                  "type": "string"
+                },
+                "podLabels": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "cidrs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "port": {
+                  "type": "integer"
+                }
+              },
+              "description": "where an app on Vault reaches Vault, for its Vault agent: `namespace` (and `podLabels`) for a Vault in the cluster, `cidrs` for one outside it, on `port`. Empty adds no rule, for a platform whose own policy already allows it",
+              "x-default": "`{namespace: \"\", podLabels: {}, cidrs: [], port: 8200}`"
             }
           }
         }

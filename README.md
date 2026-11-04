@@ -1245,7 +1245,10 @@ once, under `secretEnv` (Secret name and key). Each environment picks **one mech
   annotations, and the agent writes each secret to a file. The app reads the file instead of an env var: Grafana
   uses `GF_SECURITY_ADMIN_*__FILE`, the collector uses `${file:...}` in its config, and Cerberus reads
   `/etc/cerberus/cerberus.yaml`. The pod authenticates with its ServiceAccount, so `vault.role` (default: the app's
-  name) must be a Vault Kubernetes auth role bound to it. The injector has to run in the cluster.
+  name) must be a Vault Kubernetes auth role bound to it. The injector has to run in the cluster. With
+  `global.networkPolicy.enabled`, set `global.networkPolicy.vault` too (`namespace` and `podLabels` for a Vault in
+  the cluster, `cidrs` for one outside it, `port`, default `8200`), or the agent can't reach Vault and the pod waits
+  in `vault-agent-init`; leave it empty only when a policy of the platform's already allows that egress.
 - **External Secrets** (`global.externalSecrets.enabled: true`): the chart renders an `ExternalSecret` with the
   same name in place of each Secret a node declares under `secrets.<name>.external.keys`, so the pods read the
   same Secrets as with Kubernetes Secrets. The [External Secrets operator](https://external-secrets.io) and the
@@ -1963,8 +1966,8 @@ on the target cluster after the first sync, in this order:
   ClickHouse. Alertmanager accepts Grafana, vmalert and garmr, and reaches the collector's history endpoint and garmr.
   garmr answers Alertmanager and the collector's scrape, and reaches ClickHouse, Alertmanager and, with `slack.enabled`,
   Slack on 443. ClickHouse accepts the collector (also on 9363), Cerberus, garmr sql-adapter, garmr, the schema Job, the backup job and the operator. The operator reaches the
-  Kubernetes API and ClickHouse. Off by default, so `local` and `prod` render none; it needs a network plugin
-  that enforces NetworkPolicy.
+  Kubernetes API and ClickHouse. An app on Vault also reaches `global.networkPolicy.vault`, for its Vault agent. Off
+  by default, so `local` and `prod` render none; it needs a network plugin that enforces NetworkPolicy.
 
 - **Credentials:** no environment commits a password. The defaults (`prod`) expect `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr`, `clickhouse-operator-credentials` and `otel-collector-auth` to exist, and Grafana's `grafana-admin` and `grafana-oauth` in Vault, created by a secret manager (for example External Secrets or Sealed Secrets), or turn on `vault.enabled` for the Deployments as described under **Secrets: Kubernetes or Vault**.
 - **ClickHouse sizing:** the defaults are one 8 Gi server with a 200 Gi volume; size yours from **Disk sizing** and your own ingest. The laptop's `lowMemory` tuning is for 2 GiB servers and below.

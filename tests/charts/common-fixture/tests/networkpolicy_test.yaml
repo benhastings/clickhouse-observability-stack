@@ -121,3 +121,81 @@ tests:
           kind: NetworkPolicy
           apiVersion: networking.k8s.io/v1
         not: true
+
+  - it: lets an app on Vault reach an in-cluster Vault on 8200, by namespace and pod labels
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      global.networkPolicy.vault.namespace: vault
+      global.networkPolicy.vault.podLabels:
+        app.kubernetes.io/name: vault
+      vault.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: vault
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: vault
+            ports:
+              - port: 8200
+                protocol: TCP
+
+  - it: lets an app on Vault reach a Vault outside the cluster by CIDR
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      global.networkPolicy.vault.cidrs: [10.20.0.0/24]
+      global.networkPolicy.vault.port: 443
+      vault.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 10.20.0.0/24
+            ports:
+              - port: 443
+                protocol: TCP
+
+  - it: adds no Vault rule for an app off Vault, or with no Vault address
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      global.networkPolicy.vault.namespace: vault
+    template: templates/networkpolicy.yaml
+    asserts:
+      - notContains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 8200
+                protocol: TCP
+          any: true
+
+  - it: reaches an in-cluster Vault over HBONE too in ambient mode
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: istio
+      global.istio.dataplaneMode: ambient
+      global.networkPolicy.vault.namespace: vault
+      vault.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: vault
+            ports:
+              - port: 15008
+                protocol: TCP
