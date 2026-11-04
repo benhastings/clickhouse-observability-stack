@@ -2,7 +2,7 @@
 {{- $s := $ch.schema }}
 {{- $address := splitList ":" (include "common.serviceAddress" (list $ "clickhouse")) }}
 {{- $sql := tpl (.Files.Get "files/schema.sql.tpl") . }}
-{{- $external := include "common.clickhouseExternal" . }}
+{{- $tls := include "common.clickhouseTLS" . }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -57,7 +57,7 @@ spec:
               {{- with include "common.secretEnvExports" (list $ $s.secretEnv) | trim }}
               {{- . | nindent 14 }}
               {{- end }}
-              {{- if $external }}
+              {{- if $tls }}
               # clickhouse-client takes its CA only from a config file. Verification is strict, and a certificate
               # that fails it is refused, never accepted.
               cat >/tmp/client.xml <<EOF
@@ -99,7 +99,7 @@ spec:
             {{- end }}
             - name: HOME
               value: /tmp
-            {{- if $external }}
+            {{- if $tls }}
             - name: CLICKHOUSE_CA_FILE
               value: {{ include "common.clickhouseCA" . | quote }}
             - name: CLICKHOUSE_TLS_SERVER_NAME
@@ -111,7 +111,7 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
-            {{- if $external }}
+            {{- if $tls }}
             - name: clickhouse-ca
               mountPath: /etc/clickhouse-ca
               readOnly: true
@@ -131,7 +131,7 @@ spec:
             name: {{ include "common.fullname" . }}-schema
         - name: tmp
           emptyDir: {}
-        {{- if $external }}
+        {{- if $tls }}
         - name: clickhouse-ca
           {{- include "common.clickhouseCAVolume" . | nindent 10 }}
         {{- end }}
