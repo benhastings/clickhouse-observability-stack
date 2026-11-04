@@ -3,7 +3,7 @@ serviceAccount:
   create: false
 
 # One ClickHouse user per job, each with its own Secret (keys username and password), so a leaked password
-# reaches only what that user may do. files/installation.yaml.tpl defines the users and their grants:
+# reaches only what that user may do. files/server.yaml.tpl defines the users and their grants:
 #   clickhouse-admin   otel_admin, every privilege; only the schema Job and the backup CronJob use it
 #   clickhouse-writer  otel_writer, INSERT on otel.*; the collector
 #   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus
@@ -48,7 +48,8 @@ secrets:
   backup:
     create: false
 
-# The ClickHouseInstallation's size. files/installation.yaml.tpl renders the Installation from these keys,
+# The server's size, for the ClickHouseInstallation (files/installation.yaml.tpl) or the standalone Deployment
+# (files/standalone/), which render it from these keys,
 # so an environment sets only the keys it changes. lowMemory: false drops the laptop tuning (the
 # max_threads and max_memory_usage profiles and config.d/low_memory.xml). An empty storageClassName
 # uses the cluster's default StorageClass.
@@ -74,7 +75,7 @@ clickhouse:
       memory: 8Gi
   lowMemory: false
   # lowMemory: true is the laptop tuning (the max_threads and max_memory_usage profiles and
-  # config.d/low_memory.xml, in files/installation.yaml.tpl) for a server of 2 GiB or less.
+  # config.d/low_memory.xml, in files/server.yaml.tpl) for a server of 2 GiB or less.
   # otel_analyst's settings profile and hourly quota, so a notebook can't starve ingestion or Grafana: a quarter
   # of the server for one notebook query, five minutes per query, two at a time. Each
   # limit is also a constraint: the analyst may lower it for a session but not raise it. priority runs its

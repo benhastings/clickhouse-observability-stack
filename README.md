@@ -440,6 +440,56 @@ cluster-scoped one), a Gateway, `CreateNamespace=true` or `managedNamespaceMetad
 cluster-scoped kind, an object or RoleBinding subject outside its Application's namespace, or a
 `<service>.<namespace>.svc` address in another namespace.
 
+### A standalone ClickHouse
+
+Some platforms install no CRDs or cluster RBAC and run no ClickHouse operator a tenant can share. With
+`global.clickhouse.standalone: true` the `clickhouse` application runs ClickHouse itself, without the operator:
+one server as an ordinary Deployment, on a PersistentVolumeClaim, behind the same `clickhouse` Service. The
+`standalone` environment ([`values-standalone.yaml`](cluster-configs/overrides/values-standalone.yaml)) is the
+supported profile for that: [a restricted namespace](#a-restricted-namespace) with a standalone ClickHouse in place
+of the shared operator, sized like the laptop profile. Copy it for a site of your own (`make env/new NAME=<env>`,
+then its keys):
+
+```yaml
+clusterScoped: false
+global:
+  clickhouse:
+    standalone: true
+applications:
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+```
+
+With `standalone: true`:
+
+- The app-of-apps renders no `clickhouse-operator` Application, and the AppProject allows no CRD. Setting
+  `applications.clickhouse-operator.enabled: true` as well fails the render, and so does `global.clickhouse.external`.
+- The `clickhouse` application renders, from `files/standalone/`, a Deployment of one replica with the `Recreate`
+  strategy (the volume is `ReadWriteOnce`), startup and readiness probes on `/ping`, the `clickhouse-data`
+  PersistentVolumeClaim, the `clickhouse-server` ConfigMap and the `clickhouse` Service on `9000` and `8123`. More
+  than one shard or replica fails the render.
+- The server's configuration is `files/server.yaml.tpl`, the same file the ClickHouseInstallation is rendered from:
+  the Prometheus endpoint, the embedded Keeper, the laptop tuning, and the users, profiles, quotas and grants. Each
+  user is defined in the server's `users.d`, with its password read from an environment variable that the pod
+  sets from the user's Secret (`clickhouse-<user>`, key `password`). Nothing creates a user with SQL. The image's
+  `default` user, which has no password, answers only on localhost.
+- The data volume outlives the application: it carries `argocd.argoproj.io/sync-options: Prune=false,Delete=false`
+  and `helm.sh/resource-policy: keep`, so neither pruning, deleting the Application nor `helm uninstall` removes
+  it. Delete it by hand to drop the data.
+- The schema Job applies `files/schema.sql.tpl` through the `clickhouse` Service, and `clickhouse.backup` works as
+  it does with the operator: both reach the server at `clickhouse:9000` as `otel_admin`.
+- NetworkPolicies select the server's pods by `app.kubernetes.io/name: clickhouse` instead of the operator's
+  `clickhouse.altinity.com/chi` label, and drop the operator's and the interserver rules. The collector scrapes the
+  server's metrics the same way.
+- As with the operator, the server reads its users' passwords only from Kubernetes Secrets, so `vault.enabled`
+  fails the render for it.
+
+`make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
+to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
+anything that selects the operator's pods.
+
 ### An external ClickHouse
 
 On a platform that runs ClickHouse as a service, the stack is a tenant: it consumes the service's ClickHouse and
@@ -515,8 +565,8 @@ name them.
 | `clickhouse-analyst` | `otel_analyst` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*`, `INSERT ON otel_ml.*`, under limits of the service owner's choosing | notebooks and jobs, not a workload |
 | `clickhouse-admin` | `otel_admin` | only if the service owner delegates migrations: create and alter tables, views and databases in `otel`, `otel_features`, `otel_ml`, `otel_baseline`, `otel_slo` and `garmr`, and be the definer of their views | the schema Job |
 
-`files/installation.yaml.tpl` in the `clickhouse` node is the reference for these grants: it is what the
-in-cluster ClickHouse creates. The database names are fixed too. Ask for them on a ClickHouse service the tenant
+`files/server.yaml.tpl` in the `clickhouse` node is the reference for these grants: it is what the
+in-cluster ClickHouse creates, with the operator or standalone. The database names are fixed too. Ask for them on a ClickHouse service the tenant
 does not share, or one where the tenant owns those six databases.
 
 #### Who applies the schema
@@ -1333,7 +1383,7 @@ a 128 Mi cap) in both:
 
 The collector agent is a DaemonSet that is off in every environment, so it is not in the 2.4 GB measured on kind. Turning it on adds one pod per node at the sizes above.
 
-With `clickhouse.lowMemory: true`, which the laptop profiles set, ClickHouse also gets a `config.d/low_memory.xml` (from `cluster-nodes/clickhouse/files/installation.yaml.tpl`) with:
+With `clickhouse.lowMemory: true`, which the laptop profiles set, ClickHouse also gets a `config.d/low_memory.xml` (from `cluster-nodes/clickhouse/files/server.yaml.tpl`) with:
 - a fixed memory cap at 90% of the container (`max_server_memory_usage_to_ram_ratio`,
   `memory_worker_dynamic_hard_limit: false`)
 - small caches
@@ -1416,7 +1466,9 @@ defaults themselves, so its file overrides nothing: no demo load, production siz
 collector's `otel-collector-auth`), and Grafana signing in through OAuth with its secrets in Vault (see
 [Grafana sign-in with Keycloak](#grafana-sign-in-with-keycloak)). `restricted` is the profile for a tenant
 namespace with nothing cluster-scoped (see [A restricted namespace](#a-restricted-namespace)), and `paas` the same
-profile consuming a platform's ClickHouse service (see [An external ClickHouse](#an-external-clickhouse)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+profile consuming a platform's ClickHouse service (see [An external ClickHouse](#an-external-clickhouse)), and
+`standalone` the same profile running ClickHouse without the operator (see
+[A standalone ClickHouse](#a-standalone-clickhouse)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. An environment with nothing in it deploys as production does; add only what differs.
 
@@ -1607,7 +1659,7 @@ Before the first sync of a new cluster, `make cluster/preflight ENV=<env>` check
 - **A Drilldown app shows an error or no data:** `make test/e2e` makes the calls each app makes on first load through Grafana's datasource proxy (Loki `index/volume`, `patterns`, `detected_fields`, `detected_labels`; Tempo `/api/metrics/query_range` and `/api/v2/search/tags`; Prometheus label names), so the failing step names the endpoint Cerberus doesn't answer.
 - **Grafana is slow to become Ready, or Drilldown pages are empty:** Grafana installs the three Drilldown apps from grafana.com, in the background, when it starts; other default plugins are switched off in `grafana.ini` (`disable_plugins`). If grafana.com is unreachable, Grafana still starts, without Drilldown; check `kubectl -n observability logs deploy/grafana | grep -i plugin`. In `local` only (`values-local.yaml`), the plugins are kept on a `grafana-plugins` volume so they download once, Grafana's database lives in memory so its startup migrations don't crawl on a laptop disk, and a startup probe allows a slow start up to 10 minutes. Other environments keep plugins and the database in emptyDirs, so each restart downloads the plugins again.
 - **Cerberus stays `0/1 Ready`, or the `clickhouse` app stays Progressing:** Cerberus reports not-ready until the tables exist, and the schema Job creates them. Check `kubectl -n observability logs job -l app.kubernetes.io/name=clickhouse-schema` and `kubectl -n observability logs deploy/cerberus`.
-- **The collector logs `ACCESS_DENIED` or `Not enough privileges`:** it inserts as `otel_writer`, which has only `INSERT` on `otel.*`. A table outside `otel`, or an exporter setting that reads before writing, needs a grant in `cluster-nodes/clickhouse/files/installation.yaml.tpl`.
+- **The collector logs `ACCESS_DENIED` or `Not enough privileges`:** it inserts as `otel_writer`, which has only `INSERT` on `otel.*`. A table outside `otel`, or an exporter setting that reads before writing, needs a grant in `cluster-nodes/clickhouse/files/server.yaml.tpl`.
 - **An external ClickHouse refuses the stack (`paas`, or `global.clickhouse.external`):** these are service-contract questions for the service owner, not cluster administration. See [the ClickHouse service contract](#the-clickhouse-service-contract).
   - Run `make cluster/preflight ENV=<env>` first. It names a missing Secret or CA ConfigMap.
   - Then check which client fails and what it logs:
