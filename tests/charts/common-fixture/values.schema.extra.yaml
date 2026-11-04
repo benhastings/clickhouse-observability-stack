@@ -1,3 +1,9 @@
 # This chart's own top-level keys; make generate merges them with helm-templates/common/schema/node.schema.yaml.
 properties:
   ghostEnabled: {type: boolean}
+  job:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: {type: boolean}
+      secretEnv: {$ref: "#/definitions/secretEnv"}

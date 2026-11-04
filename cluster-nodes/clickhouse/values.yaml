@@ -103,6 +103,12 @@ clickhouse:
         memory: 64Mi
       limits:
         memory: 256Mi
+    # otel_admin's password, in the secretEnv shape: a secretKeyRef, or with vault.enabled a file the Vault agent
+    # writes before the Job's container starts, which the container exports as CLICKHOUSE_PASSWORD.
+    secretEnv:
+      CLICKHOUSE_PASSWORD:
+        secret: '{{ include "common.fullname" . }}-admin'
+        key: password
   # A Keeper inside the ClickHouse server, for KeeperMap tables. One server only: more shards or replicas fail the
   # render, and need a ClickHouseKeeperInstallation.
   keeper:
@@ -183,6 +189,17 @@ clickhouse:
         memory: 64Mi
       limits:
         memory: 256Mi
+    # As schema.secretEnv: otel_admin's password and the S3 credentials.
+    secretEnv:
+      CLICKHOUSE_PASSWORD:
+        secret: '{{ include "common.fullname" . }}-admin'
+        key: password
+      S3_ACCESS_KEY:
+        secret: '{{ include "common.fullname" . }}-backup'
+        key: access_key
+      S3_SECRET_KEY:
+        secret: '{{ include "common.fullname" . }}-backup'
+        key: secret_key
 
 # The Installation is a Go template in files/ because a map in values can't leave out a key, and
 # lowMemory and storageClassName need to. The leading "---" keeps this string unquoted through

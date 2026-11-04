@@ -34,6 +34,7 @@ properties:
           backoffLimit: {type: integer, minimum: 0}
           activeDeadlineSeconds: {type: integer, minimum: 1}
           resources: {type: object}
+          secretEnv: {$ref: "#/definitions/secretEnv"}
       keeper:
         type: object
         additionalProperties: false
@@ -78,6 +79,7 @@ properties:
           keep: {type: integer, minimum: 0}
           image: {$ref: "#/definitions/image"}
           resources: {type: object}
+          secretEnv: {$ref: "#/definitions/secretEnv"}
 definitions:
   sloObjective:
     type: object

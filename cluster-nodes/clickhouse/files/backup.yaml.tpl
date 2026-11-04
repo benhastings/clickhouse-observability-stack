@@ -8,7 +8,7 @@
 {{- if not $b.bucket }}
 {{- fail "clickhouse.backup.bucket is required when clickhouse.backup.enabled is true" }}
 {{- end }}
-{{- $secret := printf "%s-backup" (include "common.fullname" .) }}
+{{- $vault := include "common.jobVaultAnnotations" (list $ $b.secretEnv) }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -25,9 +25,14 @@ spec:
         metadata:
           labels:
             app.kubernetes.io/name: clickhouse-backup
+          {{- with $vault }}
+          annotations:
+            {{- . | nindent 12 }}
+          {{- end }}
         spec:
           restartPolicy: Never
-          automountServiceAccountToken: false
+          # The Vault agent logs in with the pod's ServiceAccount token.
+          automountServiceAccountToken: {{ ne $vault "" }}
           {{- with include "common.imagePullSecrets" (list $ list) | trim }}
           {{- . | nindent 10 }}
           {{- end }}
@@ -35,7 +40,18 @@ spec:
             - name: clickhouse-backup
               image: {{ include "common.image" (list $ $b.image) | quote }}
               command:
+                {{- with include "common.secretEnvExports" (list $ $b.secretEnv) | trim }}
+                # clickhouse-backup reads its credentials only from the environment, so a shell exports them from
+                # the Vault agent's files first. The arguments stay clickhouse-backup's, as the restore steps expect.
+                - /bin/sh
+                - -c
+                - |
+                  {{- . | nindent 18 }}
+                  exec /bin/clickhouse-backup "$@"
+                - clickhouse-backup
+                {{- else }}
                 - /bin/clickhouse-backup
+                {{- end }}
               args:
                 - create_remote
               env:
@@ -44,15 +60,10 @@ spec:
                 - name: CLICKHOUSE_PORT
                   value: "9000"
                 - name: CLICKHOUSE_USERNAME
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "common.fullname" . }}-admin
-                      key: username
-                - name: CLICKHOUSE_PASSWORD
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ include "common.fullname" . }}-admin
-                      key: password
+                  value: otel_admin
+                {{- with include "common.secretEnv" (list $ $b.secretEnv) }}
+                {{- . | nindent 16 }}
+                {{- end }}
                 - name: CLICKHOUSE_USE_EMBEDDED_BACKUP_RESTORE
                   value: "true"
                 - name: REMOTE_STORAGE
@@ -71,15 +82,5 @@ spec:
                   value: {{ $b.region | quote }}
                 - name: S3_FORCE_PATH_STYLE
                   value: {{ $b.forcePathStyle | toString | quote }}
-                - name: S3_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ $secret }}
-                      key: access_key
-                - name: S3_SECRET_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ $secret }}
-                      key: secret_key
               resources:
                 {{- toYaml $b.resources | nindent 16 }}

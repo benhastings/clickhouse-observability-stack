@@ -1006,19 +1006,114 @@ tests:
       - failedTemplate:
           errorPattern: global.clickhouse.tls.caConfigMap is empty
 
-  - it: fails on vault.enabled, because the server and the schema Job read only Kubernetes Secrets
+  - it: fails on vault.enabled, because the server reads its users' passwords only from Kubernetes Secrets
     set:
       global.vault.enabled: true
+    template: templates/objects.yaml
     asserts:
       - failedTemplate:
-          errorPattern: '^clickhouse: vault.enabled is true, but the ClickHouse server and the schema Job read their users'' passwords only from the Kubernetes Secrets clickhouse-<user>'
+          errorPattern: '^clickhouse: vault.enabled is true, but the ClickHouse server reads its users'' passwords only from the Kubernetes Secrets clickhouse-<user>'
 
-  - it: fails on vault.enabled with an external ClickHouse too, where the schema Job still reads clickhouse-admin
+  - it: reads otel_admin's password from the Vault agent's file in the schema Job, with an external ClickHouse
+    set:
+      <<: *external
+      vault.enabled: true
+      global.vault.secret: OBS_SECRET
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      # The name hashes only the SQL, so it is the same Job in either mode.
+      - matchRegex:
+          path: metadata.name
+          pattern: ^clickhouse-schema-[0-9a-f]{8}$
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.valueFrom)]
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+          any: true
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-admin-password"]
+          value: secret/data/OBS_SECRET
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-clickhouse-admin-password"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "clickhouse-admin-password" }}{{- end -}}'
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-pre-populate-only"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: clickhouse
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: ^CLICKHOUSE_PASSWORD="\$\(cat '/vault/secrets/clickhouse-admin-password'\)"\nexport CLICKHOUSE_PASSWORD\n
+
+  - it: names the schema Job the same with Vault as without, for the same SQL
+    set:
+      <<: *external
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-admin
+                key: password
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - notExists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject"]
+
+  # The server can't be on Vault until it reads its passwords from files (#255), so this leaves its Installation out.
+  - it: reads the backup CronJob's credentials from the Vault agent's files, keeping clickhouse-backup's arguments
     set:
       vault.enabled: true
-      global.clickhouse.external: true
-      global.clickhouse.tls.serverName: clickhouse.example.com
-      global.clickhouse.tls.caConfigMap: clickhouse-ca
+      objects.installation: null
+      clickhouse.backup.enabled: true
+      clickhouse.backup.bucket: example-bucket
+      objects.backup: '--{{ "-" }}{{ tpl (.Files.Get "files/backup.yaml.tpl") . }}'
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: CronJob
     asserts:
-      - failedTemplate:
-          errorPattern: '^clickhouse: vault.enabled is true'
+      - notExists:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env[?(@.valueFrom)]
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.annotations["vault.hashicorp.com/agent-pre-populate-only"]
+          value: "true"
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-backup-secret_key"]
+          value: secret/data/clickhouse-backup
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.automountServiceAccountToken
+          value: true
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].command
+          value:
+            - /bin/sh
+            - -c
+            - |
+              CLICKHOUSE_PASSWORD="$(cat '/vault/secrets/clickhouse-admin-password')"
+              export CLICKHOUSE_PASSWORD
+              S3_ACCESS_KEY="$(cat '/vault/secrets/clickhouse-backup-access_key')"
+              export S3_ACCESS_KEY
+              S3_SECRET_KEY="$(cat '/vault/secrets/clickhouse-backup-secret_key')"
+              export S3_SECRET_KEY
+              exec /bin/clickhouse-backup "$@"
+            - clickhouse-backup
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].args
+          value: [create_remote]

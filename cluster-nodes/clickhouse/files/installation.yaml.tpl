@@ -1,3 +1,11 @@
+{{- /*
+The server (through the operator) reads its users' passwords only from the clickhouse-<user> Secrets, so Vault
+cannot deliver them yet; a clickhouse on Vault would wait for Secrets nothing produces. With an external
+ClickHouse there is no server here, and the schema Job reads otel_admin's password from Vault.
+*/}}
+{{- if include "common.vaultEnabled" . }}
+{{- fail (printf "%s: vault.enabled is true, but the ClickHouse server reads its users' passwords only from the Kubernetes Secrets %s-<user>; set vault.enabled: false for it and its clients (cerberus, otel-collector, garmr, garmr-sql-adapter), and use pre-created Secrets or global.externalSecrets, or use Vault against an external ClickHouse (README: Credentials)" (include "common.fullname" .) (include "common.fullname" .)) }}
+{{- end }}
 {{- $ch := .Values.clickhouse }}
 {{- if and $ch.garmr.enabled (not $ch.keeper.embedded) }}
 {{- fail "clickhouse.garmr.enabled needs clickhouse.keeper.embedded: garmr keeps its open incidents in a KeeperMap table" }}

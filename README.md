@@ -1102,10 +1102,10 @@ message naming the app:
 - **ClickHouse and its clients agree**: `clickhouse` (the server and the schema Job), `cerberus`, `otel-collector`,
   `garmr` and `garmr-sql-adapter` must use the same mechanism. The app-of-apps render lists each one's mechanism
   when they don't.
-- **ClickHouse is not on Vault yet**: the server (through the operator) and the schema Job read their users'
-  passwords only from Kubernetes Secrets, so `vault.enabled` on `clickhouse` fails. Vault for ClickHouse's
-  credentials therefore means the clients only, with `applications.clickhouse.enabled: false` against
-  [an external ClickHouse](#an-external-clickhouse) whose owner applies the schema.
+- **The ClickHouse server is not on Vault yet**: the server (through the operator) reads its users' passwords
+  only from Kubernetes Secrets, so `vault.enabled` on `clickhouse` fails while it runs the server. Against
+  [an external ClickHouse](#an-external-clickhouse) the node renders only the schema Job, which reads
+  `otel_admin`'s password from the Vault agent's file, so there `clickhouse` and its clients can all be on Vault.
 
 The mechanism is the environment's secret owner's choice, made in its `values-<env>.yaml`:
 
@@ -1140,12 +1140,12 @@ stays a Kubernetes Secret.
 
 | Secret | Keys | Read by | Vault field (`vault.secret: OBS_SECRET`) | External Secrets |
 | --- | --- | --- | --- | --- |
-| `clickhouse-admin` | `username`, `password` | ClickHouse, the schema Job, the backup CronJob | - | `observability/clickhouse-admin` |
+| `clickhouse-admin` | `username`, `password` | ClickHouse; the schema Job and the backup CronJob (`password`) | `clickhouse-admin-password` | `observability/clickhouse-admin` |
 | `clickhouse-writer` | `username`, `password` | ClickHouse; `otel-collector` (`password`) | `clickhouse-writer-password` | `observability/clickhouse-writer` |
 | `clickhouse-reader` | `username`, `password` | ClickHouse; `cerberus`, `garmr-sql-adapter` (`password`) | `clickhouse-reader-password` | `observability/clickhouse-reader` |
 | `clickhouse-analyst` | `username`, `password` | ClickHouse; notebooks and jobs | - | `observability/clickhouse-analyst` |
 | `clickhouse-garmr` | `username`, `password` | ClickHouse; `garmr` (`password`) | `clickhouse-garmr-password` | `observability/clickhouse-garmr` |
-| `clickhouse-backup` | `access_key`, `secret_key` | the backup CronJob, with `clickhouse.backup` | - | - |
+| `clickhouse-backup` | `access_key`, `secret_key` | the backup CronJob, with `clickhouse.backup` | `clickhouse-backup-access_key`, `clickhouse-backup-secret_key` | - |
 | `clickhouse-operator-credentials` | `username`, `password` | the ClickHouse operator | - | `observability/clickhouse-operator-credentials` |
 | `grafana-admin` | `admin-user`, `admin-password` | `grafana` | `grafana-admin-admin-user`, `grafana-admin-admin-password` | `observability/grafana-admin` |
 | `grafana-oauth` | `client-secret` | `grafana`, with `auth.genericOauth` | `grafana-oauth-client-secret` | - |

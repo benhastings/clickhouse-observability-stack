@@ -220,6 +220,18 @@ With neither `vault.env` nor `vault.yamlKey`, the app's config points at the fil
 `deployment`, then `daemonset`. Deployment and DaemonSet pods are injected the same way, each from its own
 containers' `secretEnv`, and a pod with no `secretEnv` gets no agent.
 
+A Job or CronJob a node writes itself under `objects` (the clickhouse node's schema Job and backup CronJob) gets
+the same delivery from a `secretEnv` map of its own, through three helpers that each take `(list . $secretEnv)`:
+
+| Helper | What it renders |
+| --- | --- |
+| `common.secretEnv` | the container's `env` entries: a `secretKeyRef` per entry with Vault off, the `vault.env` file paths with it on |
+| `common.jobVaultAnnotations` | the pod's injector annotations plus `agent-pre-populate-only: "true"`, so the agent runs only as an init container and the pod can complete; empty with Vault off or no entry |
+| `common.secretEnvExports` | shell lines that export each entry's variable from its file, for an app that reads a secret only from its environment; empty with Vault off |
+
+The pod sets `automountServiceAccountToken` to whether `common.jobVaultAnnotations` rendered anything, and
+`vault.annotations` still wins over `agent-pre-populate-only`. The fixture's `files/job.yaml.tpl` is the pattern.
+
 ### Templating
 
 String values in the places marked templated go through `tpl`, so they can use `{{ .Release.Name }}` or
