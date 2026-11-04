@@ -164,7 +164,7 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 test: test/unit test/credentials test/kind-profiles test/live test/quota ## Every offline test
 
 .PHONY: test/e2e
-test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted for the restricted namespace
+test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted or ENV=standalone for a restricted namespace
 	ENV=$(ENV) MESH=$(MESH) scripts/kind-up.sh $(REVISION)
 	ENV=$(ENV) MESH=$(MESH) scripts/e2e.bash
 
@@ -224,7 +224,7 @@ helm/uninstall: ## Uninstall both Helm releases of ENV=<env>; CRDs, namespaces, 
 ##@ Local cluster
 
 .PHONY: cluster/up
-cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch, MESH=istio or ambient to run it in Istio, ENV=restricted for the restricted namespace)
+cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch, MESH=istio or ambient to run it in Istio, ENV=restricted or ENV=standalone for a restricted namespace)
 	ENV=$(ENV) MESH=$(MESH) scripts/kind-up.sh $(REVISION)
 
 .PHONY: cluster/bootstrap
