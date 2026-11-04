@@ -1,3 +1,4 @@
+{{- /* cspell:words sslv tlsv */}}
 {{- /*
 The standalone server's configuration (global.clickhouse.standalone): files/server.yaml.tpl, which the
 ClickHouseInstallation shares, as the config.d and users.d files of the clickhouse-server image. Each user reads
@@ -15,15 +16,33 @@ data:
   {{- end }}
   # The listeners, and the server's logs on stdout as well as in the log directory (an emptyDir). This file
   # replaces the image's config.d, so it also listens on every address as the image's docker_related_config.xml
-  # does.
+  # does. TLS only: the native protocol on 9440 and HTTP on 8443, with the image's plaintext native, HTTP, MySQL,
+  # PostgreSQL and interserver ports removed. The one plaintext port left is Prometheus on 9363, which only the
+  # collector may reach. The certificate is global.clickhouse.tls.serverSecret's, which deployment.yaml.tpl mounts;
+  # the server asks no client for a certificate of its own.
   listen.xml: |
     <clickhouse>
       <listen_host>::</listen_host>
       <listen_host>0.0.0.0</listen_host>
       <listen_try>1</listen_try>
-      <http_port>8123</http_port>
-      <tcp_port>9000</tcp_port>
+      <tcp_port remove="1"/>
+      <http_port remove="1"/>
+      <mysql_port remove="1"/>
+      <postgresql_port remove="1"/>
       <interserver_http_port remove="1"/>
+      <tcp_port_secure>9440</tcp_port_secure>
+      <https_port>8443</https_port>
+      <openSSL>
+        <server>
+          <certificateFile>/etc/clickhouse-server/tls/tls.crt</certificateFile>
+          <privateKeyFile>/etc/clickhouse-server/tls/tls.key</privateKeyFile>
+          <verificationMode>none</verificationMode>
+          <loadDefaultCAFile>false</loadDefaultCAFile>
+          <cacheSessions>true</cacheSessions>
+          <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+          <preferServerCiphers>true</preferServerCiphers>
+        </server>
+      </openSSL>
       <logger>
         <console>1</console>
       </logger>

@@ -576,7 +576,7 @@
                 },
                 "serverSecret": {
                   "type": "string",
-                  "description": "with `standalone`, required: the `kubernetes.io/tls` Secret in the stack's namespace with the server's certificate and key (`tls.crt`, `tls.key`), which the platform provides; with `vault.enabled` on the `clickhouse` node, the Vault record of that name holds them instead. The stack never issues a certificate",
+                  "description": "with `standalone`, required: the `kubernetes.io/tls` Secret in the stack's namespace with the server's certificate and key (`tls.crt`, `tls.key`), which the platform provides. The stack never issues a certificate",
                   "x-default": "`\"\"`"
                 }
               }

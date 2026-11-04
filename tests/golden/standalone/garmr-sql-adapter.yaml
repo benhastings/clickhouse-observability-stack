@@ -30,11 +30,11 @@ metadata:
     app.kubernetes.io/version: "0.3.0"
     environment: standalone
 data:
-  CLICKHOUSE_ADDR: "clickhouse:9000"
+  CLICKHOUSE_ADDR: "clickhouse:9440"
   CLICKHOUSE_DATABASE: "otel"
-  CLICKHOUSE_TLS_CA_FILE: ""
-  CLICKHOUSE_TLS_ENABLED: "false"
-  CLICKHOUSE_TLS_SERVER_NAME: ""
+  CLICKHOUSE_TLS_CA_FILE: "/etc/clickhouse-ca/ca.crt"
+  CLICKHOUSE_TLS_ENABLED: "true"
+  CLICKHOUSE_TLS_SERVER_NAME: "clickhouse.observability.svc"
   CLICKHOUSE_USER: "otel_reader"
   GARMR_LISTEN_ADDRESS: ":8080"
   GARMR_LOG_FORMAT: "json"
@@ -93,7 +93,7 @@ spec:
         app.kubernetes.io/name: garmr-sql-adapter
         app.kubernetes.io/instance: garmr-sql-adapter
       annotations:
-        checksum/config: 60875b751b338e9eb66e5e5fca826b1459653d7b5c837dc21a80f2ce00c1f08e
+        checksum/config: e993d340c42ab2f0c4d75df6a2ca5aca13f46238dbd75b68e97b0d769151009c
     spec:
       serviceAccountName: garmr-sql-adapter
       automountServiceAccountToken: false
@@ -152,6 +152,14 @@ spec:
               - ALL
             privileged: false
             readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/clickhouse-ca
+              name: clickhouse-ca
+              readOnly: true
+      volumes:
+        - name: clickhouse-ca
+          configMap:
+            name: platform-ca-bundle
 ---
 # Source: garmr-sql-adapter/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1

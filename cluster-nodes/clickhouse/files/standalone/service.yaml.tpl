@@ -1,4 +1,7 @@
-{{- /* The standalone server's Service: clickhouse:9000 and :8123, the names the operator's Service has. */}}
+{{- /*
+The standalone server's Service, TLS only: clickhouse:9440 (native) and :8443 (HTTPS), named tcp-* so Istio
+passes the server's TLS through as opaque TCP. No plaintext 9000 or 8123; the collector scrapes 9363 by pod IP.
+*/}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,11 +11,11 @@ spec:
   selector:
     {{- include "common.clickhousePodLabels" . | nindent 4 }}
   ports:
-    - name: http
-      port: 8123
-      targetPort: http
+    - name: tcp-https
+      port: 8443
+      targetPort: tcp-https
       protocol: TCP
-    - name: tcp
-      port: 9000
-      targetPort: tcp
+    - name: tcp-native
+      port: 9440
+      targetPort: tcp-native
       protocol: TCP

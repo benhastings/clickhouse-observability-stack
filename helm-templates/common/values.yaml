@@ -46,8 +46,7 @@ global:
   # A standalone ClickHouse is TLS only the same way: it serves the native protocol on 9440 and HTTPS on 8443, with
   # no plaintext native or HTTP port (only 9363, Prometheus, for the collector), so global.services.clickhouse is
   # clickhouse:9440 and tls.serverName and tls.caConfigMap are required as for external. Its certificate and key
-  # are tls.serverSecret, a kubernetes.io/tls Secret the platform provides in the stack's namespace, or with
-  # vault.enabled on the clickhouse node, that record's tls.crt and tls.key read from Vault.
+  # are tls.serverSecret, a kubernetes.io/tls Secret the platform provides in the stack's namespace.
   # networkPolicyPeers are the NetworkPolicy peers the address resolves to; empty allows its port anywhere.
   clickhouse:
     external: false

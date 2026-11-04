@@ -229,7 +229,8 @@ configMaps:
 # operator reaches them from its namespace (global.networkPolicy.namespaces.operator, its pods selected by
 # global.clickhouseOperator.podLabels, which a shared operator may label differently), the collector scrapes the
 # Prometheus port, and replicas reach each other on the interserver port. A standalone server has no operator and
-# no replicas, so neither of those last two rules.
+# no replicas, so neither of those last two rules, and it is TLS only: clients reach 9440 and nothing else, and
+# the collector 9363 (README: A standalone ClickHouse).
 # With global.clickhouse.external there are no ClickHouse pods here, so the policy covers the schema Job instead:
 # no ingress, and egress only to the external ClickHouse.
 networkPolicy:
@@ -249,10 +250,15 @@ networkPolicy:
                 operator: In
                 values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, clickhouse-schema, clickhouse-backup]
       ports:
+        {{- if include "common.clickhouseTLS" . }}
+        - port: 9440
+          protocol: TCP
+        {{- else }}
         - port: 9000
           protocol: TCP
         - port: 8123
           protocol: TCP
+        {{- end }}
     - from:
         - podSelector:
             matchLabels:
@@ -291,10 +297,15 @@ networkPolicy:
             matchLabels:
               {{- include "common.clickhousePodLabels" . | nindent 14 }}
       ports:
+        {{- if include "common.clickhouseTLS" . }}
+        - port: 9440
+          protocol: TCP
+        {{- else }}
         - port: 9000
           protocol: TCP
         - port: 9009
           protocol: TCP
+        {{- end }}
     {{- if .Values.clickhouse.backup.enabled }}
     # BACKUP ... TO S3 runs inside ClickHouse.
     - ports:
