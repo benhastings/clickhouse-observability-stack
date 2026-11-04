@@ -507,6 +507,27 @@
             }
           }
         },
+        "rollups": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "fineDays": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "metrics": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[^']+$"
+              }
+            }
+          }
+        },
         "slo": {
           "type": "object",
           "additionalProperties": false,
@@ -662,6 +683,12 @@
               "minimum": 1,
               "description": "also Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK`",
               "x-default": "`90`"
+            },
+            "curatedMetrics": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "the clickhouse node's hourly rollups (`clickhouse.rollups`)",
+              "x-default": "`400`"
             }
           }
         },

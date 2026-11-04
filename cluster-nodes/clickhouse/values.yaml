@@ -6,8 +6,8 @@ serviceAccount:
 # reaches only what that user may do. files/server.yaml.tpl defines the users and their grants:
 #   clickhouse-admin   otel_admin, every privilege; only the schema Job and the backup CronJob use it
 #   clickhouse-writer  otel_writer, INSERT on otel.*; the collector
-#   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus
-#   clickhouse-analyst otel_analyst, SELECT on otel.*, otel_baseline.*, otel_features.*, otel_slo.*, INSERT on otel_ml.*;
+#   clickhouse-reader  otel_reader, SELECT on otel.*; Cerberus (also otel_baseline.*, otel_slo.* and otel_rollup.*)
+#   clickhouse-analyst otel_analyst, SELECT on otel.*, otel_baseline.*, otel_features.*, otel_slo.*, otel_rollup.*, INSERT on otel_ml.*;
 #                      notebooks and jobs, under clickhouse.analyst's limits
 #   clickhouse-garmr   otel_garmr, with clickhouse.garmr: SELECT, INSERT, ALTER UPDATE and ALTER DELETE on
 #                      garmr.*, SELECT on otel.*, otel_features.*, otel_baseline.*; garmr serve
@@ -145,6 +145,15 @@ clickhouse:
         thresholdMs: 1000
         objective: 0.95
     services: {}
+  # Curated rollups, in the otel_rollup database (see files/schema.sql.tpl): each service's server-span requests,
+  # errors, slow spans and duration quantiles, and every series of the metrics named here (as stored, from the
+  # gauge and sum tables), at 5 minutes for fineDays and at 1 hour for global.retention.curatedMetrics.
+  rollups:
+    enabled: true
+    fineDays: 35
+    metrics:
+      - k8s.node.cpu.usage
+      - k8s.node.memory.working_set
   # An optional nightly clickhouse-backup run against the otel cluster, uploading to S3-compatible storage.
   # It uses ClickHouse's own BACKUP ... TO S3 (embedded mode with no backup disk), so the job needs only the
   # clickhouse:9000 Service, not the data volume. keep is how many remote backups to retain; older ones are

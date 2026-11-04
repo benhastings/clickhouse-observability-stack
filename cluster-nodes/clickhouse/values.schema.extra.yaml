@@ -55,6 +55,16 @@ properties:
             type: array
             items:
               enum: [requests_per_minute, error_ratio, latency_p95_ms, error_logs_per_minute]
+      rollups:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: {type: boolean}
+          fineDays: {type: integer, minimum: 1}
+          metrics:
+            type: array
+            uniqueItems: true
+            items: {type: string, pattern: "^[^']+$"}
       slo:
         type: object
         additionalProperties: false

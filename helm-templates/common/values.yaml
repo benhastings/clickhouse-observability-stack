@@ -59,11 +59,13 @@ global:
       serverSecret: ""
   # How long the stack keeps each signal, in days: ClickHouse's TTLs (the clickhouse node's schema) and Cerberus's
   # metadata lookback (CERBERUS_PROM_METADATA_LOOKBACK, which must cover the metrics) both read these, so they
-  # can't drift apart. Three weeks of traces to search, two of logs, and 90 days of metrics.
+  # can't drift apart. Three weeks of traces to search, two of logs, and 90 days of metrics. curatedMetrics is the
+  # clickhouse node's hourly rollups (clickhouse.rollups): 400 days, so a month compares with the same month last year.
   retention:
     traces: 21
     logs: 14
     metrics: 90
+    curatedMetrics: 400
   # With mesh: istio, how pods join the mesh. sidecar: an istio-proxy container in each pod (the namespace is
   # labelled istio-injection: enabled). ambient: no sidecar; the node's ztunnel carries every pod's traffic over
   # HBONE (port 15008) with mTLS, and the namespace is labelled istio.io/dataplane-mode: ambient. waypoint names

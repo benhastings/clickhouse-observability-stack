@@ -527,6 +527,31 @@ analyst_slo="$(clickhouse_as analyst "SELECT count() FROM otel_slo.budget(at = n
 [[ "$analyst_slo" == 2 ]] || { echo "  otel_analyst read $analyst_slo of the demo services' error budgets, not 2"; exit 1; }
 echo "  otel_analyst reads both demo services' error budgets"
 
+# otel_rollup keeps each service's server spans and the curated metrics (clickhouse.rollups) for 13 months,
+# written on insert, so a 5-minute bucket of both demo services and of the node metrics is there as soon as
+# their telemetry is. Read them as otel_reader and otel_analyst, merged by the views.
+step "ClickHouse: the 13-month rollups record both demo services and the curated node metrics"
+rollup_query="SELECT
+  (SELECT countIf(service_name = 'payments' AND errors > 0) > 0 AND countIf(service_name = 'checkout') > 0
+     FROM otel_rollup.services_5m WHERE requests > 0 AND p95_ms > 0),
+  (SELECT uniqExactIf(metric_name, count > 0) FROM otel_rollup.metrics_5m
+     WHERE metric_name IN ('k8s.node.cpu.usage', 'k8s.node.memory.working_set')),
+  (SELECT countIf(service_name = 'payments') > 0 FROM otel_rollup.services_1h)
+  FORMAT TSV"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until rollups="$(clickhouse_as reader "$rollup_query")" && [[ "$rollups" == $'1\t2\t1' ]]; do
+  if ((SECONDS > deadline)); then
+    clickhouse_as admin "SELECT 'service_5m', ServiceName, sum(Requests), sum(Errors) FROM otel_rollup.service_5m GROUP BY ServiceName
+      UNION ALL SELECT 'metric_5m', MetricName, sum(Count), 0 FROM otel_rollup.metric_5m GROUP BY MetricName"
+    echo "  want both demo services, 2 node metrics and payments' hour in otel_rollup, got: ${rollups:-nothing}"
+    exit 1
+  fi
+  sleep 5
+done
+analyst_rollup="$(clickhouse_as analyst "SELECT count() > 0 FROM otel_rollup.services_1h WHERE service_name = 'checkout'")"
+[[ "$analyst_rollup" == 1 ]] || { echo "  otel_analyst reads no checkout rollup"; exit 1; }
+echo "  payments and checkout at 5 minutes and 1 hour, and both node metrics, read as otel_reader and otel_analyst"
+
 poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
   "[.[] | select(.labels.alertname == \"$e2e_alert\" and .status.state == \"active\")
    | .receivers[].name] | index(\"default\") != null" \
