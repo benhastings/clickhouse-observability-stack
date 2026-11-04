@@ -1154,7 +1154,10 @@ spec:
             </openSSL>
           </config>
           EOF
-          set -- --config-file /tmp/client.xml --port "$CLICKHOUSE_PORT" --secure --tls-sni-override "$CLICKHOUSE_TLS_SERVER_NAME"
+          # With --config-file the client ignores CLICKHOUSE_HOST, CLICKHOUSE_USER and CLICKHOUSE_PASSWORD and
+          # dials localhost, so they are flags here.
+          set -- --config-file /tmp/client.xml --host "$CLICKHOUSE_HOST" --port "$CLICKHOUSE_PORT" --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" \
+            --secure --tls-sni-override "$CLICKHOUSE_TLS_SERVER_NAME"
           until clickhouse-client "$@" --query 'SELECT 1' >/dev/null; do
             echo "waiting for ClickHouse at $CLICKHOUSE_HOST:$CLICKHOUSE_PORT"
             sleep 5
