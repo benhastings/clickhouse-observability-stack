@@ -35,7 +35,9 @@ global:
     shared: false
     podLabels:
       app.kubernetes.io/name: clickhouse-operator
-  # Who runs ClickHouse. external false: this stack does, through the operator. true: a service owner does, at
+  # Who runs ClickHouse. standalone true: this stack does, as a plain single-replica Deployment with a PVC and a
+  # Service, with no operator, no CRD and no ClickHouseInstallation (README: A standalone ClickHouse).
+  # external false: this stack does, through the operator unless standalone. true: a service owner does, at
   # global.services.clickhouse, and the stack renders no operator and no ClickHouseInstallation (README: An
   # external ClickHouse). An external ClickHouse is always reached over TLS with the server's certificate
   # verified: tls.serverName is the name it must carry and tls.caConfigMap the ConfigMap, in the stack's
@@ -44,6 +46,7 @@ global:
   # networkPolicyPeers are the NetworkPolicy peers the address resolves to; empty allows its port anywhere.
   clickhouse:
     external: false
+    standalone: false
     networkPolicyPeers: []
     tls:
       serverName: ""
