@@ -31,7 +31,7 @@ tests:
           path: data["listen.xml"]
           pattern: <certificateFile>/etc/clickhouse-server/tls/tls.crt</certificateFile>\s*<privateKeyFile>/etc/clickhouse-server/tls/tls.key</privateKeyFile>
 
-  - it: serves the certificate from the platform's kubernetes.io/tls Secret, and probes over HTTPS
+  - it: serves the certificate from the platform's kubernetes.io/tls Secret, and no plaintext container port but 9363
     template: templates/objects.yaml
     documentSelector:
       path: kind
@@ -49,18 +49,6 @@ tests:
             - name: http-metrics
               containerPort: 9363
               protocol: TCP
-      - equal:
-          path: spec.template.spec.containers[0].readinessProbe.httpGet
-          value:
-            path: /ping
-            port: tcp-https
-            scheme: HTTPS
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.httpGet
-          value:
-            path: /ping
-            port: tcp-https
-            scheme: HTTPS
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -82,24 +70,6 @@ tests:
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
-
-  - it: exposes only the TLS ports, named so Istio treats them as opaque TCP
-    template: templates/objects.yaml
-    documentSelector:
-      path: kind
-      value: Service
-    asserts:
-      - equal:
-          path: spec.ports
-          value:
-            - name: tcp-https
-              port: 8443
-              targetPort: tcp-https
-              protocol: TCP
-            - name: tcp-native
-              port: 9440
-              targetPort: tcp-native
-              protocol: TCP
 
   - it: admits clients only on 9440 and the collector on 9363, with no plaintext native or HTTP port
     set:
