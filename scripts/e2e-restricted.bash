@@ -4,6 +4,7 @@
 # the namespace sends its own trace, log and metric, and each is read back through Cerberus and through Grafana.
 # For standalone, ClickHouse runs without the operator and serves only TLS: nothing listens on a plaintext port,
 # every client's queries arrived over TLS, and a client with the wrong CA or dialling the wrong name is refused.
+# Then, for standalone, scripts/acceptance.bash runs as a tenant would run make test/acceptance, and has to pass.
 # It uses e2e.bash's step and poll, $ENV, the port-forwarded $cerberus and $grafana, $grafana_login, $start and $end.
 
 ns="$(yq '.namespace' cluster-configs/app-of-apps/values.yaml)"
@@ -175,3 +176,10 @@ done
 rm -f "$haystack"
 ((${#leaks[@]} == 0)) || { echo "  found the value of: ${leaks[*]}"; exit 1; }
 echo "  ok: $(kubectl -n "$ns" get pods -o name | wc -l) pods' logs and the live objects hold none of ${#refs[@]} Secret values"
+
+# The go/no-go's in-environment proof, as a tenant runs it (make test/acceptance): read-only apart from its own
+# synthetic signals, with the Grafana login handed to it rather than read from the Secret.
+if [[ "$standalone" == true ]]; then
+  step "Acceptance: scripts/acceptance.bash $ENV passes in $ns"
+  GRAFANA_AUTH="$grafana_login" REPORT="dist/acceptance/$ENV-e2e.md" scripts/acceptance.bash "$ENV"
+fi

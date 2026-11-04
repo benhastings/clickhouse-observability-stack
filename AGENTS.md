@@ -31,6 +31,7 @@ scripts/kind-up.sh, kind-down.sh              create and delete the local kind c
 scripts/kind-platform.bash                    on kind, the platform team's part of the restricted and standalone profiles
 scripts/e2e-restricted.bash                   those profiles' e2e checks, sourced by scripts/e2e.bash
 scripts/e2e-standalone.bash                   standalone's TLS checks, sourced by scripts/e2e-restricted.bash
+scripts/acceptance.bash                       make test/acceptance: the release gates, read-only, in a live namespace
 scripts/port-forward.sh                       forward Grafana, Argo CD, Cerberus and OTLP to localhost
 kind-config.yaml                              the local cluster definition
 git/hooks/                                    the pre-commit hook (`make setup/hooks`)
@@ -83,8 +84,9 @@ add a target. `make help` lists everything.
 | `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
-| `make test`                 | every offline test: `test/unit`, `test/credentials`, `test/kind-profiles`, `test/live`, `test/quota` and `test/restricted` |
+| `make test`                 | every offline test: `test/unit`, `test/credentials`, `test/kind-profiles`, `test/live`, `test/quota`, `test/restricted`, `test/preflight` and `test/acceptance-stub` |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio, `ENV=restricted` the restricted profile |
+| `make test/acceptance ENV=<env>` | needs a cluster: the release gates in the environment's namespace, read-only apart from one synthetic trace, log and metric; a report in `dist/acceptance/` |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make test/traceql-latency` | needs Docker: times TraceQL through Cerberus over `DAYS` of synthetic traces at `RATE`; by hand, not CI |
 | `make env/new NAME=<env>`   | writes a commented `values-<env>.yaml` and `app-of-apps-<env>.yaml`; `FORCE=1` overwrites |
@@ -176,7 +178,7 @@ and ClickHouse's certificate generated at runtime), then the environment through
 Cerberus and Grafana, reaches Grafana through the Gateway, and fails when Argo CD manages anything cluster-scoped or
 outside the namespace, or a Secret value shows up in the pods' logs or the live objects. For `standalone` it also
 fails when ClickHouse listens on a plaintext client port, a native query in `system.query_log` arrived without TLS, the
-schema Job hasn't completed, or the schema Job's client config accepts the server with another CA or by another name. Label a PR `restricted` when it changes what either profile renders, how the shared operator is
+schema Job hasn't completed, the schema Job's client config accepts the server with another CA or by another name, or `scripts/acceptance.bash` (`make test/acceptance`) fails. Label a PR `restricted` when it changes what either profile renders, how the shared operator is
 used, or how ClickHouse's TLS is served or verified.
 
 ### Cluster nodes

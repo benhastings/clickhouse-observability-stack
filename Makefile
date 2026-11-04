@@ -161,12 +161,21 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit test/credentials test/kind-profiles test/live test/quota test/restricted test/preflight ## Every offline test
+test: test/unit test/credentials test/kind-profiles test/live test/quota test/restricted test/preflight test/acceptance-stub ## Every offline test
 
 .PHONY: test/e2e
 test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted or ENV=standalone for a restricted namespace
 	ENV=$(ENV) MESH=$(MESH) scripts/kind-up.sh $(REVISION)
 	ENV=$(ENV) MESH=$(MESH) scripts/e2e.bash
+
+.PHONY: test/acceptance
+test/acceptance: ## Needs a cluster: the release gates' in-environment proof for ENV=<env> in its namespace, with a report in dist/acceptance/; sends one synthetic trace, log and metric, otherwise read-only
+	@test -n '$(ENV)' || { echo 'usage: make test/acceptance ENV=<env> [GRAFANA_TOKEN=... | GRAFANA_AUTH=user:password]'; exit 1; }
+	scripts/acceptance.bash '$(ENV)'
+
+.PHONY: test/acceptance-stub
+test/acceptance-stub: ## Prove acceptance.bash passes a healthy standalone namespace and fails a broken one, against a stub kubectl and curl
+	scripts/acceptance-test.bash
 
 .PHONY: test/traceql-latency
 test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (21) of synthetic traces at RATE (50) spans/s; by hand, not CI

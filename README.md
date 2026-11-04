@@ -1641,6 +1641,30 @@ commit of the repo that holds `values-<env>.yaml`, which the parent `app-of-apps
 revision** (the `targetRevision` in `app-of-apps-<env>.yaml`). Record all three, and run `make check/live` after
 a sync to confirm the cluster runs them.
 
+### Proving an environment in place
+
+kind can't stand in for a real platform's secret store, quota, mesh policy or identity, so the release gates
+([go/no-go checklist](docs/go-no-go.md)) are proved in the environment itself. `make test/acceptance ENV=<env>`
+runs against the current kube context and the environment's namespace. It creates no cluster or object, installs
+nothing and never reads a Secret's data; the only thing it writes is one synthetic trace, log and metric, sent to
+the collector. Each check prints `PASS`, `FAIL` or `SKIP`:
+
+- every Argo CD Application of the environment is Synced and Healthy (skipped when the context can't read them),
+  every Deployment and StatefulSet in the namespace is ready, and no Job there has failed
+- ClickHouse is ready, its Service has ready endpoints and serves no plaintext port, and the schema Job completed
+  (with an external ClickHouse, only the schema Job)
+- no pod waits on a missing Secret, and no pod creation is refused by the quota or admission
+- the synthetic trace, log and metric are read back through Cerberus and through Grafana's Tempo, Loki and
+  Prometheus datasources
+
+Grafana needs a login, which the operator supplies because the test reads no Secret: `GRAFANA_TOKEN` (a service
+account token) or `GRAFANA_AUTH=user:password`. The endpoints default to port-forwards to the Services;
+`OTLP_ENDPOINT` (with `OTLP_TOKEN`), `CERBERUS_URL` and `GRAFANA_URL` point at others. It exits 1 on any failure
+and writes a report to `dist/acceptance/<env>-<time>.md`: the context, namespace, timestamps, each outcome, every
+Application's target and synced revision and every workload's images, for the go/no-go record. `make test/e2e
+ENV=standalone` runs it on kind, and `make test/acceptance-stub` proves offline which checks a broken namespace
+fails ([tenant acceptance contract](docs/tenant-acceptance.md#proving-it-in-the-environment)).
+
 ### Stable names
 
 The apps find each other by hard-coded name, port and Secret, not by discovery. Every object is named after
