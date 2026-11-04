@@ -437,8 +437,10 @@ installation, or the Applications. CI runs it on pull requests labelled `restric
 `make check/restricted` (part of `make check`) holds the profile to this. It fails when the `restricted`
 golden render, or any environment with `clusterScoped: false`, contains a kind not known to be namespaced (so any
 cluster-scoped one), a Gateway, `CreateNamespace=true` or `managedNamespaceMetadata`, an AppProject that allows a
-cluster-scoped kind, an object or RoleBinding subject outside its Application's namespace, or a
-`<service>.<namespace>.svc` address in another namespace.
+cluster-scoped kind, an object or RoleBinding subject outside its Application's namespace, a
+`<service>.<namespace>.svc` address in another namespace, or a `clickhouse-operator` Application. One left
+behind by an earlier render stays `OutOfSync`; remove it by hand, without pruning what it manages
+([runbook: a stale child Application](docs/runbook.md#a-stale-child-application-stays-outofsync)).
 
 ### A standalone ClickHouse
 

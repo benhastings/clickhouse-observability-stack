@@ -9,9 +9,10 @@
 #   - an AppProject whose clusterResourceWhitelist allows anything
 #   - an object, or a RoleBinding subject, in a namespace other than its Application's destination
 #   - a <service>.<namespace>.svc address in another namespace (the API server, kubernetes.default.svc, aside)
+#   - a clickhouse-operator Application: its CRDs and cluster RBAC are what the profile forbids
 # With global.clickhouse.external (README: An external ClickHouse) or global.clickhouse.standalone (README: A
-# standalone ClickHouse) it also fails on a ClickHouseInstallation, a clickhouse-operator Application, and anything
-# that still selects the operator's ClickHouse pods.
+# standalone ClickHouse) it also fails on a ClickHouseInstallation and anything that still selects the operator's
+# ClickHouse pods.
 # An unknown kind fails rather than passes: add it to namespaced below once you know it is namespaced.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -72,12 +73,10 @@ for env in "${envs[@]}"; do
         fail "$file" "$object is cluster-scoped, or a kind not known to be namespaced"
       fi
       [[ "$ns" == null || "$ns" == "$expected" ]] || fail "$file" "$object is in namespace $ns, not $expected"
-      if [[ -n "$no_operator" ]]; then
-        [[ "$kind" != ClickHouseInstallation ]] ||
-          fail "$file" "$object needs the ClickHouse operator, but $no_operator runs ClickHouse"
-        [[ "$kind/$name" != "Application/clickhouse-operator-$env" ]] ||
-          fail "$file" "$object installs the ClickHouse operator, but $no_operator runs ClickHouse"
-      fi
+      [[ "$kind" != ClickHouseInstallation || -z "$no_operator" ]] ||
+        fail "$file" "$object needs the ClickHouse operator, but $no_operator runs ClickHouse"
+      [[ "$kind/$name" != "Application/clickhouse-operator-$env" ]] ||
+        fail "$file" "$object installs the ClickHouse operator, which needs CRDs and cluster RBAC; ${no_operator:-global.clickhouseOperator.shared says the platform team} runs ClickHouse (docs/runbook.md: A stale child Application)"
       [[ "$create_ns" == false ]] || fail "$file" "$object asks Argo CD to create its namespace (CreateNamespace=true)"
       [[ "$managed_ns" == false ]] || fail "$file" "$object manages its namespace's metadata (managedNamespaceMetadata)"
       [[ "$whitelist" == 0 ]] || fail "$file" "$object allows cluster-scoped kinds (clusterResourceWhitelist)"

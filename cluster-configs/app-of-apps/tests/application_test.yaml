@@ -239,6 +239,52 @@ tests:
           value:
             - ServerSideApply=true
 
+  - it: renders no operator Application in the restricted-namespace profile with global.clickhouseOperator.shared
+    set:
+      clusterScoped: false
+      global.clickhouseOperator.shared: true
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - containsDocument:
+          kind: Application
+          apiVersion: argoproj.io/v1alpha1
+          name: clickhouse-operator-test
+        not: true
+
+  - it: renders no operator Application in the restricted-namespace profile with global.clickhouse.standalone
+    set:
+      clusterScoped: false
+      global.clickhouse.standalone: true
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - containsDocument:
+          kind: Application
+          apiVersion: argoproj.io/v1alpha1
+          name: clickhouse-operator-test
+        not: true
+
+  - it: renders no operator Application in the restricted-namespace profile with global.clickhouse.external
+    set:
+      clusterScoped: false
+      global.clickhouse.external: true
+      applications.otel-collector.values.rbac.scope: namespace
+    asserts:
+      - containsDocument:
+          kind: Application
+          apiVersion: argoproj.io/v1alpha1
+          name: clickhouse-operator-test
+        not: true
+
+  - it: fails the restricted-namespace profile when an environment enables the operator Application
+    set:
+      clusterScoped: false
+      global.clickhouse.standalone: true
+      applications.otel-collector.values.rbac.scope: namespace
+      applications.clickhouse-operator.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "applications.clickhouse-operator.enabled is true but global.clickhouse.standalone is true"
+
   - it: renders the operator Application when the operator is not shared
     set:
       global.clickhouseOperator.shared: false

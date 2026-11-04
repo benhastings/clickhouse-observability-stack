@@ -161,7 +161,7 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit test/credentials test/kind-profiles test/live test/quota ## Every offline test
+test: test/unit test/credentials test/kind-profiles test/live test/quota test/restricted ## Every offline test
 
 .PHONY: test/e2e
 test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted for the restricted namespace
@@ -175,6 +175,10 @@ test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (
 .PHONY: test/quota
 test/quota: ## Prove check-quota.bash rejects a missing CPU limit, request, or Vault agent resources
 	scripts/check-quota-test.bash
+
+.PHONY: test/restricted
+test/restricted: ## Prove check-restricted.bash rejects a clickhouse-operator Application in every restricted environment
+	scripts/check-restricted-test.bash
 
 .PHONY: test/live
 test/live: ## Prove check-live.bash reports a changed revision, valuesObject, missing and extra Application, from a fixture

@@ -78,11 +78,11 @@ add a target. `make help` lists everything.
 | `make check/schema`         | fails when a `values.schema.json` is stale, or when the schema accepts `deployment.replica` |
 | `make check/golden`         | fails when `tests/golden` differs from a fresh render                         |
 | `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits, pinned images, and CPU and memory requests and limits where `global.quota.requireLimits` |
-| `make check/restricted`     | fails when the `restricted` or `paas` profile's golden render has anything cluster-scoped, a Gateway, `CreateNamespace` or another namespace's Service, or, with an external ClickHouse, a ClickHouseInstallation or the operator |
+| `make check/restricted`     | fails when the `restricted` or `paas` profile's golden render has anything cluster-scoped, a Gateway, `CreateNamespace`, another namespace's Service or a `clickhouse-operator` Application, or, with an external ClickHouse, a ClickHouseInstallation |
 | `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
 | `make render ENV=<env>`     | one environment, CRDs included, as one file per object in `dist/manifests/<env>/` (gitignored) |
-| `make test`                 | every offline test: `test/unit`, `test/credentials` and `test/kind-profiles` |
+| `make test`                 | every offline test: `test/unit`, `test/credentials`, `test/kind-profiles`, `test/live`, `test/quota` and `test/restricted` |
 | `make test/e2e`             | needs Docker: kind at `REVISION`, wait for Argo CD, query the running stack; `MESH=istio` runs it in Istio, `ENV=restricted` the restricted profile |
 | `make test/unit`            | rebuilds `file://` dependencies, then runs every helm-unittest suite          |
 | `make test/traceql-latency` | needs Docker: times TraceQL through Cerberus over `DAYS` of synthetic traces at `RATE`; by hand, not CI |
@@ -137,9 +137,9 @@ A change tried with `dev/...` still needs the e2e run before it is done.
 - **Restricted profile** — `scripts/check-restricted.bash` holds `tests/golden/restricted` (and any environment
   with `clusterScoped: false`) to namespaced kinds only: no Gateway, Namespace, CRD or cluster RBAC, no
   `CreateNamespace` or `managedNamespaceMetadata`, an AppProject that allows no cluster-scoped kind, and no
-  object or `<svc>.<ns>.svc` address outside the app's namespace. With `global.clickhouse.external` (`paas`) it
-  also fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or a selector for the operator's
-  pods. A kind it does not know fails until it is added to the script's namespaced list.
+  object or `<svc>.<ns>.svc` address outside the app's namespace, and no `clickhouse-operator` Application (a stale
+  one is removed by hand: `docs/runbook.md`). With `global.clickhouse.external` (`paas`) it also fails on a
+  ClickHouseInstallation or a selector for the operator's pods. A kind it does not know fails until it is added to the script's namespaced list.
 - **Workflows** — actionlint on `.github/workflows/`.
 - **Spelling** — `make check/spelling` runs cspell over every tracked file against `cspell.json`. American and
   British spellings are both accepted. A new proper noun (a chart, a vendor, a tool, a metric name) fails the

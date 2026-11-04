@@ -357,6 +357,42 @@ after a config change, the tunnel dies (`lost connection to pod`). Stop it with 
 Look for `OOMKilled` (see [CrashLoopBackOff](#a-pod-is-in-crashloopbackoff-or-restarts-keeps-going-up)).
 Metrics Drilldown sends many queries at once through Grafana's server. Raise Grafana's memory limit.
 
+### A stale child Application stays `OutOfSync`
+
+A child Application the environment no longer renders, typically `clickhouse-operator-<env>` left behind after
+an environment moved to a shared operator, an external ClickHouse or a standalone ClickHouse. It stays
+`OutOfSync` and Argo CD keeps retrying objects the project forbids: the operator's CRDs, ClusterRole and
+ClusterRoleBinding. No `clusterScoped: false` environment renders an operator Application any more (the render
+fails on `enabled: true`, and `make check/restricted` fails on one in the golden render), so this only needs doing
+once per environment that has one.
+
+Every child carries the `resources-finalizer.argocd.argoproj.io` finalizer: deleting it, or letting the parent
+prune it, deletes everything it manages. For the operator that can include CRDs, and deleting a CRD deletes every
+ClickHouseInstallation in the cluster, the platform's included. So look before you delete:
+
+1. Check what its finalizer would delete. `argocd app resources clickhouse-operator-<env>` lists every object it
+   manages, and `argocd app get clickhouse-operator-<env>` shows which of them exist (anything not `Missing`).
+   In a restricted namespace the cluster-scoped ones should be `Missing`, because the project never let Argo CD
+   create them, but an object with the same name may belong to someone else, such as the platform's CRDs.
+2. If anything it manages exists, or you are not sure, delete only the Application, with no cascade, so nothing
+   it manages is pruned (this changes the cluster):
+
+   ```bash
+   argocd app delete clickhouse-operator-<env> --cascade=false
+   ```
+
+   Without the `argocd` CLI, remove the finalizer, then delete the Application:
+   `kubectl -n argocd patch application clickhouse-operator-<env> --type json -p '[{"op":"remove","path":"/metadata/finalizers"}]'`,
+   then `kubectl -n argocd delete application clickhouse-operator-<env>`. Deleting Applications in `argocd` may
+   need the platform team. Remove what is left of the operator in your own namespace by hand, once you have
+   checked it is yours.
+3. Confirm the parent prunes it: `argocd app get app-of-apps-<env>` is `Synced`, with no
+   `clickhouse-operator-<env>` among its resources, and
+   `kubectl -n argocd get applications -l environment=<env>` no longer lists it.
+
+Never broaden the AppProject to let the stale child sync. Its `clusterResourceWhitelist` is the namespace's
+boundary; the fix is to remove the child, not the boundary.
+
 ## Making a change safely
 
 1. Edit `cluster-configs/overrides/values-<env>.yaml`.
