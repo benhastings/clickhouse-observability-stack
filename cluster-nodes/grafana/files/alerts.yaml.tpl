@@ -92,6 +92,8 @@ data:
                     - evaluator: {type: lt, params: [1]}
             {{- $notify }}
           {{- if $a.clickhouseDisk.enabled }}
+          {{- /* The operator's pods are chi-otel-<cluster>-<shard>-<replica>-0, the standalone Deployment's clickhouse-<hash>-<id>. */}}
+          {{- $chPods := ternary "clickhouse-[a-z0-9]+-[a-z0-9]+" "chi-otel-.*" (eq (include "common.clickhouseStandalone" $) "true") }}
           - uid: stack-clickhouse-disk
             title: ClickHouse disk above {{ $a.clickhouseDisk.threshold }} full
             condition: C
@@ -110,8 +112,8 @@ data:
                   refId: A
                   instant: true
                   expr: >-
-                    1 - sum by (k8s_pod_name) (k8s_volume_available{k8s_pod_name=~"chi-otel-.*", k8s_volume_name="data"})
-                    / sum by (k8s_pod_name) (k8s_volume_capacity{k8s_pod_name=~"chi-otel-.*", k8s_volume_name="data"})
+                    1 - sum by (k8s_pod_name) (k8s_volume_available{k8s_pod_name=~"{{ $chPods }}", k8s_volume_name="data"})
+                    / sum by (k8s_pod_name) (k8s_volume_capacity{k8s_pod_name=~"{{ $chPods }}", k8s_volume_name="data"})
               - refId: C
                 datasourceUid: __expr__
                 model:

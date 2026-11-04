@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=../app-of-apps/values.schema.json
+# The standalone tenant profile (README: A standalone ClickHouse): the stack in a tenant namespace on a platform
+# that installs no CRDs or cluster RBAC and runs no ClickHouse operator. ClickHouse runs as a plain Deployment with
+# a PersistentVolumeClaim and a Service (global.clickhouse.standalone), so there is no operator, no CRD and no
+# ClickHouseInstallation. Copy this file (make env/new NAME=<env>, then these keys) for a site of your own; it is
+# sized like the laptop profile, and the gateway and the host are placeholders.
+# make check/restricted fails when this environment's render gains anything cluster-scoped, a Namespace,
+# CreateNamespace or managedNamespaceMetadata, a Gateway, a Service address in another namespace, a
+# ClickHouseInstallation or a clickhouse-operator Application.
+environment: standalone
+
+# The repository and revision Argo CD deploys from. They must match the bootstrap Application in
+# cluster-configs/app-of-apps/app-of-apps-standalone.yaml (make check/structure enforces it).
+repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+targetRevision: main
+
+# The cluster the child Applications deploy into.
+destinationServer: https://kubernetes.default.svc
+
+# No CreateNamespace and no managedNamespaceMetadata on the child Applications, and an AppProject that allows no
+# cluster-scoped kind. The platform team creates the namespace beforehand and, with the istio mesh below, labels it
+# istio-injection: enabled.
+clusterScoped: false
+
+global:
+  # A week of each signal, for the laptop profile's 2 Gi volume below.
+  retention:
+    traces: 7
+    logs: 7
+    metrics: 7
+  # ClickHouse without the operator: one server, on a ReadWriteOnce volume that Argo CD never prunes or deletes.
+  # Its users and passwords are the clickhouse-<user> Secrets, pre-created in this namespace.
+  clickhouse:
+    standalone: true
+  # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
+  # no Gateway is rendered. The Gateway, its TLS certificate and DNS for the host are the platform's; the gateway
+  # name, its namespace and the host are placeholders.
+  exposure:
+    hosts:
+      grafana: grafana.standalone.example
+    gateway:
+      name: shared-gateway
+      namespace: istio-ingress
+
+applications:
+  # The laptop profile, as in values-local.yaml.
+  clickhouse:
+    values:
+      clickhouse:
+        storage: 2Gi
+        lowMemory: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1664Mi
+        analyst:
+          maxMemoryUsage: 268435456
+          maxExecutionTime: 60
+          maxRowsToRead: 200000000
+          quota:
+            readRows: 2000000000
+            executionTime: 1800
+
+  cerberus:
+    values:
+      deployment:
+        replicas: 1
+        containers:
+          cerberus:
+            env:
+              GOMEMLIMIT: 322122547B
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 384Mi
+
+  # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats (README: Collector
+  # RBAC: cluster-wide or one namespace, for what that loses). The collector stays inside the cluster, with no
+  # bearer token: exposing OTLP as well takes a hosts.otlp entry and collector.auth.
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+      exposure:
+        host: ""
+      collector:
+        auth:
+          enabled: false
+      deployment:
+        containers:
+          otel-collector:
+            env:
+              GOMEMLIMIT: 204MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+
+  # Credentials are Kubernetes Secrets in this namespace, not Vault, and Grafana keeps its login form: the
+  # production defaults read Grafana's from Vault and sign in through an OpenID Connect provider.
+  grafana:
+    values:
+      vault:
+        enabled: false
+      auth:
+        genericOauth:
+          enabled: false
+      deployment:
+        containers:
+          grafana:
+            env:
+              GOMEMLIMIT: 920MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 96Mi

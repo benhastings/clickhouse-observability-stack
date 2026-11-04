@@ -207,8 +207,14 @@ clickhouse:
 # objects.installation to a whole ClickHouseInstallation map; it replaces the rendered one.
 # With global.clickhouse.external a service owner runs ClickHouse, so there is no Installation: this node renders
 # only the schema Job and its ConfigMap, which apply files/schema.sql.tpl to the external server over TLS.
+# With global.clickhouse.standalone there is no operator: the server is files/standalone/, a Deployment on a
+# PersistentVolumeClaim behind the clickhouse Service, configured from the same files/server.yaml.tpl.
 objects:
-  installation: '--{{ "-" }}{{ if not (include "common.clickhouseExternal" .) }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}{{ end }}'
+  installation: '--{{ "-" }}{{ if not (or (include "common.clickhouseExternal" .) (include "common.clickhouseStandalone" .)) }}{{ tpl (.Files.Get "files/installation.yaml.tpl") . }}{{ end }}'
+  server: '--{{ "-" }}{{ if include "common.clickhouseStandalone" . }}{{ tpl (.Files.Get "files/standalone/deployment.yaml.tpl") . }}{{ end }}'
+  serverConfig: '--{{ "-" }}{{ if include "common.clickhouseStandalone" . }}{{ tpl (.Files.Get "files/standalone/config.yaml.tpl") . }}{{ end }}'
+  serverData: '--{{ "-" }}{{ if include "common.clickhouseStandalone" . }}{{ tpl (.Files.Get "files/standalone/pvc.yaml.tpl") . }}{{ end }}'
+  serverService: '--{{ "-" }}{{ if include "common.clickhouseStandalone" . }}{{ tpl (.Files.Get "files/standalone/service.yaml.tpl") . }}{{ end }}'
   schema: '--{{ "-" }}{{ tpl (.Files.Get "files/schema-job.yaml.tpl") . }}'
 
 # The SQL the schema Job applies, rendered with the TTLs.
@@ -217,11 +223,12 @@ configMaps:
     data:
       schema.sql: '{{ tpl (.Files.Get "files/schema.sql.tpl") . }}'
 
-# With global.networkPolicy.enabled: a policy for the ClickHouse pods the operator creates, selected by the
-# operator's own label. The collector, Cerberus, garmr sql-adapter, garmr serve, the schema Job and the backup job reach the native and HTTP ports, the
+# With global.networkPolicy.enabled: a policy for the ClickHouse pods, selected by common.clickhousePodLabels (the
+# operator's own label, or the standalone Deployment's). The collector, Cerberus, garmr sql-adapter, garmr serve, the schema Job and the backup job reach the native and HTTP ports, the
 # operator reaches them from its namespace (global.networkPolicy.namespaces.operator, its pods selected by
 # global.clickhouseOperator.podLabels, which a shared operator may label differently), the collector scrapes the
-# Prometheus port, and replicas reach each other on the interserver port.
+# Prometheus port, and replicas reach each other on the interserver port. A standalone server has no operator and
+# no replicas, so neither of those last two rules.
 # With global.clickhouse.external there are no ClickHouse pods here, so the policy covers the schema Job instead:
 # no ingress, and egress only to the external ClickHouse.
 networkPolicy:
@@ -230,7 +237,7 @@ networkPolicy:
       {{- if include "common.clickhouseExternal" . }}
       app.kubernetes.io/name: clickhouse-schema
       {{- else }}
-      clickhouse.altinity.com/chi: otel
+      {{- include "common.clickhousePodLabels" . | nindent 6 }}
       {{- end }}
   ingress: |-
     {{- if not (include "common.clickhouseExternal" .) }}
@@ -252,6 +259,7 @@ networkPolicy:
       ports:
         - port: 9363
           protocol: TCP
+    {{- if not (include "common.clickhouseStandalone" .) }}
     - from:
         - namespaceSelector:
             matchLabels:
@@ -272,6 +280,7 @@ networkPolicy:
         - port: 9009
           protocol: TCP
     {{- end }}
+    {{- end }}
   egress: |-
     {{- if include "common.clickhouseExternal" . }}
     {{- include "common.clickhouseEgress" (list . list) }}
@@ -279,7 +288,7 @@ networkPolicy:
     - to:
         - podSelector:
             matchLabels:
-              clickhouse.altinity.com/chi: otel
+              {{- include "common.clickhousePodLabels" . | nindent 14 }}
       ports:
         - port: 9000
           protocol: TCP

@@ -1,0 +1,465 @@
+---
+# Source: app-of-apps/templates/app-project.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    # Before the wave 0 Applications that reference it.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: The clickhouse-observability-stack applications for standalone.
+  sourceRepos:
+    - https://github.com/benhastings/clickhouse-observability-stack.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: observability
+  # The restricted-namespace profile (clusterScoped: false): no cluster-scoped kind at all, not even a Namespace.
+  clusterResourceWhitelist: []
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alertmanager-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/alertmanager
+    helm:
+      releaseName: alertmanager
+      valuesObject:
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cerberus-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/cerberus
+    helm:
+      releaseName: cerberus
+      valuesObject:
+        deployment:
+          containers:
+            cerberus:
+              env:
+                GOMEMLIMIT: 322122547B
+              resources:
+                limits:
+                  memory: 384Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+          replicas: 1
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/clickhouse
+    helm:
+      releaseName: clickhouse
+      valuesObject:
+        clickhouse:
+          analyst:
+            maxExecutionTime: 60
+            maxMemoryUsage: 268435456
+            maxRowsToRead: 200000000
+            quota:
+              executionTime: 1800
+              readRows: 2000000000
+          lowMemory: true
+          resources:
+            limits:
+              memory: 1664Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          storage: 2Gi
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  ignoreDifferences:
+    - group: clickhouse.altinity.com
+      jsonPointers:
+      - /status
+      kind: ClickHouseInstallation
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: garmr-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/garmr
+    helm:
+      releaseName: garmr
+      valuesObject:
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: garmr-sql-adapter-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/garmr-sql-adapter
+    helm:
+      releaseName: garmr-sql-adapter
+      valuesObject:
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/grafana
+    helm:
+      releaseName: grafana
+      valuesObject:
+        auth:
+          genericOauth:
+            enabled: false
+        deployment:
+          containers:
+            grafana:
+              env:
+                GOMEMLIMIT: 920MiB
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 96Mi
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+        vault:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/otel-collector
+    helm:
+      releaseName: otel-collector
+      valuesObject:
+        collector:
+          auth:
+            enabled: false
+        deployment:
+          containers:
+            otel-collector:
+              env:
+                GOMEMLIMIT: 204MiB
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+        exposure:
+          host: ""
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+        rbac:
+          scope: namespace
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+---
+# Source: app-of-apps/templates/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vmalert-standalone
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    environment: standalone
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: observability-standalone
+  source:
+    repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+    targetRevision: main
+    path: cluster-nodes/vmalert
+    helm:
+      releaseName: vmalert
+      valuesObject:
+        global:
+          clickhouse:
+            standalone: true
+          exposure:
+            gateway:
+              name: shared-gateway
+              namespace: istio-ingress
+            hosts:
+              grafana: grafana.standalone.example
+          labels:
+            environment: standalone
+          retention:
+            logs: 7
+            metrics: 7
+            traces: 7
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

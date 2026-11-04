@@ -14,7 +14,7 @@ KIND_VERSION := v0.33.0
 KUBECTL_VERSION := v1.37.1
 GOLDEN := tests/golden
 # The environments make check/restricted always checks, besides any that set clusterScoped: false.
-RESTRICTED_ENVS := restricted paas
+RESTRICTED_ENVS := restricted paas standalone
 
 HELM_OUT := dist/helm
 

@@ -35,10 +35,11 @@ spec:
   # its crds/ directory, and the operator's and the collector's ClusterRole and ClusterRoleBinding. With a
   # shared operator (global.clickhouseOperator.shared) or an external ClickHouse (global.clickhouse.external)
   # nothing may install a CRD.
+  {{- /* Nor with ClickHouse standalone (global.clickhouse.standalone), which runs without an operator. */}}
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
-    {{- if not (or (dig "clickhouseOperator" "shared" false (default dict .Values.global)) (dig "clickhouse" "external" false (default dict .Values.global))) }}
+    {{- if not (or (dig "clickhouseOperator" "shared" false (default dict .Values.global)) (dig "clickhouse" "external" false (default dict .Values.global)) (dig "clickhouse" "standalone" false (default dict .Values.global))) }}
     - group: apiextensions.k8s.io
       kind: CustomResourceDefinition
     {{- end }}
