@@ -9,6 +9,7 @@
 {{- fail "clickhouse.backup.bucket is required when clickhouse.backup.enabled is true" }}
 {{- end }}
 {{- $vault := include "common.jobVaultAnnotations" (list $ $b.secretEnv) }}
+{{- $tls := include "common.clickhouseTLS" . }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -55,10 +56,26 @@ spec:
               args:
                 - create_remote
               env:
+                {{- if $tls }}
+                # A standalone ClickHouse serves the native protocol only over TLS. clickhouse-backup has no
+                # server-name override, so it dials the certificate's name (the Service's DNS name) and verifies
+                # the server against the platform's CA bundle; there is no way to skip that.
+                - name: CLICKHOUSE_HOST
+                  value: {{ .Values.global.clickhouse.tls.serverName | quote }}
+                - name: CLICKHOUSE_PORT
+                  value: {{ include "common.serviceAddress" (list $ "clickhouse") | splitList ":" | last | quote }}
+                - name: CLICKHOUSE_SECURE
+                  value: "true"
+                - name: CLICKHOUSE_SKIP_VERIFY
+                  value: "false"
+                - name: CLICKHOUSE_TLS_CA
+                  value: {{ include "common.clickhouseCA" . | quote }}
+                {{- else }}
                 - name: CLICKHOUSE_HOST
                   value: clickhouse
                 - name: CLICKHOUSE_PORT
                   value: "9000"
+                {{- end }}
                 - name: CLICKHOUSE_USERNAME
                   value: otel_admin
                 {{- with include "common.secretEnv" (list $ $b.secretEnv) }}
@@ -82,5 +99,16 @@ spec:
                   value: {{ $b.region | quote }}
                 - name: S3_FORCE_PATH_STYLE
                   value: {{ $b.forcePathStyle | toString | quote }}
+              {{- if $tls }}
+              volumeMounts:
+                - name: clickhouse-ca
+                  mountPath: /etc/clickhouse-ca
+                  readOnly: true
+              {{- end }}
               resources:
                 {{- toYaml $b.resources | nindent 16 }}
+          {{- if $tls }}
+          volumes:
+            - name: clickhouse-ca
+              {{- include "common.clickhouseCAVolume" . | nindent 14 }}
+          {{- end }}

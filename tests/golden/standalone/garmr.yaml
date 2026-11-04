@@ -30,10 +30,10 @@ metadata:
     app.kubernetes.io/version: "0.3.0"
     environment: standalone
 data:
-  CLICKHOUSE_ADDR: "clickhouse:9000"
-  CLICKHOUSE_TLS_CA_FILE: ""
-  CLICKHOUSE_TLS_ENABLED: "false"
-  CLICKHOUSE_TLS_SERVER_NAME: ""
+  CLICKHOUSE_ADDR: "clickhouse:9440"
+  CLICKHOUSE_TLS_CA_FILE: "/etc/clickhouse-ca/ca.crt"
+  CLICKHOUSE_TLS_ENABLED: "true"
+  CLICKHOUSE_TLS_SERVER_NAME: "clickhouse"
   CLICKHOUSE_USER: "otel_garmr"
   GARMR_ALERTMANAGER_URL: "http://alertmanager:9093"
   GARMR_DATABASE: "garmr"
@@ -98,7 +98,7 @@ spec:
         app.kubernetes.io/name: garmr
         app.kubernetes.io/instance: garmr
       annotations:
-        checksum/config: 3381176a5327785416159d2241c5bc1f83d1037b829869e62c43c57b9da327b8
+        checksum/config: f7fa5be8a8db7085dd0eb1972697de6aa85e3672629669af66486246294f58e7
     spec:
       serviceAccountName: garmr
       automountServiceAccountToken: false
@@ -161,9 +161,15 @@ spec:
             - mountPath: /etc/garmr/slack
               name: slack
               readOnly: true
+            - mountPath: /etc/clickhouse-ca
+              name: clickhouse-ca
+              readOnly: true
       volumes:
         - name: slack
           emptyDir: {}
+        - name: clickhouse-ca
+          configMap:
+            name: platform-ca-bundle
 ---
 # Source: garmr/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1

@@ -141,3 +141,47 @@ tests:
       - equal:
           path: data.CLICKHOUSE_TLS_CA_FILE
           value: ""
+
+  - it: reaches a standalone ClickHouse only over verified TLS on 9440, with no plaintext port in its NetworkPolicy
+    set:
+      global.clickhouse.standalone: true
+      global.clickhouse.tls.serverName: clickhouse.observability.svc
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.clickhouse.tls.serverSecret: clickhouse-tls
+      global.services.clickhouse: clickhouse:9440
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+    asserts:
+      - equal:
+          path: data.CLICKHOUSE_TLS_ENABLED
+          value: "true"
+        template: templates/configmap.yaml
+      - equal:
+          path: data.CLICKHOUSE_TLS_CA_FILE
+          value: /etc/clickhouse-ca/ca.crt
+        template: templates/configmap.yaml
+      - equal:
+          path: data.CLICKHOUSE_TLS_SERVER_NAME
+          value: clickhouse.observability.svc
+        template: templates/configmap.yaml
+      - notExists:
+          path: data.CLICKHOUSE_TLS_INSECURE_SKIP_VERIFY
+        template: templates/configmap.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+            configMap:
+              name: platform-ca
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: clickhouse
+            ports:
+              - port: 9440
+                protocol: TCP
+        template: templates/networkpolicy.yaml

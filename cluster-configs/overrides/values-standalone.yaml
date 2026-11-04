@@ -30,8 +30,21 @@ global:
     metrics: 7
   # ClickHouse without the operator: one server, on a ReadWriteOnce volume that Argo CD never prunes or deletes.
   # Its users and passwords are the clickhouse-<user> Secrets, pre-created in this namespace.
+  # TLS only: the server serves the native protocol on 9440 and HTTPS on 8443, with no plaintext native or HTTP
+  # port, and every client verifies its certificate against tls.serverName and the CA bundle in the ConfigMap
+  # tls.caConfigMap. The certificate and key are the kubernetes.io/tls Secret tls.serverSecret. The platform puts
+  # both in this namespace; the stack never issues a certificate. The certificate must carry tls.serverName, here
+  # the Service's short name (so it holds in any namespace), which the backup job also dials. The ConfigMap and
+  # Secret names are placeholders.
   clickhouse:
     standalone: true
+    tls:
+      serverName: clickhouse
+      caConfigMap: platform-ca-bundle
+      caKey: ca.crt
+      serverSecret: clickhouse-tls
+  services:
+    clickhouse: clickhouse:9440
   # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
   # no Gateway is rendered. The Gateway, its TLS certificate and DNS for the host are the platform's; the gateway
   # name, its namespace and the host are placeholders.

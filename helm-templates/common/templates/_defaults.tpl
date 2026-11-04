@@ -38,6 +38,10 @@ global:
   # verified: tls.serverName is the name it must carry and tls.caConfigMap the ConfigMap, in the stack's
   # namespace, with the CA bundle that signed it (key tls.caKey). The platform or the service owner provides that
   # ConfigMap; the stack never creates a certificate, and there is no way to skip verification.
+  # A standalone ClickHouse is TLS only the same way: it serves the native protocol on 9440 and HTTPS on 8443, with
+  # no plaintext native or HTTP port (only 9363, Prometheus, for the collector), so global.services.clickhouse is
+  # clickhouse:9440 and tls.serverName and tls.caConfigMap are required as for external. Its certificate and key
+  # are tls.serverSecret, a kubernetes.io/tls Secret the platform provides in the stack's namespace.
   # networkPolicyPeers are the NetworkPolicy peers the address resolves to; empty allows its port anywhere.
   clickhouse:
     external: false
@@ -47,6 +51,7 @@ global:
       serverName: ""
       caConfigMap: ""
       caKey: ca.crt
+      serverSecret: ""
   # How long the stack keeps each signal, in days: ClickHouse's TTLs (the clickhouse node's schema) and Cerberus's
   # metadata lookback (CERBERUS_PROM_METADATA_LOOKBACK, which must cover the metrics) both read these, so they
   # can't drift apart. Three weeks of traces to search, two of logs, and 90 days of metrics.

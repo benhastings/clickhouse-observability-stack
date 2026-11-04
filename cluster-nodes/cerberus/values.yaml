@@ -9,9 +9,9 @@ configMaps:
       CERBERUS_CH_DIAL_TIMEOUT: 10s
       # An external ClickHouse (global.clickhouse.external) over TLS, verified against the platform's CA bundle and
       # the certificate's name. Empty values leave TLS off; there is no insecure option to set.
-      CERBERUS_CH_TLS_ENABLED: '{{ if include "common.clickhouseExternal" . }}true{{ else }}false{{ end }}'
-      CERBERUS_CH_TLS_CA_FILE: '{{ if include "common.clickhouseExternal" . }}{{ include "common.clickhouseCA" . }}{{ end }}'
-      CERBERUS_CH_TLS_SERVER_NAME: '{{ if include "common.clickhouseExternal" . }}{{ .Values.global.clickhouse.tls.serverName }}{{ end }}'
+      CERBERUS_CH_TLS_ENABLED: '{{ if include "common.clickhouseTLS" . }}true{{ else }}false{{ end }}'
+      CERBERUS_CH_TLS_CA_FILE: '{{ if include "common.clickhouseTLS" . }}{{ include "common.clickhouseCA" . }}{{ end }}'
+      CERBERUS_CH_TLS_SERVER_NAME: '{{ if include "common.clickhouseTLS" . }}{{ .Values.global.clickhouse.tls.serverName }}{{ end }}'
       CERBERUS_OTLP_METRICS_ENABLED: "true"
       CERBERUS_OTLP_LOGS_ENABLED: "true"
       CERBERUS_OTLP_TRACES_ENABLED: "true"

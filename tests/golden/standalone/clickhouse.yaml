@@ -954,9 +954,24 @@ data:
       <listen_host>::</listen_host>
       <listen_host>0.0.0.0</listen_host>
       <listen_try>1</listen_try>
-      <http_port>8123</http_port>
-      <tcp_port>9000</tcp_port>
+      <tcp_port remove="1"/>
+      <http_port remove="1"/>
+      <mysql_port remove="1"/>
+      <postgresql_port remove="1"/>
       <interserver_http_port remove="1"/>
+      <tcp_port_secure>9440</tcp_port_secure>
+      <https_port>8443</https_port>
+      <openSSL>
+        <server>
+          <certificateFile>/etc/clickhouse-server/tls/tls.crt</certificateFile>
+          <privateKeyFile>/etc/clickhouse-server/tls/tls.key</privateKeyFile>
+          <verificationMode>none</verificationMode>
+          <loadDefaultCAFile>false</loadDefaultCAFile>
+          <cacheSessions>true</cacheSessions>
+          <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+          <preferServerCiphers>true</preferServerCiphers>
+        </server>
+      </openSSL>
       <logger>
         <console>1</console>
       </logger>
@@ -1175,14 +1190,14 @@ metadata:
   namespace: observability
 spec:
   ports:
-  - name: http
-    port: 8123
+  - name: tcp-https
+    port: 8443
     protocol: TCP
-    targetPort: http
-  - name: tcp
-    port: 9000
+    targetPort: tcp-https
+  - name: tcp-native
+    port: 9440
     protocol: TCP
-    targetPort: tcp
+    targetPort: tcp-native
   selector:
     app.kubernetes.io/name: clickhouse
   type: ClusterIP
@@ -1211,7 +1226,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 4d8dda83d918e476bb8eaaa06833a97e0d946ad31aeef0dff3f36cd737169133
+        checksum/config: 92917551106fbfdf4f1aa75251158c20d95b48ec682f59777e4cb2e1bce3f2cc
       labels:
         app.kubernetes.io/name: clickhouse
     spec:
@@ -1249,19 +1264,20 @@ spec:
         image: clickhouse/clickhouse-server:26.9.5.2
         name: clickhouse
         ports:
-        - containerPort: 8123
-          name: http
+        - containerPort: 8443
+          name: tcp-https
           protocol: TCP
-        - containerPort: 9000
-          name: tcp
+        - containerPort: 9440
+          name: tcp-native
           protocol: TCP
         - containerPort: 9363
-          name: metrics
+          name: http-metrics
           protocol: TCP
         readinessProbe:
           httpGet:
             path: /ping
-            port: http
+            port: tcp-https
+            scheme: HTTPS
           periodSeconds: 5
           timeoutSeconds: 5
         resources:
@@ -1281,7 +1297,8 @@ spec:
           failureThreshold: 60
           httpGet:
             path: /ping
-            port: http
+            port: tcp-https
+            scheme: HTTPS
           periodSeconds: 10
         volumeMounts:
         - mountPath: /var/lib/clickhouse
@@ -1296,6 +1313,9 @@ spec:
           name: logs
         - mountPath: /tmp
           name: tmp
+        - mountPath: /etc/clickhouse-server/tls
+          name: tls
+          readOnly: true
       securityContext:
         fsGroup: 101
         runAsGroup: 101
@@ -1330,6 +1350,15 @@ spec:
         name: logs
       - emptyDir: {}
         name: tmp
+      - name: tls
+        secret:
+          defaultMode: 288
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          secretName: clickhouse-tls
 ---
 # Source: clickhouse/templates/objects.yaml
 apiVersion: batch/v1
@@ -1363,16 +1392,33 @@ spec:
         - /bin/sh
         - -c
         - |
-          until clickhouse-client --query 'SELECT 1' >/dev/null; do
+          # clickhouse-client takes its CA only from a config file. Verification is strict, and a certificate
+          # that fails it is refused, never accepted.
+          cat >/tmp/client.xml <<EOF
+          <config>
+            <openSSL>
+              <client>
+                <caConfig>$CLICKHOUSE_CA_FILE</caConfig>
+                <loadDefaultCAFile>false</loadDefaultCAFile>
+                <verificationMode>strict</verificationMode>
+                <invalidCertificateHandler>
+                  <name>RejectCertificateHandler</name>
+                </invalidCertificateHandler>
+              </client>
+            </openSSL>
+          </config>
+          EOF
+          set -- --config-file /tmp/client.xml --port "$CLICKHOUSE_PORT" --secure --tls-sni-override "$CLICKHOUSE_TLS_SERVER_NAME"
+          until clickhouse-client "$@" --query 'SELECT 1' >/dev/null; do
             echo "waiting for ClickHouse at $CLICKHOUSE_HOST:$CLICKHOUSE_PORT"
             sleep 5
           done
-          exec clickhouse-client --multiquery --queries-file /schema/schema.sql
+          exec clickhouse-client "$@" --multiquery --queries-file /schema/schema.sql
         env:
         - name: CLICKHOUSE_HOST
           value: clickhouse
         - name: CLICKHOUSE_PORT
-          value: "9000"
+          value: "9440"
         - name: CLICKHOUSE_USER
           value: otel_admin
         - name: CLICKHOUSE_PASSWORD
@@ -1382,6 +1428,10 @@ spec:
               name: clickhouse-admin
         - name: HOME
           value: /tmp
+        - name: CLICKHOUSE_CA_FILE
+          value: /etc/clickhouse-ca/ca.crt
+        - name: CLICKHOUSE_TLS_SERVER_NAME
+          value: clickhouse
         image: clickhouse/clickhouse-server:26.9.5.2
         name: clickhouse-schema
         resources:
@@ -1403,6 +1453,9 @@ spec:
           readOnly: true
         - mountPath: /tmp
           name: tmp
+        - mountPath: /etc/clickhouse-ca
+          name: clickhouse-ca
+          readOnly: true
       restartPolicy: Never
       securityContext:
         runAsGroup: 101
@@ -1416,3 +1469,6 @@ spec:
         name: schema
       - emptyDir: {}
         name: tmp
+      - configMap:
+          name: platform-ca-bundle
+        name: clickhouse-ca

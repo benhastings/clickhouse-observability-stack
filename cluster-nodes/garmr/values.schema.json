@@ -556,7 +556,7 @@
             },
             "standalone": {
               "type": "boolean",
-              "description": "`true`: the `clickhouse` node runs ClickHouse as a single-replica Deployment with a PersistentVolumeClaim and a Service instead of a ClickHouseInstallation, so there is no operator and no CRD; the app-of-apps renders no `clickhouse-operator` Application. Fails with `external`",
+              "description": "`true`: the `clickhouse` node runs ClickHouse as a single-replica Deployment with a PersistentVolumeClaim and a Service instead of a ClickHouseInstallation, so there is no operator and no CRD; the app-of-apps renders no `clickhouse-operator` Application. Fails with `external`. ClickHouse then serves only TLS (native `9440`, HTTPS `8443`) and every client verifies it, so `global.services.clickhouse` must be `<host>:9440` and `tls.serverName`, `tls.caConfigMap` and `tls.serverSecret` are required",
               "x-default": "`false`"
             },
             "networkPolicyPeers": {
@@ -573,18 +573,23 @@
               "properties": {
                 "serverName": {
                   "type": "string",
-                  "description": "with `external`, required: the name the server's certificate must carry. Every client connects over TLS and verifies it; there is no option to skip verification, and no client presents a certificate of its own",
+                  "description": "with `external` or `standalone`, required: the name the server's certificate must carry. Every client connects over TLS and verifies it; there is no option to skip verification, and no client presents a certificate of its own",
                   "x-default": "`\"\"`"
                 },
                 "caConfigMap": {
                   "type": "string",
-                  "description": "with `external`, required: a ConfigMap in the stack's namespace with the CA bundle that signed the server's certificate. The platform or the service owner provides it; the stack never creates a certificate",
+                  "description": "with `external` or `standalone`, required: a ConfigMap in the stack's namespace with the CA bundle that signed the server's certificate. The platform or the service owner provides it; the stack never creates a certificate",
                   "x-default": "`\"\"`"
                 },
                 "caKey": {
                   "type": "string",
                   "description": "the key of the CA bundle in `caConfigMap`",
                   "x-default": "`ca.crt`"
+                },
+                "serverSecret": {
+                  "type": "string",
+                  "description": "with `standalone`, required: the `kubernetes.io/tls` Secret in the stack's namespace with the server's certificate and key (`tls.crt`, `tls.key`), which the platform provides. The stack never issues a certificate",
+                  "x-default": "`\"\"`"
                 }
               }
             }
