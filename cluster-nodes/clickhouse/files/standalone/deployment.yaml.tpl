@@ -14,6 +14,16 @@ directly rather than through the image's entrypoint, which would write a default
 {{- range $user, $u := $server.users }}
 {{- $_ := set $secretEnv (printf "CLICKHOUSE_PASSWORD_%s" (upper $user)) (dict "secret" $u.secret "key" "password") }}
 {{- end }}
+{{- /*
+TLS only (config.yaml.tpl): every client verifies the server against global.clickhouse.tls, which
+common.clickhouseTLS checks, and the server's certificate and key are global.clickhouse.tls.serverSecret: a
+kubernetes.io/tls Secret the platform provides, mounted here. The tenant never issues a certificate.
+*/}}
+{{- $_ := include "common.clickhouseTLS" . }}
+{{- $serverSecret := $v.global.clickhouse.tls.serverSecret }}
+{{- if not $serverSecret }}
+{{- fail "global.clickhouse.standalone is true but global.clickhouse.tls.serverSecret is empty: name the kubernetes.io/tls Secret with the server's certificate and key, which the platform provides (README: A standalone ClickHouse)" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,14 +55,15 @@ spec:
           command:
             - /usr/bin/clickhouse-server
             - --config-file=/etc/clickhouse-server/config.xml
+          # Named tcp-* so Istio passes the server's own TLS through as opaque TCP, inside its mTLS.
           ports:
-            - name: http
-              containerPort: 8123
+            - name: tcp-https
+              containerPort: 8443
               protocol: TCP
-            - name: tcp
-              containerPort: 9000
+            - name: tcp-native
+              containerPort: 9440
               protocol: TCP
-            - name: metrics
+            - name: http-metrics
               containerPort: 9363
               protocol: TCP
           env:
@@ -62,13 +73,15 @@ spec:
           startupProbe:
             httpGet:
               path: /ping
-              port: http
+              port: tcp-https
+              scheme: HTTPS
             periodSeconds: 10
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /ping
-              port: http
+              port: tcp-https
+              scheme: HTTPS
             periodSeconds: 5
             timeoutSeconds: 5
           resources:
@@ -88,6 +101,9 @@ spec:
               mountPath: /var/log/clickhouse-server
             - name: tmp
               mountPath: /tmp
+            - name: tls
+              mountPath: /etc/clickhouse-server/tls
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -112,3 +128,12 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        - name: tls
+          secret:
+            secretName: {{ $serverSecret }}
+            defaultMode: 0440
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key

@@ -73,7 +73,11 @@ data:
       clickhouse:
         create_schema: false
         database: otel
-        endpoint: tcp://clickhouse:9000?dial_timeout=10s
+        endpoint: tcp://clickhouse:9440?dial_timeout=10s&secure=true
+        # An external ClickHouse over TLS, verified against the platform's CA bundle and the certificate's name.
+        tls:
+          ca_file: /etc/clickhouse-ca/ca.crt
+          server_name_override: clickhouse.observability.svc
         password: ${env:CLICKHOUSE_PASSWORD}
         retry_on_failure:
           enabled: true
@@ -488,7 +492,7 @@ spec:
         app.kubernetes.io/name: otel-collector
         app.kubernetes.io/instance: otel-collector
       annotations:
-        checksum/config: 624a3fa3680df359c20afa468f0901cd4ba1d3326b39a8e9110a1b280f0381a1
+        checksum/config: 4785fd469e64aa32ad3b2ee10cb7dbe5695ca53581b43d1ca99f34d9b0a7acd4
     spec:
       serviceAccountName: otel-collector
       automountServiceAccountToken: true
@@ -558,10 +562,16 @@ spec:
           volumeMounts:
             - mountPath: /conf
               name: config
+            - mountPath: /etc/clickhouse-ca
+              name: clickhouse-ca
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: 'otel-collector'
+        - name: clickhouse-ca
+          configMap:
+            name: platform-ca-bundle
 ---
 # Source: otel-collector/templates/destinationrule.yaml
 apiVersion: networking.istio.io/v1

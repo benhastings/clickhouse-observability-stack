@@ -48,6 +48,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -60,6 +65,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -107,6 +114,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -119,6 +131,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -170,6 +184,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -182,6 +201,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -222,6 +243,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -234,6 +260,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -269,6 +297,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -281,6 +314,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
@@ -328,6 +363,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -340,6 +380,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
         vault:
           enabled: false
   destination:
@@ -393,6 +435,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -405,6 +452,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
         rbac:
           scope: namespace
   destination:
@@ -442,6 +491,11 @@ spec:
         global:
           clickhouse:
             standalone: true
+            tls:
+              caConfigMap: platform-ca-bundle
+              caKey: ca.crt
+              serverName: clickhouse.observability.svc
+              serverSecret: clickhouse-tls
           exposure:
             gateway:
               name: shared-gateway
@@ -454,6 +508,8 @@ spec:
             logs: 7
             metrics: 7
             traces: 7
+          services:
+            clickhouse: clickhouse:9440
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
