@@ -478,6 +478,12 @@
               "minimum": 1,
               "description": "also Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK`",
               "x-default": "`90`"
+            },
+            "curatedMetrics": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "the clickhouse node's hourly rollups (`clickhouse.rollups`)",
+              "x-default": "`400`"
             }
           }
         },

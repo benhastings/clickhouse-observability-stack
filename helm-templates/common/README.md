@@ -56,6 +56,7 @@ schema, and to the template in the same change.
 | `global.retention.traces` | `21` |  |
 | `global.retention.logs` | `14` |  |
 | `global.retention.metrics` | `90` | also Cerberus's `CERBERUS_PROM_METADATA_LOOKBACK` |
+| `global.retention.curatedMetrics` | `400` | the clickhouse node's hourly rollups (`clickhouse.rollups`) |
 | `global.mesh` | `istio` | the service mesh the cluster runs: `istio` or `kubernetes`; anything else fails the render. `istio` renders a DestinationRule (`ISTIO_MUTUAL`) for every Service and, with exposure on, a Gateway and VirtualService per app; `kubernetes` renders none of them, and an Ingress for exposure |
 | `global.istio.dataplaneMode` | `sidecar` | with `mesh: istio`, how pods join the mesh: `sidecar`, an istio-proxy in each pod and DestinationRules for `ISTIO_MUTUAL`; `ambient`, no sidecar, ztunnel carrying traffic over HBONE (15008), which every NetworkPolicy then allows between the same peers, and no DestinationRules |
 | `global.istio.waypoint.name` | `""` | with `ambient`, an existing waypoint every Service uses for L7 policy (`istio.io/use-waypoint`); empty uses none. The stack never renders a waypoint |

@@ -582,14 +582,14 @@ name them.
 | Secret | User | Grants | Read by |
 | --- | --- | --- | --- |
 | `clickhouse-writer` | `otel_writer` | `INSERT ON otel.*` | the collector |
-| `clickhouse-reader` | `otel_reader` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_slo.*`, `system.view_refreshes`, `system.disks` | Cerberus, garmr sql-adapter |
+| `clickhouse-reader` | `otel_reader` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_slo.*`, `otel_rollup.*`, `system.view_refreshes`, `system.disks` | Cerberus, garmr sql-adapter |
 | `clickhouse-garmr` | `otel_garmr` | `SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*`, `SELECT ON otel.*`, `otel_features.*`, `otel_baseline.*` | garmr serve |
-| `clickhouse-analyst` | `otel_analyst` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*`, `INSERT ON otel_ml.*`, under limits of the service owner's choosing | notebooks and jobs, not a workload |
-| `clickhouse-admin` | `otel_admin` | only if the service owner delegates migrations: create and alter tables, views and databases in `otel`, `otel_features`, `otel_ml`, `otel_baseline`, `otel_slo` and `garmr`, and be the definer of their views | the schema Job |
+| `clickhouse-analyst` | `otel_analyst` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*`, `otel_rollup.*`, `INSERT ON otel_ml.*`, under limits of the service owner's choosing | notebooks and jobs, not a workload |
+| `clickhouse-admin` | `otel_admin` | only if the service owner delegates migrations: create and alter tables, views and databases in `otel`, `otel_features`, `otel_ml`, `otel_baseline`, `otel_slo`, `otel_rollup` and `garmr`, and be the definer of their views | the schema Job |
 
 `files/server.yaml.tpl` in the `clickhouse` node is the reference for these grants: it is what the
 in-cluster ClickHouse creates, with the operator or standalone. The database names are fixed too. Ask for them on a ClickHouse service the tenant
-does not share, or one where the tenant owns those six databases.
+does not share, or one where the tenant owns those seven databases.
 
 #### Who applies the schema
 
@@ -681,8 +681,8 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
-| `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_features.*` and `otel_slo.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `otel_rollup.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
+| `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*` and `otel_rollup.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
 | `otel_garmr` | `clickhouse-garmr` | `SELECT`, `INSERT`, `ALTER UPDATE` and `ALTER DELETE` on `garmr.*`; `SELECT` on `otel.*`, `otel_features.*` and `otel_baseline.*` | garmr serve |
 
 A leaked collector password can't read telemetry, and a leaked Cerberus password can't write or change it.
@@ -897,6 +897,56 @@ Cost, measured on a local `clickhouse-server:26.9.5.2` with 28 days of `sli_1m` 
 reads one minute of server spans, like `signal_1m_mv`. `series_mv` runs five `sli` windows a minute (144 ms on
 kind with two services and a few hours of `sli_1m`) and writes 24 gauge rows per service, 2,880 an hour for the
 demo load.
+
+### Curated rollups: 13 months of SLIs and selected metrics
+
+Raw metric samples keep `global.retention.metrics` (90 days). To compare a month with the same month last year
+without keeping every sample that long, the `clickhouse` app rolls a curated set up into the `otel_rollup`
+database, which keeps it for `global.retention.curatedMetrics` (400 days):
+
+```yaml
+clickhouse:
+  rollups:
+    fineDays: 35        # how long the 5-minute rollups stay; the hourly ones keep curatedMetrics
+    metrics:            # metric names as stored, from the gauge and sum tables; every series of each is kept
+      - k8s.node.cpu.usage
+      - k8s.node.memory.working_set
+```
+
+| object | what it is |
+|---|---|
+| `service_5m`, `service_1h` | each service's server spans per bucket: requests, errors, spans slower than its SLO latency threshold, and a t-digest of their duration |
+| `metric_5m`, `metric_1h` | each series of a metric in `curated_metrics` per bucket: min, max, sum, count and last value |
+| `curated_metrics` | `clickhouse.rollups.metrics` as a view |
+| `services_5m`, `services_1h` | the service rollups with their states merged: `requests`, `errors`, `slow`, `availability`, `latency` and `p50_ms` to `p99_ms` |
+| `metrics_5m`, `metrics_1h` | the metric rollups merged: `min`, `max`, `sum`, `count`, `avg` and `last` |
+
+The tables are `AggregatingMergeTree`s fed on insert by materialized views that run as `otel_admin`, not by
+refreshes, so a late span lands in its own bucket and nothing is counted twice. The hourly tables are written from
+the 5-minute ones and drop a month's partition at a time, so a month stays until its last hour is 400 days old.
+Error ratios and SLIs are kept as counts, so any window's ratio is exact: sum the counts, then divide. For a
+cumulative counter, `last` is its value at the end of the bucket; for a delta counter, `sum` is the bucket's increase.
+The rollups start when the schema Job first creates them, so history already in the raw tables is not rolled up.
+`latency` and `slow` need `clickhouse.slo` (without it, `slow` is 0). Adding a metric takes effect on the next
+insert, and `enabled: false` creates none of it. `otel_reader` and `otel_analyst` may `SELECT` from them:
+
+```sql
+SELECT toStartOfMonth(bucket) AS month, service_name, sum(errors) / sum(requests) AS error_ratio
+FROM otel_rollup.services_1h
+WHERE bucket >= toStartOfMonth(now() - INTERVAL 12 MONTH)
+GROUP BY month, service_name ORDER BY month, service_name
+```
+
+Grafana doesn't read them yet. Cerberus serves only the `otel` tables, whose daily partitions expire at
+`global.retention.metrics`, so the 13-month series can't be written back as `slo:*` and `baseline:*` are. A
+ClickHouse datasource in Grafana is a follow-up.
+
+Cost, measured on a local `clickhouse-server:26.9.5.2` with synthetic rollups (100 services and 1,000 series over
+400 days of hours and 35 days of 5-minute buckets, after merges): a service bucket is 92 bytes with its t-digest
+of 3,000 spans, and a metric series bucket 32 bytes. That is about **1.8 MB per service** (0.9 MB for each
+resolution) and **0.63 MB per curated series** for the whole period, so 100 services and 1,000 node series take
+about 0.8 GB. Each insert into `otel_traces`, `otel_metrics_gauge` and `otel_metrics_sum` also runs one small
+`GROUP BY` over that insert.
 
 ### Slack: one thread per alert group
 
@@ -1370,7 +1420,11 @@ after three days of the demo load (6 million spans, 4 million log records, 12 mi
 
 ```text
 disk ≈ (spans/s × 88 × days_traces + logs/s × 89 × days_logs + samples/s × 39 × days_metrics) × 86400 × 1.5
+       + (services × 1.8 MB + curated series × 0.63 MB) × 1.5
 ```
+
+The second line is the 13-month rollups (**Curated rollups**), at the default `fineDays` and `curatedMetrics`: a few
+hundred megabytes even for 100 services, so it rarely changes the volume's size.
 
 The 1.5 is headroom: parts not yet merged compress less, merges need room for both old and new parts, and
 `ClickHouseDiskFilling` warns at 80%. The default 320 Gi, at 21/14/90 days, covers about 400 spans/s, 300 log

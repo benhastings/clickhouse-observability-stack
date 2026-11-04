@@ -28,16 +28,16 @@ and the schema Job reads otel_admin's password from Vault.
 {{- /*
 The users values.yaml describes under secrets. otel_admin has no grants, so it has every privilege; the others
 have only theirs. The schema's materialized views run as otel_admin, so an insert as otel_writer needs no SELECT.
-otel_reader also reads the anomaly baselines, the SLO views and the baselines' refresh status, for vmalert's
-rules. otel_analyst reads the telemetry, the feature views and the SLOs, and writes only to otel_ml, under its own
+otel_reader also reads the anomaly baselines, the SLO views, the rollups and the baselines' refresh status, for vmalert's
+rules and reports. otel_analyst reads the telemetry, the feature views, the SLOs and the rollups, and writes only to otel_ml, under its own
 profile and quota. With clickhouse.garmr, otel_garmr writes garmr's own tables (ALTER UPDATE and DELETE for the
 state in garmr.open_incidents) and reads the telemetry it enriches incidents from.
 */}}
 {{- $users := dict
   "admin" (dict "grants" list "profile" "default")
   "writer" (dict "grants" (list "INSERT ON otel.*") "profile" "default")
-  "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_slo.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks") "profile" "default")
-  "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "SELECT ON otel_slo.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
+  "reader" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_slo.*" "SELECT ON otel_rollup.*" "SELECT ON system.view_refreshes" "SELECT ON system.disks") "profile" "default")
+  "analyst" (dict "grants" (list "SELECT ON otel.*" "SELECT ON otel_baseline.*" "SELECT ON otel_features.*" "SELECT ON otel_slo.*" "SELECT ON otel_rollup.*" "INSERT ON otel_ml.*") "profile" "analyst") }}
 {{- if $ch.garmr.enabled }}
 {{- $_ := set $users "garmr" (dict "grants" (list "SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*" "SELECT ON otel.*" "SELECT ON otel_features.*" "SELECT ON otel_baseline.*") "profile" "default") }}
 {{- end }}

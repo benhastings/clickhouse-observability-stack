@@ -781,6 +781,190 @@ data:
             availability_objective, latency_objective, 1 - availability_burn_rate, 1 - latency_burn_rate],
            [availability, availability_burn_rate, latency, latency_burn_rate]) AS value;
     
+    -- Curated rollups, kept for global.retention.curatedMetrics days (400) while the raw
+    -- samples keep global.retention.metrics, so a report can compare a month with the same month last year. Each
+    -- resolution is an AggregatingMergeTree fed on insert by a materialized view running as otel_admin, so late
+    -- spans and samples land in their bucket and nothing is counted twice:
+    --   service_5m, service_1h  each service's server spans: requests, errors, spans slower than its SLO latency
+    --                           threshold (0 with clickhouse.slo off) and a t-digest of their duration in ms
+    --   metric_5m, metric_1h    each series of a metric named in curated_metrics (clickhouse.rollups.metrics),
+    --                           from otel_metrics_gauge and otel_metrics_sum: min, max, sum, count and last value
+    -- The 5m tables keep 35 days (clickhouse.rollups.fineDays); the 1h tables are written from the
+    -- 5m ones and keep the whole period, dropped a month's partition at a time. Read them through services_5m,
+    -- services_1h, metrics_5m and metrics_1h, which merge the states (otel_reader and otel_analyst have SELECT).
+    -- The rollups start when this database is created: history already in the raw tables is not rolled up.
+    
+    CREATE DATABASE IF NOT EXISTS otel_rollup;
+    
+    CREATE OR REPLACE VIEW otel_rollup.curated_metrics
+    AS
+    SELECT * FROM values('MetricName String', ('k8s.node.cpu.usage'), ('k8s.node.memory.working_set'));
+    
+    CREATE TABLE IF NOT EXISTS otel_rollup.service_1h
+    (
+        `Bucket` DateTime CODEC(Delta(4), ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Requests` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `Errors` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `Slow` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `DurationMs` AggregateFunction(quantilesTDigest(0.5, 0.9, 0.95, 0.99), Float64) CODEC(ZSTD(1))
+    )
+    ENGINE = AggregatingMergeTree
+    PARTITION BY toYYYYMM(Bucket)
+    ORDER BY (ServiceName, Bucket)
+    TTL Bucket + toIntervalDay(400)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_rollup.service_1h MODIFY TTL Bucket + toIntervalDay(400);
+    
+    CREATE TABLE IF NOT EXISTS otel_rollup.metric_1h
+    (
+        `Bucket` DateTime CODEC(Delta(4), ZSTD(1)),
+        `MetricName` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `Min` SimpleAggregateFunction(min, Float64) CODEC(ZSTD(1)),
+        `Max` SimpleAggregateFunction(max, Float64) CODEC(ZSTD(1)),
+        `Sum` SimpleAggregateFunction(sum, Float64) CODEC(ZSTD(1)),
+        `Count` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `Last` AggregateFunction(argMax, Float64, DateTime64(9)) CODEC(ZSTD(1))
+    )
+    ENGINE = AggregatingMergeTree
+    PARTITION BY toYYYYMM(Bucket)
+    ORDER BY (MetricName, ServiceName, Attributes, Bucket)
+    TTL Bucket + toIntervalDay(400)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_rollup.metric_1h MODIFY TTL Bucket + toIntervalDay(400);
+    
+    CREATE TABLE IF NOT EXISTS otel_rollup.service_5m
+    (
+        `Bucket` DateTime CODEC(Delta(4), ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Requests` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `Errors` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `Slow` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `DurationMs` AggregateFunction(quantilesTDigest(0.5, 0.9, 0.95, 0.99), Float64) CODEC(ZSTD(1))
+    )
+    ENGINE = AggregatingMergeTree
+    PARTITION BY toDate(Bucket)
+    ORDER BY (ServiceName, Bucket)
+    TTL Bucket + toIntervalDay(35)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_rollup.service_5m MODIFY TTL Bucket + toIntervalDay(35);
+    
+    CREATE TABLE IF NOT EXISTS otel_rollup.metric_5m
+    (
+        `Bucket` DateTime CODEC(Delta(4), ZSTD(1)),
+        `MetricName` LowCardinality(String) CODEC(ZSTD(1)),
+        `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+        `Attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        `Min` SimpleAggregateFunction(min, Float64) CODEC(ZSTD(1)),
+        `Max` SimpleAggregateFunction(max, Float64) CODEC(ZSTD(1)),
+        `Sum` SimpleAggregateFunction(sum, Float64) CODEC(ZSTD(1)),
+        `Count` SimpleAggregateFunction(sum, UInt64) CODEC(ZSTD(1)),
+        `Last` AggregateFunction(argMax, Float64, DateTime64(9)) CODEC(ZSTD(1))
+    )
+    ENGINE = AggregatingMergeTree
+    PARTITION BY toDate(Bucket)
+    ORDER BY (MetricName, ServiceName, Attributes, Bucket)
+    TTL Bucket + toIntervalDay(35)
+    SETTINGS ttl_only_drop_parts = 1;
+    ALTER TABLE otel_rollup.metric_5m MODIFY TTL Bucket + toIntervalDay(35);
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.service_5m_mv TO otel_rollup.service_5m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    WITH (SELECT mapFromArrays(groupArray(ServiceName), groupArray(LatencyThresholdMs * 1e6)) FROM otel_slo.objectives)
+             AS threshold_ns
+    SELECT toStartOfFiveMinutes(Timestamp) AS Bucket, ServiceName,
+           count() AS Requests, countIf(StatusCode = 'Error') AS Errors,
+           countIf(Duration > if(mapContains(threshold_ns, ServiceName), threshold_ns[ServiceName], threshold_ns[''])) AS Slow,
+           quantilesTDigestState(0.5, 0.9, 0.95, 0.99)(Duration / 1e6) AS DurationMs
+    FROM otel.otel_traces
+    WHERE SpanKind = 'Server'
+    GROUP BY Bucket, ServiceName;
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.service_1h_mv TO otel_rollup.service_1h
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT toStartOfHour(Bucket) AS Bucket, ServiceName,
+           sum(Requests) AS Requests, sum(Errors) AS Errors, sum(Slow) AS Slow,
+           quantilesTDigestMergeState(0.5, 0.9, 0.95, 0.99)(DurationMs) AS DurationMs
+    FROM otel_rollup.service_5m
+    GROUP BY Bucket, ServiceName;
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.metric_5m_gauge_mv TO otel_rollup.metric_5m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT toStartOfFiveMinutes(TimeUnix) AS Bucket, MetricName, ServiceName, Attributes,
+           min(Value) AS Min, max(Value) AS Max, sum(Value) AS Sum, count() AS Count,
+           argMaxState(Value, TimeUnix) AS Last
+    FROM otel.otel_metrics_gauge
+    WHERE MetricName IN (SELECT MetricName FROM otel_rollup.curated_metrics) AND bitAnd(Flags, 1) = 0
+    GROUP BY Bucket, MetricName, ServiceName, Attributes;
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.metric_5m_sum_mv TO otel_rollup.metric_5m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT toStartOfFiveMinutes(TimeUnix) AS Bucket, MetricName, ServiceName, Attributes,
+           min(Value) AS Min, max(Value) AS Max, sum(Value) AS Sum, count() AS Count,
+           argMaxState(Value, TimeUnix) AS Last
+    FROM otel.otel_metrics_sum
+    WHERE MetricName IN (SELECT MetricName FROM otel_rollup.curated_metrics) AND bitAnd(Flags, 1) = 0
+    GROUP BY Bucket, MetricName, ServiceName, Attributes;
+    
+    CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.metric_1h_mv TO otel_rollup.metric_1h
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT toStartOfHour(Bucket) AS Bucket, MetricName, ServiceName, Attributes,
+           min(Min) AS Min, max(Max) AS Max, sum(Sum) AS Sum, sum(Count) AS Count,
+           argMaxMergeState(Last) AS Last
+    FROM otel_rollup.metric_5m
+    GROUP BY Bucket, MetricName, ServiceName, Attributes;
+    
+    -- The rollups with their states merged: availability and latency are the SLIs over each bucket (latency is
+    -- 1 with clickhouse.slo off), and p50 to p99 the server spans' duration in ms. For a counter in metrics_*, last
+    -- is the cumulative value at the bucket's end and sum the bucket's increase for a delta one.
+    
+    CREATE OR REPLACE VIEW otel_rollup.services_5m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT Bucket AS bucket, ServiceName AS service_name,
+           sum(Requests) AS requests, sum(Errors) AS errors, sum(Slow) AS slow,
+           1 - errors / requests AS availability, 1 - slow / requests AS latency,
+           quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(DurationMs) AS quantiles_ms,
+           quantiles_ms[1] AS p50_ms, quantiles_ms[2] AS p90_ms, quantiles_ms[3] AS p95_ms, quantiles_ms[4] AS p99_ms
+    FROM otel_rollup.service_5m
+    GROUP BY Bucket, ServiceName;
+    
+    CREATE OR REPLACE VIEW otel_rollup.metrics_5m
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT Bucket AS bucket, MetricName AS metric_name, ServiceName AS service_name, Attributes AS attributes,
+           min(Min) AS min, max(Max) AS max, sum(Sum) AS sum, sum(Count) AS count, sum / count AS avg,
+           argMaxMerge(Last) AS last
+    FROM otel_rollup.metric_5m
+    GROUP BY Bucket, MetricName, ServiceName, Attributes;
+    
+    CREATE OR REPLACE VIEW otel_rollup.services_1h
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT Bucket AS bucket, ServiceName AS service_name,
+           sum(Requests) AS requests, sum(Errors) AS errors, sum(Slow) AS slow,
+           1 - errors / requests AS availability, 1 - slow / requests AS latency,
+           quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(DurationMs) AS quantiles_ms,
+           quantiles_ms[1] AS p50_ms, quantiles_ms[2] AS p90_ms, quantiles_ms[3] AS p95_ms, quantiles_ms[4] AS p99_ms
+    FROM otel_rollup.service_1h
+    GROUP BY Bucket, ServiceName;
+    
+    CREATE OR REPLACE VIEW otel_rollup.metrics_1h
+    DEFINER = otel_admin SQL SECURITY DEFINER
+    AS
+    SELECT Bucket AS bucket, MetricName AS metric_name, ServiceName AS service_name, Attributes AS attributes,
+           min(Min) AS min, max(Max) AS max, sum(Sum) AS sum, sum(Count) AS count, sum / count AS avg,
+           argMaxMerge(Last) AS last
+    FROM otel_rollup.metric_1h
+    GROUP BY Bucket, MetricName, ServiceName, Attributes;
+    
     -- garmr's incident state and history: files/garmr.sql, copied verbatim from schema/garmr.sql in
     -- github.com/benhastings/garmr at the version the garmr node runs. Its KeeperMap table needs clickhouse.keeper.
     -- garmr's tables. garmr never creates them: clickhouse-observability-stack's schema Job applies this file as
@@ -934,7 +1118,7 @@ metadata:
     app.kubernetes.io/version: 26.9.5.2
     environment: paas
     helm.sh/chart: clickhouse-0.1.0
-  name: clickhouse-schema-7f1386f7
+  name: clickhouse-schema-1ab38764
   namespace: observability
 spec:
   activeDeadlineSeconds: 900

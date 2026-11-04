@@ -28,7 +28,7 @@ tests:
           value: [GRANT INSERT ON otel.*]
       - equal:
           path: spec.configuration.users["otel_reader/grants/query"]
-          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_slo.*, GRANT SELECT ON system.view_refreshes, GRANT SELECT ON system.disks]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_slo.*, GRANT SELECT ON otel_rollup.*, GRANT SELECT ON system.view_refreshes, GRANT SELECT ON system.disks]
       - notExists:
           path: spec.configuration.users["otel_admin/grants/query"]
       - equal:
@@ -240,6 +240,92 @@ tests:
       - notMatchRegex:
           path: data["schema.sql"]
           pattern: otel_slo
+
+  - it: keeps the curated rollups at 5 minutes for fineDays and at 1 hour for global.retention.curatedMetrics
+    set:
+      global.retention: {traces: 21, logs: 14, metrics: 30, curatedMetrics: 395}
+      clickhouse.rollups.fineDays: 20
+      clickhouse.rollups.metrics: [k8s.node.cpu.usage, http.server.duration]
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE DATABASE IF NOT EXISTS otel_rollup;"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "SELECT \\* FROM values\\('MetricName String', \\('k8s.node.cpu.usage'\\), \\('http.server.duration'\\)\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ALTER TABLE otel_rollup.service_5m MODIFY TTL Bucket \\+ toIntervalDay\\(20\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ALTER TABLE otel_rollup.metric_5m MODIFY TTL Bucket \\+ toIntervalDay\\(20\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ALTER TABLE otel_rollup.service_1h MODIFY TTL Bucket \\+ toIntervalDay\\(395\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ALTER TABLE otel_rollup.metric_1h MODIFY TTL Bucket \\+ toIntervalDay\\(395\\);"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "ENGINE = AggregatingMergeTree\\nPARTITION BY toYYYYMM\\(Bucket\\)\\nORDER BY \\(ServiceName, Bucket\\)\\nTTL Bucket \\+ toIntervalDay\\(395\\)"
+      # Fed on insert as otel_admin, so the collector's insert-only user needs nothing more.
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.service_5m_mv TO otel_rollup.service_5m\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.service_1h_mv TO otel_rollup.service_1h\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.metric_5m_gauge_mv TO otel_rollup.metric_5m\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.metric_5m_sum_mv TO otel_rollup.metric_5m\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE MATERIALIZED VIEW IF NOT EXISTS otel_rollup.metric_1h_mv TO otel_rollup.metric_1h\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      # Slow spans are counted against each service's SLO latency threshold.
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "countIf\\(Duration > if\\(mapContains\\(threshold_ns, ServiceName\\), threshold_ns\\[ServiceName\\], threshold_ns\\[''\\]\\)\\) AS Slow"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE OR REPLACE VIEW otel_rollup.services_1h\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "CREATE OR REPLACE VIEW otel_rollup.metrics_1h\\nDEFINER = otel_admin SQL SECURITY DEFINER"
+
+  - it: rolls up no metric when the allowlist is empty, and counts no slow spans without SLOs
+    set:
+      clickhouse.rollups.metrics: []
+      clickhouse.slo.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "SELECT \\* FROM values\\('MetricName String'\\) WHERE 0;"
+      - matchRegex:
+          path: data["schema.sql"]
+          pattern: "toUInt64\\(0\\) AS Slow,"
+      - notMatchRegex:
+          path: data["schema.sql"]
+          pattern: otel_slo
+
+  - it: creates no rollup objects when rollups are off
+    set:
+      clickhouse.rollups.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-schema
+    asserts:
+      - notMatchRegex:
+          path: data["schema.sql"]
+          pattern: otel_rollup
 
   - it: gives the schema Job a native Istio sidecar, so it can finish
     set:
@@ -493,7 +579,7 @@ tests:
     asserts:
       - equal:
           path: spec.configuration.users["otel_analyst/grants/query"]
-          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_features.*, GRANT SELECT ON otel_slo.*, GRANT INSERT ON otel_ml.*]
+          value: [GRANT SELECT ON otel.*, GRANT SELECT ON otel_baseline.*, GRANT SELECT ON otel_features.*, GRANT SELECT ON otel_slo.*, GRANT SELECT ON otel_rollup.*, GRANT INSERT ON otel_ml.*]
       - equal:
           path: spec.configuration.users["otel_analyst/password"].valueFrom.secretKeyRef
           value:
