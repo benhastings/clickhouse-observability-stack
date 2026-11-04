@@ -1043,6 +1043,10 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].command[2]
           pattern: <name>RejectCertificateHandler</name>
+      # Without it, clickhouse-client checks the chain but not the server's name.
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: <extendedVerification>true</extendedVerification>
       - notMatchRegex:
           path: spec.template.spec.containers[0].command[2]
           pattern: (?i)accept-invalid-certificate|AcceptCertificateHandler|verificationMode>none

@@ -516,6 +516,18 @@ Application, sizing and backup) is
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
 anything that selects the operator's pods.
 
+To try it on kind, run `make cluster/up ENV=standalone` or `make test/e2e ENV=standalone` (with
+`REVISION=<branch>` for a pushed branch). As for `restricted`, it installs Istio and `scripts/kind-platform.bash`
+plays the platform team, but installs no operator: it generates a throwaway CA and a certificate for `clickhouse`
+with openssl, never written to the repository, and creates the `clickhouse-tls` Secret and the `platform-ca-bundle`
+ConfigMap from them. The e2e run makes the same checks as for `restricted`, with the server's private key among the
+Secret values it looks for, and also checks that there is no operator or ClickHouseInstallation CRD, that the
+schema Job completed, that the server listens on no plaintext client port (`9000`, `8123`, `9004`, `9005`, `9009`),
+and that every query in `system.query_log` arrived over TLS, including the collector's, Cerberus's and the schema
+Job's. From a pod in the namespace, the schema Job's own client config accepts the server by `clickhouse` with the
+platform's CA, and refuses it with another CA, by the name `clickhouse.observability.svc.cluster.local` the
+certificate does not carry, and without TLS. CI runs it alongside `restricted`.
+
 ### An external ClickHouse
 
 On a platform that runs ClickHouse as a service, the stack is a tenant: it consumes the service's ClickHouse and
@@ -1745,6 +1757,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 | kubeconform + policy | invalid objects, missing memory limits, unpinned images; anything cluster-scoped or in another namespace in the `restricted` and `paas` profiles, and a ClickHouseInstallation or operator in `paas` | `make check`, pinned schemas |
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
 | kind e2e, restricted | the `restricted` profile deployed against a shared operator and Gateway: nothing cluster-scoped, a trace, log and metric through to Grafana, no Secret value in logs | CI on PRs labelled `restricted`, or `make test/e2e ENV=restricted` |
+| kind e2e, standalone | the `standalone` profile with no operator and a certificate the stand-in platform issues: the `restricted` checks, plus TLS only, every client's queries over TLS, and a wrong CA or server name refused | CI on PRs labelled `restricted`, or `make test/e2e ENV=standalone` |
 
 Everything that could drift is pinned: tool versions in the `Makefile`, Kubernetes `1.37.0` for rendering,
 schemas and the kind node image (by digest), and the schema sources by commit. No chart is fetched from a
