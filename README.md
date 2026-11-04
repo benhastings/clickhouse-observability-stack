@@ -1385,6 +1385,15 @@ FROM system.parts WHERE active AND database = 'otel' GROUP BY table ORDER BY sum
 and the rates from the last hour, for example `SELECT count() / 3600 FROM otel.otel_traces WHERE Timestamp >
 now() - INTERVAL 1 HOUR`.
 
+`make measure/disk` runs both and the headroom check in one go, read-only, against the running ClickHouse
+(`NAMESPACE`, `CLICKHOUSE_POD` and `WINDOW_HOURS`, 72 by default, adjust it). It prints bytes per row per table,
+the span, log and metric-sample rates over the window, the blended bytes per metric sample, and the peak
+`DiskUsed_default` from `system.asynchronous_metric_log` against the bytes the active parts hold. That ratio is
+the real value of the 1.5. Run it on an environment that has ingested a real workload for at least a few days,
+then replace the table above and the formula's figures with its output, name the workload next to them, and set
+`clickhouse.storage` from the formula. **No real-workload measurement has been recorded yet**; the figures
+above are still the demo load's.
+
 ### TraceQL latency over three weeks
 
 `make test/traceql-latency` (run by hand, not in CI) starts a throwaway ClickHouse and Cerberus in Docker at the
