@@ -6,7 +6,7 @@ set:
   networkPolicy.egress: |-
     {{- include "common.clickhouseEgress" (list . (list 9000 8123 9363)) }}
 tests:
-  - it: reaches a standalone ClickHouse only on 9440, and 9363 when the app names it, never a plaintext native or HTTP port
+  - it: reaches a standalone ClickHouse only on 9440, 8443 for HTTP and 9363 when the app names them, never a plaintext native or HTTP port
     set: &standalone
       global.networkPolicy.enabled: true
       global.mesh: kubernetes
@@ -27,8 +27,55 @@ tests:
             ports:
               - port: 9440
                 protocol: TCP
+              - port: 8443
+                protocol: TCP
               - port: 9363
                 protocol: TCP
+
+  - it: reaches only 8443 for an app that names only HTTP
+    set:
+      <<: *standalone
+      networkPolicy.egress: |-
+        {{- include "common.clickhouseEgress" (list . (list 8123)) }}
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.egress[1].ports
+          value:
+            - port: 8443
+              protocol: TCP
+
+  - it: reaches an external ClickHouse's HTTPS port, 8443, for an app that names HTTP
+    set:
+      global.networkPolicy.enabled: true
+      global.mesh: kubernetes
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.paas.example
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.services.clickhouse: clickhouse.paas.example:9440
+      networkPolicy.egress: |-
+        {{- include "common.clickhouseEgress" (list . (list 8123)) }}
+    template: templates/networkpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.egress[1]
+          value:
+            ports:
+              - port: 8443
+                protocol: TCP
+
+  - it: gives the HTTPS address on 8443 for the host of global.services.clickhouse
+    set:
+      <<: *standalone
+      configMaps.main.data.https: '{{ include "common.clickhouseHTTPSAddress" . }}'
+    template: templates/configmap.yaml
+    documentSelector:
+      path: metadata.name
+      value: fixture
+    asserts:
+      - equal:
+          path: data.https
+          value: clickhouse:8443
 
   - it: leaves out 9363 for an app that does not scrape ClickHouse
     set:

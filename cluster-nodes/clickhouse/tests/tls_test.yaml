@@ -71,7 +71,7 @@ tests:
           path: spec.template.spec.automountServiceAccountToken
           value: false
 
-  - it: admits clients only on 9440 and the collector on 9363, with no plaintext native or HTTP port
+  - it: admits clients only on 9440, Cerberus on 8443 and the collector on 9363, with no plaintext native or HTTP port
     set:
       global.networkPolicy.enabled: true
       global.mesh: kubernetes
@@ -92,6 +92,14 @@ tests:
                         values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, clickhouse-schema, clickhouse-backup]
               ports:
                 - port: 9440
+                  protocol: TCP
+            # Cerberus speaks HTTPS: v1.22 can't dial native TLS (README: A standalone ClickHouse).
+            - from:
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: cerberus
+              ports:
+                - port: 8443
                   protocol: TCP
             - from:
                 - podSelector:

@@ -3,7 +3,8 @@
 # Sourced by scripts/e2e-restricted.bash for ENV=standalone, once the probe's trace, log and metric have been written
 # and read back: ClickHouse serves only TLS, and its clients verify it.
 #   - nothing listens on a plaintext port: native 9000, HTTP 8123, MySQL 9004, PostgreSQL 9005, interserver 9009
-#   - every query in system.query_log arrived over TLS, from the collector's, Cerberus's and the schema Job's users
+#   - every native query in system.query_log arrived over TLS, with queries from the collector's, the readers' and
+#     the schema Job's users
 #   - with the schema Job's own client config, the server is accepted by the platform's CA and its name, and refused
 #     with another CA, by any other name, and without TLS
 # It uses e2e-restricted.bash's $ns and $restricted_values, and e2e.bash's step.
@@ -133,10 +134,12 @@ tls_refused "the name $server_name.$ns.svc.cluster.local, which the certificate 
   trusted "$server_name.$ns.svc.cluster.local" "" 'SELECT 1'
 tls_refused "a plaintext client on $tls_port" plaintext "$server_name" "" 'SELECT 1'
 
-step "ClickHouse: every query in system.query_log arrived over TLS"
+# Native queries (interface 1) say whether they arrived over TLS; Cerberus's arrive over HTTPS on 8443, which the
+# listener check above already holds to TLS, since there is no plaintext HTTP port.
+step "ClickHouse: every native query in system.query_log arrived over TLS"
 tls_client_query trusted "$server_name" "$server_name" 'SYSTEM FLUSH LOGS' >/dev/null
 by_user="$(tls_client_query trusted "$server_name" "$server_name" "SELECT user, count() AS queries,
-  countIf(NOT is_secure) AS plaintext FROM system.query_log WHERE type = 'QueryStart' AND event_time > now() - INTERVAL 2 HOUR
+  countIf(interface = 1 AND NOT is_secure) AS plaintext FROM system.query_log WHERE type = 'QueryStart' AND event_time > now() - INTERVAL 2 HOUR
   GROUP BY user ORDER BY user FORMAT JSONEachRow")"
 echo "  ${by_user//$'\n'/$'\n'  }"
 jq -se 'map(select((.plaintext | tonumber) != 0)) | length == 0' <<<"$by_user" >/dev/null ||
