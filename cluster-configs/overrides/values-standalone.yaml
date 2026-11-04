@@ -33,12 +33,13 @@ global:
   # TLS only: the server serves the native protocol on 9440 and HTTPS on 8443, with no plaintext native or HTTP
   # port, and every client verifies its certificate against tls.serverName and the CA bundle in the ConfigMap
   # tls.caConfigMap. The certificate and key are the kubernetes.io/tls Secret tls.serverSecret. The platform puts
-  # both in this namespace; the stack never issues a certificate. The certificate must carry tls.serverName, the
-  # Service's DNS name here, which the backup job also dials. The names are placeholders.
+  # both in this namespace; the stack never issues a certificate. The certificate must carry tls.serverName, here
+  # the Service's short name (so it holds in any namespace), which the backup job also dials. The ConfigMap and
+  # Secret names are placeholders.
   clickhouse:
     standalone: true
     tls:
-      serverName: clickhouse.observability.svc
+      serverName: clickhouse
       caConfigMap: platform-ca-bundle
       caKey: ca.crt
       serverSecret: clickhouse-tls

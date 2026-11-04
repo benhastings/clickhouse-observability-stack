@@ -44,7 +44,7 @@ data:
   CERBERUS_CH_PROTOCOL: "native"
   CERBERUS_CH_TLS_CA_FILE: "/etc/clickhouse-ca/ca.crt"
   CERBERUS_CH_TLS_ENABLED: "true"
-  CERBERUS_CH_TLS_SERVER_NAME: "clickhouse.observability.svc"
+  CERBERUS_CH_TLS_SERVER_NAME: "clickhouse"
   CERBERUS_CH_USERNAME: "otel_reader"
   CERBERUS_HTTP_ADDR: ":8080"
   CERBERUS_LOG_FORMAT: "json"
@@ -109,7 +109,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: fa44c604dea55be12bc2a26e6113ef1e312667db1e4300bbcd4e998bc44d1b08
+        checksum/config: 14b303d77ade39df12d38a7c11bad64c1bdd137d70c02eda748997c9df60c624
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false

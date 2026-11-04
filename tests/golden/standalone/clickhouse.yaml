@@ -1431,7 +1431,7 @@ spec:
         - name: CLICKHOUSE_CA_FILE
           value: /etc/clickhouse-ca/ca.crt
         - name: CLICKHOUSE_TLS_SERVER_NAME
-          value: clickhouse.observability.svc
+          value: clickhouse
         image: clickhouse/clickhouse-server:26.9.5.2
         name: clickhouse-schema
         resources:
