@@ -264,7 +264,11 @@ the same environment file, `cluster-configs/overrides/values-<env>.yaml` (`make 
   service owner provides. Those Secrets are then the service owner's, and `clickhouse-operator-credentials` is not
   needed.
 - **Preflight.** `make cluster/preflight ENV=<env>` checks the context for all of it and installs nothing. The
-  Argo CD and Helm paths run it first and stop on a failure.
+  Argo CD and Helm paths run it first and stop on a failure. It also stops on any Helm error in the environment's
+  app-of-apps render, and on a revision Argo CD would follow that is not a commit SHA or a tag (the bootstrap
+  Application's, `values-<env>.yaml`'s or a child's own): with a branch, children keep moving while a parent that
+  fails to render can't change them ([the runbook](docs/runbook.md#recovering-a-parent-that-fails-to-render)).
+  `ALLOW_MUTABLE_REVISION=1` accepts a branch for a throwaway cluster; `make cluster/up` and the Helm path set it.
 
 ### Argo CD
 

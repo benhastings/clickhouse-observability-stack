@@ -36,7 +36,8 @@ create_ns=(--create-namespace)
 
 case "$action" in
   install)
-    ENV="$env" scripts/preflight.bash
+    # Helm installs the working tree: no Argo CD revision follows a branch here.
+    ENV="$env" ALLOW_MUTABLE_REVISION=1 scripts/preflight.bash
     scripts/values-for-helm.bash "$env" "$out"
     # Under Istio the namespaces need the mesh's label before any pod starts: sidecar injection, or ambient's
     # dataplane mode. Argo CD sets it through managedNamespaceMetadata, so the Helm path sets it here.
