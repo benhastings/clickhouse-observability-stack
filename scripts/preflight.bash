@@ -61,9 +61,12 @@ app_value() {
 operator_shared="$(yq '.global.clickhouseOperator.shared // false' "$values")"
 # With global.clickhouse.external a service owner runs ClickHouse: no operator, no installation, no volume.
 clickhouse_external="$(yq '.global.clickhouse.external // false' "$values")"
+# With global.clickhouse.standalone the stack runs ClickHouse itself, without any operator.
+clickhouse_standalone="$(yq '.global.clickhouse.standalone // false' "$values")"
 
 app_enabled() {
-  [[ "$1" == clickhouse-operator && ("$operator_shared" == true || "$clickhouse_external" == true) ]] && return 1
+  [[ "$1" == clickhouse-operator && ("$operator_shared" == true || "$clickhouse_external" == true ||
+    "$clickhouse_standalone" == true) ]] && return 1
   [[ "$(yq ".applications.\"$1\".enabled" "$values")" != false ]]
 }
 
