@@ -8,3 +8,5 @@ produce the same credentials, so an app with both would wait on one of them whil
 {{- if and $v.vault.enabled $v.global.externalSecrets.enabled -}}
 {{- fail (printf "%s: vault.enabled and global.externalSecrets.enabled are both true, so its credentials would have two producers; choose one secret mechanism for the environment (README: Credentials), and set vault.enabled: false for %s or turn global.externalSecrets off" (include "common.fullname" .) (include "common.fullname" .)) -}}
 {{- end -}}
+{{- /* ClickHouse is standalone or external, never both (common.clickhouseStandalone fails on that). */ -}}
+{{- $_ := include "common.clickhouseStandalone" . -}}
