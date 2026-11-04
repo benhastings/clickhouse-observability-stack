@@ -455,6 +455,12 @@ clusterScoped: false
 global:
   clickhouse:
     standalone: true
+    tls:
+      serverName: clickhouse
+      caConfigMap: platform-ca-bundle
+      serverSecret: clickhouse-tls
+  services:
+    clickhouse: clickhouse:9440
 applications:
   otel-collector:
     values:
@@ -467,9 +473,23 @@ With `standalone: true`:
 - The app-of-apps renders no `clickhouse-operator` Application, and the AppProject allows no CRD. Setting
   `applications.clickhouse-operator.enabled: true` as well fails the render, and so does `global.clickhouse.external`.
 - The `clickhouse` application renders, from `files/standalone/`, a Deployment of one replica with the `Recreate`
-  strategy (the volume is `ReadWriteOnce`), startup and readiness probes on `/ping`, the `clickhouse-data`
-  PersistentVolumeClaim, the `clickhouse-server` ConfigMap and the `clickhouse` Service on `9000` and `8123`. More
+  strategy (the volume is `ReadWriteOnce`), startup and readiness probes on `/ping` over HTTPS, the `clickhouse-data`
+  PersistentVolumeClaim, the `clickhouse-server` ConfigMap and the `clickhouse` Service on `9440` and `8443`. More
   than one shard or replica fails the render.
+- The server speaks only TLS: the native protocol on `9440` and HTTPS on `8443`. The image's plaintext native
+  (`9000`), HTTP (`8123`), MySQL, PostgreSQL and interserver ports are removed. The one plaintext port left is the
+  unauthenticated Prometheus endpoint on `9363`, and only the collector may reach it. The certificate and key are
+  `global.clickhouse.tls.serverSecret`, a `kubernetes.io/tls` Secret (`tls.crt`, `tls.key`) the platform puts in
+  the namespace; the stack never issues a certificate, and the server asks no client for one.
+- Every client (the collector, Cerberus, garmr, garmr sql-adapter, the schema Job and backups) dials over TLS and
+  verifies the server exactly as for [an external ClickHouse](#an-external-clickhouse): against the CA bundle in
+  the ConfigMap `global.clickhouse.tls.caConfigMap` (key `caKey`) and the name `global.clickhouse.tls.serverName`,
+  with no option to skip verification. The render fails without `serverName`, `caConfigMap` or `serverSecret`, or
+  when `global.services.clickhouse` is not `<host>:9440`. The certificate must carry `serverName`; the Service's
+  short name `clickhouse` holds in any namespace. Backups dial that name, since clickhouse-backup can't override
+  the name it verifies.
+- The Service's and container's TLS ports are named `tcp-*`, so under Istio the server's TLS rides inside the
+  mesh's mTLS as opaque TCP.
 - The server's configuration is `files/server.yaml.tpl`, the same file the ClickHouseInstallation is rendered from:
   the Prometheus endpoint, the embedded Keeper, the laptop tuning, and the users, profiles, quotas and grants. Each
   user is defined in the server's `users.d`, with its password read from an environment variable that the pod
@@ -479,12 +499,12 @@ With `standalone: true`:
   and `helm.sh/resource-policy: keep`, so neither pruning, deleting the Application nor `helm uninstall` removes
   it. Delete it by hand to drop the data.
 - The schema Job applies `files/schema.sql.tpl` through the `clickhouse` Service, and `clickhouse.backup` works as
-  it does with the operator: both reach the server at `clickhouse:9000` as `otel_admin`.
+  it does with the operator: both reach the server on `9440` over TLS as `otel_admin`.
 - NetworkPolicies select the server's pods by `app.kubernetes.io/name: clickhouse` instead of the operator's
-  `clickhouse.altinity.com/chi` label, and drop the operator's and the interserver rules. The collector scrapes the
-  server's metrics the same way.
+  `clickhouse.altinity.com/chi` label, and drop the operator's and the interserver rules. The server admits clients
+  only on `9440`, and the collector on `9363`, which it scrapes the same way.
 - As with the operator, the server reads its users' passwords only from Kubernetes Secrets, so `vault.enabled`
-  fails the render for it.
+  fails the render for it; its certificate is likewise a Kubernetes Secret, not a Vault record.
 
 `make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
