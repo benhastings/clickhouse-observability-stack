@@ -333,8 +333,8 @@ overrides them once under global. It takes (list $root "<name>") and fails on an
 
 {{- /*
 common.clickhouseEgress renders the NetworkPolicy egress rule an app uses to reach ClickHouse. It takes
-(list $root (list <port>...)): the ports on the ClickHouse pods this stack runs, selected by the operator's
-clickhouse.altinity.com/chi label. With global.clickhouse.external, ClickHouse is a service someone else runs:
+(list $root (list <port>...)): the ports on the ClickHouse pods this stack runs, selected by
+common.clickhousePodLabels. With global.clickhouse.external, ClickHouse is a service someone else runs:
 the rule allows only the port of global.services.clickhouse, to global.clickhouse.networkPolicyPeers, or to any
 destination when that is empty, and the in-cluster ports are dropped.
 */ -}}
@@ -359,6 +359,38 @@ certificate name and the ConfigMap with its CA bundle.
 {{- fail "global.clickhouse.external is true but global.services.clickhouse is not host:port" -}}
 {{- end -}}
 true
+{{- end -}}
+{{- end -}}
+
+{{- /*
+common.clickhouseStandalone is "true" with global.clickhouse.standalone and empty without: the clickhouse node
+runs ClickHouse as a plain single-replica Deployment, with a PVC and a Service, instead of a ClickHouseInstallation,
+so there is no operator and no CRD. It fails the render together with global.clickhouse.external, which says
+there is no ClickHouse here at all.
+*/ -}}
+
+{{- define "common.clickhouseStandalone" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- $c := $v.global.clickhouse -}}
+{{- if $c.standalone -}}
+{{- if $c.external -}}
+{{- fail "global.clickhouse.standalone and global.clickhouse.external are both true: standalone runs ClickHouse in this namespace, external consumes a service owner's; set one" -}}
+{{- end -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- /*
+common.clickhousePodLabels: the labels that select the ClickHouse server pods this stack runs, as a YAML map. The
+operator labels its pods clickhouse.altinity.com/chi: otel; the standalone Deployment's pods carry
+app.kubernetes.io/name: clickhouse.
+*/ -}}
+
+{{- define "common.clickhousePodLabels" -}}
+{{- if include "common.clickhouseStandalone" . -}}
+app.kubernetes.io/name: clickhouse
+{{- else -}}
+clickhouse.altinity.com/chi: otel
 {{- end -}}
 {{- end -}}
 
@@ -403,7 +435,7 @@ emptyDir: {}
 - to:
     - podSelector:
         matchLabels:
-          clickhouse.altinity.com/chi: otel
+          {{- include "common.clickhousePodLabels" $root | nindent 10 }}
   ports:
     {{- range $ports }}
     - port: {{ int . }}

@@ -316,7 +316,7 @@ configMaps:
                         names: ['{{ .Release.Namespace }}']
                       selectors:
                         - role: pod
-                          label: clickhouse.altinity.com/chi=otel
+                          label: {{ include "common.clickhousePodLabels" . | replace ": " "=" }}
                   relabel_configs:
                     - source_labels: [__meta_kubernetes_pod_ip]
                       replacement: $$1:9363

@@ -13,7 +13,8 @@ namespace: observability
 # Namespaces, the operator's CRDs and the ClusterRoles and ClusterRoleBindings the nodes render. false is the
 # restricted-namespace profile (README: A restricted namespace): the namespaces already exist, labelled by
 # whoever made them, the AppProject allows no cluster-scoped kind at all, and the render fails unless
-# global.clickhouseOperator.shared is true and every collector sets rbac.scope: namespace.
+# ClickHouse is external, standalone, or run by a shared operator (global.clickhouse.external,
+# global.clickhouse.standalone or global.clickhouseOperator.shared) and every collector sets rbac.scope: namespace.
 clusterScoped: true
 
 global: {}

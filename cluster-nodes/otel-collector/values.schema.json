@@ -606,6 +606,11 @@
               "description": "`false`: the stack runs ClickHouse, as the `clickhouse` application's ClickHouseInstallation. `true`: a service owner runs it at `global.services.clickhouse`; the app-of-apps renders no `clickhouse-operator` Application, the `clickhouse` node renders only its schema Job, and NetworkPolicies allow that address's port instead of the operator's pods",
               "x-default": "`false`"
             },
+            "standalone": {
+              "type": "boolean",
+              "description": "`true`: the `clickhouse` node runs ClickHouse as a single-replica Deployment with a PersistentVolumeClaim and a Service instead of a ClickHouseInstallation, so there is no operator and no CRD; the app-of-apps renders no `clickhouse-operator` Application. Fails with `external`",
+              "x-default": "`false`"
+            },
             "networkPolicyPeers": {
               "type": "array",
               "items": {

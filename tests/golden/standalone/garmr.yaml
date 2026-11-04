@@ -1,0 +1,186 @@
+---
+# Source: garmr/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: garmr
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr
+    app.kubernetes.io/instance: garmr
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-0.1.0
+    app.kubernetes.io/version: "0.3.0"
+    environment: standalone
+automountServiceAccountToken: false
+---
+# Source: garmr/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garmr-env
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr
+    app.kubernetes.io/instance: garmr
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-0.1.0
+    app.kubernetes.io/version: "0.3.0"
+    environment: standalone
+data:
+  CLICKHOUSE_ADDR: "clickhouse:9000"
+  CLICKHOUSE_TLS_CA_FILE: ""
+  CLICKHOUSE_TLS_ENABLED: "false"
+  CLICKHOUSE_TLS_SERVER_NAME: ""
+  CLICKHOUSE_USER: "otel_garmr"
+  GARMR_ALERTMANAGER_URL: "http://alertmanager:9093"
+  GARMR_DATABASE: "garmr"
+  GARMR_LISTEN_ADDRESS: ":8080"
+  GARMR_LOG_FORMAT: "json"
+  GARMR_TRACE_URL: ""
+  SLACK_APP_TOKEN_FILE: ""
+  SLACK_BOT_TOKEN_FILE: ""
+  SLACK_CHANNEL: ""
+---
+# Source: garmr/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: garmr
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr
+    app.kubernetes.io/instance: garmr
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-0.1.0
+    app.kubernetes.io/version: "0.3.0"
+    environment: standalone
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: garmr
+    app.kubernetes.io/instance: garmr
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+---
+# Source: garmr/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garmr
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr
+    app.kubernetes.io/instance: garmr
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-0.1.0
+    app.kubernetes.io/version: "0.3.0"
+    environment: standalone
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: garmr
+      app.kubernetes.io/instance: garmr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: garmr
+        app.kubernetes.io/instance: garmr
+      annotations:
+        checksum/config: 3381176a5327785416159d2241c5bc1f83d1037b829869e62c43c57b9da327b8
+    spec:
+      serviceAccountName: garmr
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: garmr
+          image: "ghcr.io/benhastings/garmr:v0.3.0@sha256:68f6faf6ab936681ac681c0b41f05c4e6729bb7f5f7134668d4e5981d490e356"
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: clickhouse-garmr
+            - name: GOMEMLIMIT
+              value: "50331648B"
+          envFrom:
+            - configMapRef:
+                name: 'garmr-env'
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /-/healthy
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /etc/garmr/slack
+              name: slack
+              readOnly: true
+      volumes:
+        - name: slack
+          emptyDir: {}
+---
+# Source: garmr/templates/destinationrule.yaml
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: garmr
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: garmr
+    app.kubernetes.io/instance: garmr
+    app.kubernetes.io/part-of: clickhouse-observability-stack
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: garmr-0.1.0
+    app.kubernetes.io/version: "0.3.0"
+    environment: standalone
+spec:
+  host: garmr.observability.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
