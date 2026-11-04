@@ -8,9 +8,6 @@ The mechanism is `rbac.scope: namespace` on the collector
 ([Collector RBAC](../README.md#collector-rbac-cluster-wide-or-one-namespace)). This page says what that means for
 the people who use the result.
 
-> `make test/acceptance` (in-environment proof, #260) and `make check/live` (revision drift, #262) are planned and
-> not in the repository yet. Where this page names them, run the manual step beside them until they land.
-
 ## Signals
 
 | Signal | Delivered? | Notes |
@@ -50,6 +47,43 @@ bundle can't supply them from inside a namespace.
 An alert that never fires is the dangerous kind, so an environment that relies on `CollectorMemoryNearLimit` records
 a replacement in its go/no-go checklist (gate 5) before it goes live: a platform alert on the collector pod's
 memory.
+
+## Proving it in the environment
+
+`make test/acceptance ENV=<env>` ([README](../README.md#proving-an-environment-in-place)) checks a running
+namespace against gates 2, 3, 4 and 5 and writes the report the [checklist](go-no-go.md) asks for. Give it a
+Grafana login (`GRAFANA_TOKEN` or `GRAFANA_AUTH`); it reads no Secret. `make check/live ENV=<env>` covers gate 6.
+
+| Check | Gate |
+| --- | --- |
+| Argo CD: every Application of the environment is Synced and Healthy | 5 |
+| Workloads: every Deployment and StatefulSet is ready; no Job has failed | 2, 5 |
+| ClickHouse: ready; its Service has ready endpoints; the schema Job completed | 2 |
+| ClickHouse: its Service serves no plaintext port | 4 |
+| Secrets: no pod waits on a missing Secret | 1 |
+| Quota: no pod creation is refused by the quota or admission | 5 |
+| OTLP, Cerberus and Grafana: a synthetic trace, log and metric are accepted and read back | 3 |
+
+With `paas`, ClickHouse is the service owner's, so its readiness, endpoints and ports are `SKIP`; the schema Job and
+the round trip still prove the stack reaches it. A `restricted` install serves ClickHouse's plaintext ports, so it
+fails gate 4 by design: only `standalone` and `paas` are TLS only.
+
+### What a broken namespace reports
+
+`make test/acceptance-stub` runs the test against a stand-in for a broken `standalone` namespace and requires
+exactly these failures. A real environment broken the same way reports the same lines, each naming the object:
+
+| What is broken | Checks that fail |
+| --- | --- |
+| A Secret ClickHouse reads (`clickhouse-admin`) is missing, so its pod waits in `CreateContainerConfigError` | Secrets (names the pod and the Secret); Workloads; ClickHouse ready; endpoints; the schema Job, which can't finish; the Argo CD Application, Degraded |
+| The namespace quota refuses a ReplicaSet's or an unfinished Job's pods | Quota (names the object and the quota's message); Workloads |
+| The collector accepts OTLP but nothing reaches ClickHouse, or Cerberus can't read it | Cerberus: the trace, the log and the metric; Grafana: the same three |
+| No `GRAFANA_TOKEN` or `GRAFANA_AUTH` given | Grafana: all three |
+| The collector refuses OTLP, or no endpoint answers | OTLP; then every read-back check, since nothing was sent |
+
+A refusal or a `FailedMount` that has since cleared doesn't fail the run: the Quota check counts a `FailedCreate`
+event only from the last 15 minutes (`ACCEPTANCE_EVENT_WINDOW`) and only for a Job still unfinished or a StatefulSet
+still short of ready pods, and the Secrets check only pods still waiting.
 
 ## What a tenant accepts
 
