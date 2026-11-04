@@ -52,7 +52,10 @@ memory.
 
 `make test/acceptance ENV=<env>` ([README](../README.md#proving-an-environment-in-place)) checks a running
 namespace against gates 2, 3, 4 and 5 and writes the report the [checklist](go-no-go.md) asks for. Give it a
-Grafana login (`GRAFANA_TOKEN` or `GRAFANA_AUTH`); it reads no Secret. `make check/live ENV=<env>` covers gate 6.
+Grafana login (`GRAFANA_TOKEN` or `GRAFANA_AUTH`); it reads no Secret. With the CA bundle in Vault
+(`global.clickhouse.tls.vault`), give it the bundle as `CA_FILE`; otherwise it reads the CA ConfigMap. Set
+`SECRET_OWNER` (who delivers the credentials) and `ROLLBACK_REVISION` (the revision to go back to) to record them in
+the report, which also says how each workload gets its credentials. `make check/live ENV=<env>` covers gate 6.
 
 | Check | Gate |
 | --- | --- |
@@ -60,7 +63,9 @@ Grafana login (`GRAFANA_TOKEN` or `GRAFANA_AUTH`); it reads no Secret. `make che
 | Workloads: every Deployment and StatefulSet is ready; no Job has failed | 2, 5 |
 | ClickHouse: ready; its Service has ready endpoints; the schema Job completed | 2 |
 | ClickHouse: its Service serves no plaintext port | 4 |
+| ClickHouse (standalone): its certificate verifies by `serverName` against the platform's CA, and not by `clickhouse.<ns>.svc.cluster.local` | 4 |
 | Secrets: no pod waits on a missing Secret | 1 |
+| Vault: no pod is stuck in `vault-agent-init`, or with its `vault-agent` in `CrashLoopBackOff` | 1 |
 | Quota: no pod creation is refused by the quota or admission | 5 |
 | OTLP, Cerberus and Grafana: a synthetic trace, log and metric are accepted and read back | 3 |
 
@@ -76,6 +81,8 @@ exactly these failures. A real environment broken the same way reports the same 
 | What is broken | Checks that fail |
 | --- | --- |
 | A Secret ClickHouse reads (`clickhouse-admin`) is missing, so its pod waits in `CreateContainerConfigError` | Secrets (names the pod and the Secret); Workloads; ClickHouse ready; endpoints; the schema Job, which can't finish; the Argo CD Application, Degraded |
+| A pod's Vault agent can't read its records (role, policy, path, or no route to Vault), so it waits in `vault-agent-init` | Vault (names the pod); Workloads |
+| The server's certificate doesn't verify against the CA by `serverName` (wrong CA, expired, wrong name) | ClickHouse: the certificate check. A certificate that also verifies by the cluster-local name fails the other one |
 | The namespace quota refuses a ReplicaSet's or an unfinished Job's pods | Quota (names the object and the quota's message); Workloads |
 | The collector accepts OTLP but nothing reaches ClickHouse, or Cerberus can't read it | Cerberus: the trace, the log and the metric; Grafana: the same three |
 | No `GRAFANA_TOKEN` or `GRAFANA_AUTH` given | Grafana: all three |

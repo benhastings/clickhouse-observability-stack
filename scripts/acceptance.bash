@@ -8,14 +8,18 @@
 #     every Deployment and StatefulSet in the namespace is ready and no Job in it has failed
 #   - ClickHouse is ready (standalone's Deployment, or the operator's installation), its Service has ready
 #     endpoints and serves no plaintext port, and the schema Job completed
-#   - no pod waits on a missing Secret, and no pod creation is refused by the quota or by admission: a ReplicaSet
+#   - with a standalone ClickHouse, its certificate verifies through the clickhouse Service against the platform's CA
+#     by global.clickhouse.tls.serverName, and does not verify by the cluster-local name it must not carry
+#   - no pod waits on a missing Secret or is stuck on Vault injection (a vault-agent-init that has not exited 0, or
+#     a vault-agent container in CrashLoopBackOff), and no pod creation is refused by the quota or by admission: a ReplicaSet
 #     with a ReplicaFailure, or a FailedCreate event in the last ACCEPTANCE_EVENT_WINDOW for an unfinished Job or
 #     an unready StatefulSet
 #   - a synthetic trace, log and metric go through the OTLP endpoint and are read back through Cerberus and
 #     through Grafana's Tempo, Loki and Prometheus datasources
 # It then writes a short report (REPORT, by default dist/acceptance/<env>-<UTC time>.md): the context, namespace,
 # timestamps, every outcome, and the revisions deployed (the checkout's commit, each Application's revision, each
-# workload's images). Nothing in it is a credential, and no response body goes into it.
+# workload's images and how its credentials reach it), the secret-delivery owner (SECRET_OWNER) and the revision to
+# roll back to (ROLLBACK_REVISION). Nothing in it is a credential, and no response body goes into it.
 #
 # Without a value of its own, each endpoint is a kubectl port-forward to the Service in the namespace:
 #   OTLP_ENDPOINT  OTLP over HTTP, e.g. https://otlp.example (default svc/otel-collector:4318); OTLP_TOKEN, if
@@ -24,6 +28,8 @@
 #   GRAFANA_URL    default svc/grafana:80. Grafana needs a login the operator supplies, since this never reads a
 #                  Secret: GRAFANA_TOKEN (a service account token) or GRAFANA_AUTH (user:password). Without one the
 #                  Grafana checks fail.
+# CA_FILE is the CA bundle to verify ClickHouse's certificate with, for a platform that keeps it in Vault
+# (global.clickhouse.tls.vault); otherwise it is read from the ConfigMap global.clickhouse.tls.caConfigMap.
 # NAMESPACE overrides the environment's namespace; ACCEPTANCE_TIMEOUT (300) is how long, in seconds, each signal
 # has to be read back; ACCEPTANCE_EVENT_WINDOW (900) is how far back, in seconds, a refusal event counts.
 set -euo pipefail
@@ -48,6 +54,9 @@ global() {
 standalone="$(global .global.clickhouse.standalone)"
 external="$(global .global.clickhouse.external)"
 clickhouse_address="$(global .global.services.clickhouse)"
+server_name="$(global .global.clickhouse.tls.serverName)"
+ca_configmap="$(global .global.clickhouse.tls.caConfigMap)"
+ca_key="$(global .global.clickhouse.tls.caKey)"
 clickhouse_service="${clickhouse_address%%:*}"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/acceptance.XXXXXX")"
@@ -68,6 +77,18 @@ record() {
 }
 # lines <text>: the lines of <text>, joined by "; ", for a detail.
 lines() { paste -sd';' <<<"$1" | sed 's/;/; /g'; }
+# forward <var> <service> <port>: port-forward to the Service on a free local port, and set <var> to its URL.
+forward() {
+  local log="$work/forward-$2.log" port="" _
+  kubectl -n "$ns" port-forward "svc/$2" ":$3" >"$log" 2>&1 &
+  for _ in $(seq 50); do
+    port="$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p' "$log" | head -1)"
+    [[ -z "$port" ]] || break
+    sleep 0.2
+  done
+  [[ -n "$port" ]] || { printf -v "$1" '%s' ""; echo "  port-forward to svc/$2: $(head -1 "$log")"; return 0; }
+  printf -v "$1" 'http://127.0.0.1:%s' "$port"
+}
 
 # ---- Argo CD Applications and workloads ----
 applications=""
@@ -161,6 +182,54 @@ else
   fi
 fi
 
+# The server's certificate, through a port-forward to the Service's native TLS port, with openssl: it must verify
+# against the platform's CA by serverName, and must not verify by the cluster-local name, which the certificate
+# should not carry (README: A standalone ClickHouse). Only the verification result is kept, never the certificate.
+tls_check="ClickHouse: the server's certificate verifies as ${server_name:-<serverName>} against the platform's CA"
+wrong_name="$clickhouse_service.$ns.svc.cluster.local"
+wrong_check="ClickHouse: the server's certificate does not verify as $wrong_name"
+if [[ "$standalone" != true ]]; then
+  record SKIP "$tls_check" "only a standalone ClickHouse is checked here"
+  record SKIP "$wrong_check" "only a standalone ClickHouse is checked here"
+else
+  ca=""
+  if [[ -n "${CA_FILE:-}" ]]; then
+    ca="$CA_FILE"
+  elif [[ -n "$ca_configmap" ]] && kubectl -n "$ns" get configmap "$ca_configmap" -o json 2>/dev/null |
+    jq -er --arg key "${ca_key:-ca.crt}" '.data[$key] // empty' >"$work/ca.crt"; then
+    ca="$work/ca.crt"
+  fi
+  tls_port=""
+  if [[ -n "$ca" ]]; then
+    tls_forward=""
+    forward tls_forward "$clickhouse_service" 9440
+    tls_port="${tls_forward##*:}"
+  fi
+  # verifies <name>: the handshake succeeds with the certificate verified for <name>.
+  verifies() {
+    openssl s_client -connect "127.0.0.1:$tls_port" -servername "$1" -verify_hostname "$1" -CAfile "$ca" \
+      -verify_return_error </dev/null 2>&1 | grep -q 'Verify return code: 0 (ok)'
+  }
+  if [[ -z "$ca" ]]; then
+    record FAIL "$tls_check" "no CA bundle: set CA_FILE, or check ConfigMap ${ca_configmap:-<caConfigMap>} key ${ca_key:-ca.crt}"
+    record FAIL "$wrong_check" "no CA bundle"
+  elif [[ -z "$tls_port" ]]; then
+    record FAIL "$tls_check" "no port-forward to svc/$clickhouse_service:9440"
+    record FAIL "$wrong_check" "no port-forward to svc/$clickhouse_service:9440"
+  else
+    if verifies "$server_name"; then
+      record PASS "$tls_check" "svc/$clickhouse_service:9440"
+    else
+      record FAIL "$tls_check" "refused: wrong CA, expired, or not issued for $server_name"
+    fi
+    if verifies "$wrong_name"; then
+      record FAIL "$wrong_check" "it does: the certificate carries a name clients are not meant to use"
+    else
+      record PASS "$wrong_check" "refused"
+    fi
+  fi
+fi
+
 schema="$(jq -r '[.items[] | select(.metadata.labels["app.kubernetes.io/name"] == "clickhouse-schema")
   | "\(.metadata.name) \(if any(.status.conditions[]?; .type == "Complete" and .status == "True") then "Complete"
       elif any(.status.conditions[]?; .type == "Failed" and .status == "True") then "Failed" else "running" end)"]
@@ -189,6 +258,23 @@ else
   record FAIL "Secrets: no pod waits on a missing Secret" "$(lines "$missing")"
 fi
 
+# A pod the Vault Agent Injector mutated waits in vault-agent-init until the agent has read every record it needs:
+# one that hasn't exited 0 is stuck (a role, policy or path Vault refuses, or no route to Vault). Its logs are never
+# read here; kubectl logs <pod> -c vault-agent-init names the cause.
+injected="$(jq '[.items[] | select(any(.spec.initContainers[]?; .name == "vault-agent-init")
+  or any(.spec.containers[]?; .name == "vault-agent"))] | length' "$work/pods.json")"
+stuck="$(jq -r '.items[] | .metadata.name as $pod
+  | ((.status.initContainerStatuses // [])[] | select(.name == "vault-agent-init")
+      | select((.state.terminated.exitCode // -1) != 0)
+      | "pod/\($pod): vault-agent-init \(.state.waiting.reason // (if .state.terminated then "exited \(.state.terminated.exitCode)" else "still running" end))"),
+    ((.status.containerStatuses // [])[] | select(.name == "vault-agent" and .state.waiting.reason == "CrashLoopBackOff")
+      | "pod/\($pod): vault-agent CrashLoopBackOff")' "$work/pods.json" | sort -u)"
+if [[ -z "$stuck" ]]; then
+  record PASS "Vault: no pod is stuck on Vault injection" "$injected injected pods"
+else
+  record FAIL "Vault: no pod is stuck on Vault injection" "$(lines "$stuck")"
+fi
+
 kubectl -n "$ns" get replicasets -o json >"$work/replicasets.json"
 # A ReplicaSet keeps a ReplicaFailure condition while the quota refuses its pods. A Job or StatefulSet keeps no such
 # condition, so a recent FailedCreate event counts for one that is still short of pods: unfinished, or not ready.
@@ -211,18 +297,6 @@ else
 fi
 
 # ---- Synthetic signals ----
-# forward <var> <service> <port>: port-forward to the Service on a free local port, and set <var> to its URL.
-forward() {
-  local log="$work/forward-$2.log" port="" _
-  kubectl -n "$ns" port-forward "svc/$2" ":$3" >"$log" 2>&1 &
-  for _ in $(seq 50); do
-    port="$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p' "$log" | head -1)"
-    [[ -z "$port" ]] || break
-    sleep 0.2
-  done
-  [[ -n "$port" ]] || { printf -v "$1" '%s' ""; echo "  port-forward to svc/$2: $(head -1 "$log")"; return 0; }
-  printf -v "$1" 'http://127.0.0.1:%s' "$port"
-}
 otlp="${OTLP_ENDPOINT:-}"
 [[ -n "$otlp" ]] || forward otlp otel-collector 4318
 cerberus="${CERBERUS_URL:-}"
@@ -345,6 +419,8 @@ mkdir -p "$(dirname "$report")"
   echo "- Context: $context; namespace: $ns"
   echo "- Started: $started; finished: $finished"
   echo "- Checkout: $commit; values-$env.yaml: $(yq '.repoURL' "$values") @ $(yq '.targetRevision' "$values")"
+  echo "- Secret-delivery owner: ${SECRET_OWNER:-not recorded (SECRET_OWNER)}"
+  echo "- Rollback revision: ${ROLLBACK_REVISION:-not recorded (ROLLBACK_REVISION)}"
   echo
   echo "## Checks"
   echo
@@ -367,9 +443,15 @@ mkdir -p "$(dirname "$report")"
     echo "No Argo CD Application of $env is readable from this context."
   fi
   echo
-  echo "| Workload | Images |"
-  echo "| --- | --- |"
-  jq -r '.items[] | "| \(.kind)/\(.metadata.name) | \([.spec.template.spec.containers[].image] | join(", ")) |"' "$work/workloads.json"
+  echo "| Workload | Images | Credentials |"
+  echo "| --- | --- | --- |"
+  # How credentials reach each workload, from its pod template: the Vault agent, Secrets it references, or neither.
+  jq -r '.items[] | .spec.template as $t
+    | ([$t.spec.containers[]?.env[]?.valueFrom.secretKeyRef.name, $t.spec.volumes[]?.secret.secretName]
+        | map(select(. != null)) | unique) as $secrets
+    | (if $t.metadata.annotations["vault.hashicorp.com/agent-inject"] == "true" then "Vault agent"
+       elif ($secrets | length) > 0 then "Secrets: \($secrets | join(", "))" else "none" end) as $delivery
+    | "| \(.kind)/\(.metadata.name) | \([$t.spec.containers[].image] | join(", ")) | \($delivery) |"' "$work/workloads.json"
 } >"$report"
 
 echo "==> Acceptance $verdict: $passed passed, $failures failed, $skipped skipped; report in $report"

@@ -3,8 +3,9 @@
 # acceptance-test.bash: run acceptance.bash for standalone against a stub kubectl and curl (make test/acceptance-stub).
 # The stub answers as a healthy standalone namespace does, and with STUB_BROKEN=1 as a broken one: ClickHouse's pod
 # waiting on a deleted clickhouse-admin Secret, so its Deployment is unready, its Service has no endpoints and the
-# schema Job never finishes; Cerberus's ReplicaSet refused by the namespace quota; the collector accepting OTLP but
-# nothing read back; and no Grafana login given. Prove the healthy one passes every check and writes its report,
+# schema Job never finishes; a pod stuck in vault-agent-init; the server's certificate not verifying; Cerberus's
+# ReplicaSet refused by the namespace quota; the collector accepting OTLP but nothing read back; and no Grafana login
+# given. With STUB_ANY_NAME=1 the certificate verifies under any name, which the wrong-name check must catch. Prove the healthy one passes every check and writes its report,
 # and the broken one fails exactly the checks docs/tenant-acceptance.md lists for it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -48,14 +49,19 @@ case "$args" in
   *" get endpointslices "*)
     if [[ -n "$broken" ]]; then echo '{"items": [{"endpoints": []}]}'
     else echo '{"items": [{"endpoints": [{"conditions": {"ready": true}}]}]}'; fi ;;
+  *" get configmap platform-ca-bundle "*) echo '{"data": {"ca.crt": "-----BEGIN CERTIFICATE-----\nstub\n-----END CERTIFICATE-----"}}' ;;
   *" get service clickhouse "*)
     echo '{"spec": {"ports": [{"port": 8443, "targetPort": "tcp-https"}, {"port": 9440, "targetPort": "tcp-native"}]}}' ;;
   *" get pods "*)
     if [[ -n "$broken" ]]; then
       echo '{"items": [{"metadata": {"name": "clickhouse-7d9f"}, "status": {"phase": "Pending", "containerStatuses": [
-        {"state": {"waiting": {"reason": "CreateContainerConfigError", "message": "secret \"clickhouse-admin\" not found"}}}]}}]}'
+        {"state": {"waiting": {"reason": "CreateContainerConfigError", "message": "secret \"clickhouse-admin\" not found"}}}]}},
+        {"metadata": {"name": "grafana-6c4d"}, "spec": {"initContainers": [{"name": "vault-agent-init"}]}, "status": {"phase": "Pending",
+          "initContainerStatuses": [{"name": "vault-agent-init", "state": {"running": {}}}]}}]}'
     else
-      echo '{"items": [{"metadata": {"name": "clickhouse-7d9f"}, "status": {"phase": "Running", "containerStatuses": [{"state": {"running": {}}}]}}]}'
+      echo '{"items": [{"metadata": {"name": "clickhouse-7d9f"}, "status": {"phase": "Running", "containerStatuses": [{"state": {"running": {}}}]}},
+        {"metadata": {"name": "grafana-6c4d"}, "spec": {"initContainers": [{"name": "vault-agent-init"}]}, "status": {"phase": "Running",
+          "initContainerStatuses": [{"name": "vault-agent-init", "state": {"terminated": {"exitCode": 0}}}]}}]}'
     fi ;;
   *" get events "*)
     if [[ -n "$broken" ]]; then
@@ -108,7 +114,21 @@ case "$url" in
   *) echo "curl stub: unexpected URL: $url" >&2; exit 22 ;;
 esac
 STUB
-chmod +x "$work/bin/kubectl" "$work/bin/curl"
+# A stub of openssl s_client against the server: healthy, its certificate verifies only as clickhouse; with
+# STUB_BROKEN=1 never; with STUB_ANY_NAME=1 under any name. Anything else is the real openssl (acceptance.bash's
+# openssl rand).
+cat >"$work/bin/openssl" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == s_client ]] || exec $(command -v openssl) "\$@"
+name=""
+while (("\$#")); do [[ "\$1" == -verify_hostname ]] && name="\$2"; shift; done
+if [[ -z "\${STUB_BROKEN:-}" && ( "\$name" == clickhouse || -n "\${STUB_ANY_NAME:-}" ) ]]; then
+  echo "Verify return code: 0 (ok)"
+else
+  echo "Verify return code: 62 (hostname mismatch)"; exit 1
+fi
+STUB
+chmod +x "$work/bin/kubectl" "$work/bin/curl" "$work/bin/openssl"
 
 report="$work/healthy.md"
 out="$(PATH="$work/bin:$PATH" REPORT="$report" GRAFANA_AUTH=admin:stub scripts/acceptance.bash standalone 2>&1)" ||
@@ -118,6 +138,9 @@ grep -q 'Result: \*\*PASS\*\*' "$report" || fail "the report does not record a P
 grep -q '| clickhouse-standalone | Synced / Healthy | main | 0123abcd |' "$report" ||
   fail "the report does not record the deployed revisions"
 grep -q 'admin:stub' "$report" && fail "the report holds the Grafana login"
+grep -q 'Rollback revision: not recorded' "$report" || fail "the report does not say the rollback revision is not recorded"
+grep -q '| Deployment/clickhouse | clickhouse/clickhouse-server:26.9.5.2 | none |' "$report" ||
+  fail "the report does not record how each workload gets its credentials"
 echo "acceptance-test: ok, a healthy standalone namespace passes all $(grep -c '^PASS' <<<"$out") checks and the report records its revisions"
 
 if out="$(PATH="$work/bin:$PATH" REPORT="$work/broken.md" STUB_BROKEN=1 ACCEPTANCE_TIMEOUT=0 \
@@ -129,8 +152,10 @@ expected=(
   "Workloads: every Deployment and StatefulSet in observability is ready"
   "ClickHouse: ready"
   "ClickHouse: Service clickhouse has ready endpoints"
+  "ClickHouse: the server's certificate verifies as clickhouse against the platform's CA"
   "ClickHouse: the schema Job completed"
   "Secrets: no pod waits on a missing Secret"
+  "Vault: no pod is stuck on Vault injection"
   "Quota: no pod creation in observability is refused by the quota or admission"
   "Cerberus: reads the synthetic trace (TraceQL API)"
   "Cerberus: reads the synthetic log (LogQL)"
@@ -145,5 +170,15 @@ actual="$(sed -n 's/^FAIL: \(.*\) | .*$/\1/p' <<<"$out")"
 grep -q 'secret "clickhouse-admin" not found' <<<"$out" || fail "the missing Secret is not named"
 grep -q 'replicaset/cerberus-5c6b: .*exceeded quota: compute' <<<"$out" || fail "the ReplicaSet's quota refusal is not named"
 grep -q 'job/clickhouse-schema-f64b48da: .*exceeded quota: compute' <<<"$out" || fail "the Job's quota refusal is not named"
-grep -q 'Result: \*\*FAIL\*\*, 3 passed, 13 failed' "$work/broken.md" || fail "the report does not record the failures: $(grep Result "$work/broken.md")"
+grep -q 'pod/grafana-6c4d: vault-agent-init still running' <<<"$out" || fail "the pod stuck on Vault injection is not named"
+grep -q 'Result: \*\*FAIL\*\*, 4 passed, 15 failed' "$work/broken.md" || fail "the report does not record the failures: $(grep Result "$work/broken.md")"
 echo "acceptance-test: ok, a broken standalone namespace fails the ${#expected[@]} checks it should, and only those"
+
+if out="$(PATH="$work/bin:$PATH" REPORT="$work/any-name.md" STUB_ANY_NAME=1 GRAFANA_AUTH=admin:stub ROLLBACK_REVISION=0123abcd \
+  scripts/acceptance.bash standalone 2>&1)"; then
+  fail "standalone passed with a certificate that verifies under any name"
+fi
+[[ "$(sed -n 's/^FAIL: \(.*\) | .*$/\1/p' <<<"$out")" == "ClickHouse: the server's certificate does not verify as clickhouse.observability.svc.cluster.local" ]] ||
+  fail "a certificate valid under any name failed other checks: $(grep '^FAIL' <<<"$out")"
+grep -q 'Rollback revision: 0123abcd' "$work/any-name.md" || fail "the report does not record ROLLBACK_REVISION"
+echo "acceptance-test: ok, a certificate that verifies under the cluster-local name fails only that check"
