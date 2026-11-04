@@ -6,7 +6,8 @@
 #   - every native query in system.query_log arrived over TLS, with queries from the collector's, the readers' and
 #     the schema Job's users
 #   - with the schema Job's own client config, the server is accepted by the platform's CA and its name, and refused
-#     with another CA, by any other name, and without TLS
+#     with another CA and by any other name. (clickhouse-client turns TLS on by itself for 9440, so it can't be made
+#     to try plaintext there; the listener check is what rules plaintext out.)
 # It uses e2e-restricted.bash's $ns and $restricted_values, and e2e.bash's step.
 
 server_name="$(yq '.global.clickhouse.tls.serverName' "$restricted_values")"
@@ -100,14 +101,14 @@ done
 echo "  ok"
 
 admin_password="$(kubectl -n "$ns" get secret clickhouse-admin -o go-template='{{.data.password | base64decode}}')"
-# tls_client_query <trusted|untrusted|plaintext> <host> <server-name override, or ""> <query>
+# tls_client_query <trusted|untrusted> <host> <server-name override, or ""> <query>
 tls_client_query() {
-  local args=(--host "$2" --port "$tls_port" --user otel_admin --password "$admin_password" --query "$4")
-  [[ "$1" == plaintext ]] || args+=(--config-file "/tmp/$1.xml" --secure)
+  local args=(--host "$2" --port "$tls_port" --user otel_admin --password "$admin_password" --query "$4"
+    --config-file "/tmp/$1.xml" --secure)
   [[ -z "$3" ]] || args+=(--tls-sni-override "$3")
   kubectl -n "$ns" exec "$tls_client" -c client -- clickhouse-client "${args[@]}"
 }
-# tls_refused <description> <tls_client_query args...>: the connection fails, on the certificate when over TLS.
+# tls_refused <description> <tls_client_query args...>: the connection fails, on the certificate.
 tls_refused() {
   local description=$1 out
   shift
@@ -115,7 +116,7 @@ tls_refused() {
     echo "  accepted $description"
     exit 1
   fi
-  if [[ "$1" != plaintext ]] && ! grep -qiE 'certificate|ssl' <<<"$out"; then
+  if ! grep -qiE 'certificate|ssl' <<<"$out"; then
     echo "  $description failed, but not on the certificate: ${out:0:500}"
     exit 1
   fi
@@ -128,24 +129,25 @@ out="$(tls_client_query trusted "$server_name" "$server_name" 'SELECT 1' 2>&1)" 
 [[ "$out" == 1 ]] || { echo "  SELECT 1 returned: ${out:0:500}"; exit 1; }
 echo "  ok"
 
-step "ClickHouse: a client with another CA, dialling another name, or without TLS is refused"
+step "ClickHouse: a client with another CA, or dialling another name, is refused"
 tls_refused "a CA that did not sign the server's certificate" untrusted "$server_name" "$server_name" 'SELECT 1'
 tls_refused "the name $server_name.$ns.svc.cluster.local, which the certificate does not carry" \
   trusted "$server_name.$ns.svc.cluster.local" "" 'SELECT 1'
-tls_refused "a plaintext client on $tls_port" plaintext "$server_name" "" 'SELECT 1'
 
 # Native queries (interface 1) say whether they arrived over TLS; Cerberus's arrive over HTTPS on 8443, which the
-# listener check above already holds to TLS, since there is no plaintext HTTP port.
+# listener check above already holds to TLS, since there is no plaintext HTTP port. The server's own flushes of the
+# collector's async inserts (query_kind AsyncInsertFlush) carry no client connection, so they are left out.
 step "ClickHouse: every native query in system.query_log arrived over TLS"
 tls_client_query trusted "$server_name" "$server_name" 'SYSTEM FLUSH LOGS' >/dev/null
-by_user="$(tls_client_query trusted "$server_name" "$server_name" "SELECT user, count() AS queries,
-  countIf(interface = 1 AND NOT is_secure) AS plaintext FROM system.query_log WHERE type = 'QueryStart' AND event_time > now() - INTERVAL 2 HOUR
-  GROUP BY user ORDER BY user FORMAT JSONEachRow")"
+by_user="$(tls_client_query trusted "$server_name" "$server_name" "SELECT user, query_kind, interface, count() AS queries,
+  countIf(interface = 1 AND NOT is_secure AND query_kind != 'AsyncInsertFlush') AS plaintext FROM system.query_log
+  WHERE type = 'QueryStart' AND event_time > now() - INTERVAL 2 HOUR
+  GROUP BY user, query_kind, interface ORDER BY user, query_kind, interface FORMAT JSONEachRow")"
 echo "  ${by_user//$'\n'/$'\n'  }"
 jq -se 'map(select((.plaintext | tonumber) != 0)) | length == 0' <<<"$by_user" >/dev/null ||
   { echo "  a query arrived without TLS"; exit 1; }
 for user in otel_writer otel_reader otel_admin; do
-  jq -se --arg user "$user" 'map(select(.user == $user and (.queries | tonumber) > 0)) | length == 1' <<<"$by_user" >/dev/null ||
+  jq -se --arg user "$user" 'map(select(.user == $user and (.queries | tonumber) > 0)) | length > 0' <<<"$by_user" >/dev/null ||
     { echo "  no query from $user"; exit 1; }
 done
 echo "  ok"

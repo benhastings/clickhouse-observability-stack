@@ -528,9 +528,10 @@ ConfigMap from them. The e2e run makes the same checks as for `restricted`, with
 Secret values it looks for, and also checks that there is no operator or ClickHouseInstallation CRD, that the
 schema Job completed, that the server listens on no plaintext client port (`9000`, `8123`, `9004`, `9005`, `9009`),
 and that every native query in `system.query_log` arrived over TLS, including the collector's, the readers' and
-the schema Job's (Cerberus's arrive over HTTPS, and there is no plaintext HTTP port). From a pod in the namespace, the schema Job's own client config accepts the server by `clickhouse` with the
-platform's CA, and refuses it with another CA, by the name `clickhouse.observability.svc.cluster.local` the
-certificate does not carry, and without TLS. CI runs it alongside `restricted`.
+the schema Job's (Cerberus's arrive over HTTPS, there is no plaintext HTTP port, and the server's own flushes of
+async inserts are left out). From a pod in the namespace, the schema Job's own client config accepts the server by `clickhouse` with the
+platform's CA, and refuses it with another CA and by the name `clickhouse.observability.svc.cluster.local` the
+certificate does not carry. CI runs it alongside `restricted`.
 
 ### An external ClickHouse
 

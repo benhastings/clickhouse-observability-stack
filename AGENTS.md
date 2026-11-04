@@ -175,9 +175,8 @@ and ClickHouse's certificate generated at runtime), then the environment through
 `scripts/e2e-restricted.bash`. With no demo load, it sends its own trace, log and metric and reads them back through
 Cerberus and Grafana, reaches Grafana through the Gateway, and fails when Argo CD manages anything cluster-scoped or
 outside the namespace, or a Secret value shows up in the pods' logs or the live objects. For `standalone` it also
-fails when ClickHouse listens on a plaintext client port, a query in `system.query_log` arrived without TLS, the
-schema Job hasn't completed, or the schema Job's client config accepts the server with another CA, by another name,
-or without TLS. Label a PR `restricted` when it changes what either profile renders, how the shared operator is
+fails when ClickHouse listens on a plaintext client port, a native query in `system.query_log` arrived without TLS, the
+schema Job hasn't completed, or the schema Job's client config accepts the server with another CA or by another name. Label a PR `restricted` when it changes what either profile renders, how the shared operator is
 used, or how ClickHouse's TLS is served or verified.
 
 ### Cluster nodes
