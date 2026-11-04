@@ -95,7 +95,7 @@
     {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- $mounts := default list $c.volumeMounts }}
-  {{- if and $c.clickhouseCA (include "common.clickhouseExternal" $root) }}
+  {{- if and $c.clickhouseCA (include "common.clickhouseTLS" $root) }}
   {{- $mounts = append $mounts (dict "name" "clickhouse-ca" "mountPath" "/etc/clickhouse-ca" "readOnly" true) }}
   {{- end }}
   {{- with $mounts }}
@@ -166,10 +166,10 @@ spec:
     {{- include "common.container" (list $root $name $c $key) | nindent 4 }}
     {{- end }}
     {{- end }}
-  {{- /* A container with clickhouseCA mounts the external ClickHouse's CA bundle (common.clickhouseCAVolume). */}}
+  {{- /* A container with clickhouseCA mounts ClickHouse's CA bundle whenever common.clickhouseTLS holds (common.clickhouseCAVolume). */}}
   {{- $clickhouseCA := false }}
   {{- range $d.containers }}{{ if and . .clickhouseCA }}{{ $clickhouseCA = true }}{{ end }}{{ end }}
-  {{- $clickhouseCA = and $clickhouseCA (include "common.clickhouseExternal" $root) }}
+  {{- $clickhouseCA = and $clickhouseCA (include "common.clickhouseTLS" $root) }}
   {{- if or $d.volumes $clickhouseCA }}
   volumes:
     {{- range $name, $volume := $d.volumes }}
@@ -336,7 +336,9 @@ common.clickhouseEgress renders the NetworkPolicy egress rule an app uses to rea
 (list $root (list <port>...)): the ports on the ClickHouse pods this stack runs, selected by
 common.clickhousePodLabels. With global.clickhouse.external, ClickHouse is a service someone else runs:
 the rule allows only the port of global.services.clickhouse, to global.clickhouse.networkPolicyPeers, or to any
-destination when that is empty, and the in-cluster ports are dropped.
+destination when that is empty, and the in-cluster ports are dropped. With global.clickhouse.standalone, the
+server is TLS only: the rule allows the standalone pods' 9440 instead of the ports named, plus 9363 (Prometheus)
+when the app names it.
 */ -}}
 
 {{- /*
@@ -395,9 +397,34 @@ clickhouse.altinity.com/chi: otel
 {{- end -}}
 
 {{- /*
-common.clickhouseCA: where a container finds the external ClickHouse's CA bundle, /etc/clickhouse-ca/<caKey>.
-A container that sets clickhouseCA: true gets global.clickhouse.tls.caConfigMap mounted there, with
-global.clickhouse.external only; common.clickhouseCAVolume is that volume's source, for a pod common does not
+common.clickhouseTLS is "true" when clients reach ClickHouse over verified TLS: an external ClickHouse or a
+standalone one. Clients then dial with TLS on, verify the server against common.clickhouseCA and
+global.clickhouse.tls.serverName, and there is no way to skip that verification.
+*/ -}}
+
+{{- define "common.clickhouseTLS" -}}
+{{- if include "common.clickhouseExternal" . -}}
+true
+{{- else if include "common.clickhouseStandalone" . -}}
+{{- $c := (include "common.values" . | fromYaml).global.clickhouse -}}
+{{- if not $c.tls.serverName -}}
+{{- fail "global.clickhouse.standalone is true but global.clickhouse.tls.serverName is empty: name the certificate the server presents, which every client verifies (README: A standalone ClickHouse)" -}}
+{{- end -}}
+{{- if not $c.tls.caConfigMap -}}
+{{- fail "global.clickhouse.standalone is true but global.clickhouse.tls.caConfigMap is empty: name the ConfigMap with the CA bundle the platform provides (README: A standalone ClickHouse)" -}}
+{{- end -}}
+{{- $address := include "common.serviceAddress" (list . "clickhouse") -}}
+{{- if not (regexMatch ":9440$" $address) -}}
+{{- fail (printf "global.clickhouse.standalone is true but global.services.clickhouse is %s: a standalone ClickHouse serves the native protocol only over TLS, on 9440" $address) -}}
+{{- end -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- /*
+common.clickhouseCA: where a container finds ClickHouse's CA bundle, /etc/clickhouse-ca/<caKey>.
+A container that sets clickhouseCA: true gets global.clickhouse.tls.caConfigMap mounted there whenever
+common.clickhouseTLS holds; common.clickhouseCAVolume is that volume's source, for a pod common does not
 render (the clickhouse node's schema Job).
 */ -}}
 
@@ -408,7 +435,7 @@ render (the clickhouse node's schema Job).
 
 {{- define "common.clickhouseCAVolume" -}}
 {{- $v := include "common.values" . | fromYaml -}}
-{{- if include "common.clickhouseExternal" . -}}
+{{- if include "common.clickhouseTLS" . -}}
 configMap:
   name: {{ $v.global.clickhouse.tls.caConfigMap }}
 {{- else -}}
@@ -437,9 +464,19 @@ emptyDir: {}
         matchLabels:
           {{- include "common.clickhousePodLabels" $root | nindent 10 }}
   ports:
+    {{- if include "common.clickhouseTLS" $root }}
+    {{- /* A standalone server listens on no plaintext native or HTTP port: 9440, and 9363 for the scraper. */}}
+    - port: 9440
+      protocol: TCP
+    {{- if has 9363 $ports }}
+    - port: 9363
+      protocol: TCP
+    {{- end }}
+    {{- else }}
     {{- range $ports }}
     - port: {{ int . }}
       protocol: TCP
+    {{- end }}
     {{- end }}
 {{- end -}}
 {{- end -}}
