@@ -14,7 +14,15 @@
 # First it renders the environment (scripts/render.bash, which fails on a mixed secret mechanism) and prints the
 # mechanism each app reads its credentials through, with every record that mechanism has to hold before the first
 # sync: Secret names and keys, Vault paths and fields, or External Secrets remote keys and properties
-# (scripts/secret-records.bash). It prints names only, never a value.
+# (scripts/secret-records.bash). It prints names only, never a value. A Helm error in that render stops preflight:
+# Argo CD would refuse the same parent, so nothing is applied past it.
+#
+# Every revision Argo CD would follow has to be immutable, a 40-character commit SHA or a tag: the bootstrap
+# Application's targetRevision, values-<env>.yaml's, and any child's own pin. A branch lets children move on while a
+# parent that fails to render can no longer change them (docs/runbook.md: Recovering a parent that fails to render).
+# PREFLIGHT_REVISION is the revision bootstrap.bash deploys in place of the files' (its <revision>), and
+# ALLOW_MUTABLE_REVISION=1 accepts a branch, for a throwaway cluster (make cluster/up, make test/e2e) or the Helm
+# path, which follows no revision. It also says whether the render has a clickhouse-operator Application.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -39,7 +47,15 @@ echo "==> Preflight for $env_name against context ${context}"
 # The credential records, from the environment's own render.
 render_dir="$(mktemp -d)"
 trap 'rm -rf "$render_dir"' EXIT
-KUBE_VERSION="${KUBE_VERSION:-$(sed -n 's/^KUBE_VERSION := //p' Makefile)}" scripts/render.bash "$render_dir" "$env_name" >/dev/null 2> >(grep -v "found symbolic link" >&2)
+if ! KUBE_VERSION="${KUBE_VERSION:-$(sed -n 's/^KUBE_VERSION := //p' Makefile)}" scripts/render.bash "$render_dir" "$env_name" >/dev/null 2> >(grep -v "found symbolic link" >&2); then
+  echo "preflight: the $env_name app-of-apps does not render (above); Argo CD would refuse the same parent, so fix $values before syncing anything" >&2
+  exit 1
+fi
+if grep -q "^  name: clickhouse-operator-" "$render_dir/$env_name/app-of-apps.yaml" 2>/dev/null; then
+  echo "==> The render has a clickhouse-operator Application (with its CRDs and cluster RBAC)"
+else
+  echo "==> The render has no clickhouse-operator Application"
+fi
 records="$(scripts/secret-records.bash "$render_dir/$env_name")"
 echo "==> Secret mechanism: $(awk '{print $2}' <<<"$records" | sort -u | paste -sd' ' | sed 's/ /, /g') (README: Credentials)"
 echo "==> Credential records the environment needs before the first sync (app, mechanism, record):"
@@ -50,6 +66,32 @@ fail() {
   echo "FAIL: $*" >&2
   failures=$((failures + 1))
 }
+
+# immutable <revision>: a 40-character commit SHA, or a tag in this checkout.
+immutable() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || git show-ref --verify --quiet "refs/tags/$1"
+}
+bootstrap_file="cluster-configs/app-of-apps/app-of-apps-$env_name.yaml"
+revisions=()
+if [[ -n "${PREFLIGHT_REVISION:-}" ]]; then
+  revisions+=("the deployed revision (bootstrap's <revision>)=$PREFLIGHT_REVISION")
+else
+  revisions+=("$bootstrap_file spec.source.targetRevision=$(yq '.spec.source.targetRevision // ""' "$bootstrap_file" 2>/dev/null)")
+  revisions+=("$values targetRevision=$(yq '.targetRevision // ""' "$values")")
+fi
+while IFS=$'\t' read -r app revision; do
+  [[ -n "$app" ]] && revisions+=("$values applications.$app.targetRevision=$revision")
+done < <(yq -r '.applications // {} | to_entries[] | select(.value.targetRevision) | [.key, .value.targetRevision] | @tsv' "$values")
+for each in "${revisions[@]}"; do
+  where="${each%=*}" revision="${each##*=}"
+  if immutable "$revision"; then
+    echo "==> Revision: $where is $revision"
+  elif [[ "${ALLOW_MUTABLE_REVISION:-}" == 1 ]]; then
+    echo "WARN: $where is ${revision:-empty}, which can move; accepted with ALLOW_MUTABLE_REVISION=1" >&2
+  else
+    fail "$where is ${revision:-empty}, not a commit SHA or a tag: pin it, so children cannot move on while a parent that fails to render cannot change them (docs/runbook.md: Recovering a parent that fails to render), or set ALLOW_MUTABLE_REVISION=1 for a throwaway cluster"
+  fi
+done
 
 # app_value <app> <yq path under applications.<app>.values>: the environment's value, empty when unset.
 app_value() {

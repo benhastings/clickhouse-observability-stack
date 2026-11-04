@@ -393,6 +393,38 @@ ClickHouseInstallation in the cluster, the platform's included. So look before y
 Never broaden the AppProject to let the stale child sync. Its `clusterResourceWhitelist` is the namespace's
 boundary; the fix is to remove the child, not the boundary.
 
+### Recovering a parent that fails to render
+
+The parent `app-of-apps-<env>` renders every child Application from `values-<env>.yaml`. When that render fails (a
+Helm validation error, such as Vault and External Secrets both on for one app), the parent can no longer change
+any child: it can't disable one, reconfigure one or prune one. Each child keeps its last spec, and if that spec
+follows a branch, some children update from it while others never get the change they need. A child the parent
+should have removed, such as a stale `clickhouse-operator-<env>`, keeps retrying CRDs the project refuses.
+Retrying a sync never fixes a render error. Recover in this order:
+
+1. **Stop the movement.** Pin each child that follows a branch to the last commit that worked, for this recovery
+   only: `argocd app set <child> --revision <sha>` (with the parent's self-heal off for the duration, as in
+   [Pausing a failing Application](#pausing-a-failing-application)). `argocd app history <child>` shows what it last
+   deployed. This changes the cluster.
+2. **Fix the values and the source together.** In one reviewable change, make `values-<env>.yaml` render against
+   the chart at the revision it names, and set that revision (`targetRevision` in `values-<env>.yaml` and in
+   `app-of-apps-<env>.yaml`) to a commit SHA or a tag, never a branch.
+3. **Prove the render before anything syncs.** `make cluster/preflight ENV=<env>` renders the full app-of-apps
+   from that values file and stops on any Helm error. It fails on a revision that is not a SHA or a tag, and says
+   whether the render has a `clickhouse-operator` Application; a `clusterScoped: false` environment must have none.
+4. **Reconcile the parent.** Merge, then `argocd app get app-of-apps-<env> --refresh` and sync it. It rewrites every
+   child from the new render, which replaces the pins from step 1, and prunes children it no longer renders (for a
+   stale operator child, see [A stale child Application stays `OutOfSync`](#a-stale-child-application-stays-outofsync)
+   first). Turn the parent's self-heal back on.
+5. **Then clear stale operations.** Only now `argocd app terminate-op <child>` for a child still running an
+   operation from its old spec, or let it complete, and sync it once. Before step 4 it would just retry the old spec.
+6. **Remove any one-time option** used during the recovery, such as a `Replace` sync
+   ([One-time convergence after switching secret mechanisms](#one-time-convergence-after-switching-secret-mechanisms)),
+   and confirm the next sync is server-side apply with no diff.
+
+Record the revision you deployed, the one you rolled back from, and the acceptance report
+(`make test/acceptance ENV=<env>`) on the change.
+
 ## Operating a standalone ClickHouse
 
 For an environment with `global.clickhouse.standalone: true` (the `standalone` profile; README: [A standalone

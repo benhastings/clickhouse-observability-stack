@@ -63,7 +63,8 @@ load_kind_image_archive() {
   return "$status"
 }
 
-ENV="$env" scripts/preflight.bash
+# A <revision> is what Argo CD will follow, so preflight checks it is immutable in place of the files'.
+ENV="$env" PREFLIGHT_REVISION="$revision" scripts/preflight.bash
 
 if kubectl -n argocd get deployment argocd-server >/dev/null 2>&1; then
   echo "==> Argo CD is already running; leaving it as it is"

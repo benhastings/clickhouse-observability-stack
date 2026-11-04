@@ -11,6 +11,8 @@ cd "$(dirname "$0")/.."
 source scripts/local-secrets.bash
 
 REVISION=${1:-}
+# kind is a throwaway cluster that follows a branch (main, or REVISION): preflight accepts a mutable revision here.
+export ALLOW_MUTABLE_REVISION=1
 ENV=${ENV:-local}
 CLUSTER=clickhouse-obs
 
