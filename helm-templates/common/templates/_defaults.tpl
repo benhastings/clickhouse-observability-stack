@@ -22,6 +22,13 @@ global:
     namespaces:
       stack: observability
       operator: clickhouse-operator
+    # Where an app on Vault reaches Vault, for its Vault agent: namespace (and podLabels) for a Vault in the cluster,
+    # cidrs for one outside it, on port. Empty adds nothing, for a platform whose own policy already allows it.
+    vault:
+      namespace: ""
+      podLabels: {}
+      cidrs: []
+      port: 8200
   # Who runs the Altinity ClickHouse operator. false: this stack installs it, as the clickhouse-operator
   # application with its CRDs, ClusterRole and ClusterRoleBinding. true: a platform team already runs one that
   # watches the stack's namespace (in global.networkPolicy.namespaces.operator), and the stack renders nothing

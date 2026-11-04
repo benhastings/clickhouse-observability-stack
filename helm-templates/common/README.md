@@ -103,6 +103,7 @@ schema, and to the template in the same change.
 | `global.networkPolicy.exposureNamespaces` | `[]` | namespaces whose pods may reach an exposed app (the ingress gateway or controller) |
 | `global.networkPolicy.istioNamespace` | `istio-system` | where istiod runs, for the sidecar's egress under `mesh: istio` |
 | `global.networkPolicy.namespaces` | `{stack: observability, operator: clickhouse-operator}` | the stack's and the operator's namespaces, for rules that cross between them |
+| `global.networkPolicy.vault` | `{namespace: "", podLabels: {}, cidrs: [], port: 8200}` | where an app on Vault reaches Vault, for its Vault agent: `namespace` (and `podLabels`) for a Vault in the cluster, `cidrs` for one outside it, on `port`. Empty adds no rule, for a platform whose own policy already allows it |
 | `serviceAccount.create` | `true` | render a ServiceAccount named after the chart |
 | `serviceAccount.name` | chart name, or `default` when not created | override the name |
 | `serviceAccount.automountToken` | `false` | also applied to the pod spec |

@@ -5,6 +5,14 @@
 {{- $ambient := include "common.istioAmbient" . }}
 {{- $ingress := include "common.networkPolicy.rules" (list . $np.ingress) }}
 {{- $egress := include "common.networkPolicy.rules" (list . $np.egress) }}
+{{- /*
+With the app on Vault, its Vault agent has to reach Vault: global.networkPolicy.vault, by namespace and pod labels
+for a Vault in the cluster or by CIDR for one outside it. Empty, nothing is added, for a platform whose own
+NetworkPolicy already allows it (policies add up).
+*/}}
+{{- with include "common.networkPolicy.vault" . }}
+{{- $egress = ternary . (printf "%s\n%s" $egress .) (eq $egress "") }}
+{{- end }}
 {{- $hboneIn := "" }}
 {{- $hboneOut := "" }}
 {{- if $ambient }}
