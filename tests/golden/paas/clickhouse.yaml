@@ -1138,7 +1138,7 @@ spec:
         - |
           # clickhouse-client takes its CA only from a config file. Verification is strict, and a certificate
           # that fails it is refused, never accepted. extendedVerification checks the certificate carries the
-          # server name too, which is off by default: without it any certificate the CA signed would do.
+          # server name too; its default has changed between ClickHouse releases, so it is set, not assumed.
           cat >/tmp/client.xml <<EOF
           <config>
             <openSSL>
