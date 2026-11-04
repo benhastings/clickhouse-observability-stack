@@ -313,7 +313,7 @@ tests:
               app.kubernetes.io/name: clickhouse
       - lengthEqual:
           path: spec.ingress
-          count: 2
+          count: 3
       - notMatchRegex:
           path: spec.ingress[0].from[0].podSelector.matchExpressions[0].key
           pattern: clickhouse.altinity.com

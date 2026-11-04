@@ -161,10 +161,10 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit test/credentials test/kind-profiles test/live test/quota test/restricted ## Every offline test
+test: test/unit test/credentials test/kind-profiles test/live test/quota test/restricted test/preflight ## Every offline test
 
 .PHONY: test/e2e
-test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted for the restricted namespace
+test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted or ENV=standalone for a restricted namespace
 	ENV=$(ENV) MESH=$(MESH) scripts/kind-up.sh $(REVISION)
 	ENV=$(ENV) MESH=$(MESH) scripts/e2e.bash
 
@@ -175,6 +175,10 @@ test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (
 .PHONY: measure/disk
 measure/disk: ## Read-only: bytes per row, ingest rates and peak disk use from the running ClickHouse, for the README's Disk sizing
 	scripts/measure-disk.bash
+
+.PHONY: test/preflight
+test/preflight: deps ## Prove preflight.bash passes the restricted-namespace profiles on a stub of the kind platform
+	KUBE_VERSION=$(KUBE_VERSION) scripts/preflight-test.bash
 
 .PHONY: test/quota
 test/quota: ## Prove check-quota.bash rejects a missing CPU limit, request, or Vault agent resources
@@ -232,7 +236,7 @@ helm/uninstall: ## Uninstall both Helm releases of ENV=<env>; CRDs, namespaces, 
 ##@ Local cluster
 
 .PHONY: cluster/up
-cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch, MESH=istio or ambient to run it in Istio, ENV=restricted for the restricted namespace)
+cluster/up: ## Create the kind cluster, install Argo CD and apply the local app-of-apps (REVISION=<git ref> to deploy a branch, MESH=istio or ambient to run it in Istio, ENV=restricted or ENV=standalone for a restricted namespace)
 	ENV=$(ENV) MESH=$(MESH) scripts/kind-up.sh $(REVISION)
 
 .PHONY: cluster/bootstrap

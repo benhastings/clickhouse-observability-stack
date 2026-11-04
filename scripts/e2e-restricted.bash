@@ -1,16 +1,19 @@
 # shellcheck shell=bash disable=SC2154
-# Sourced by scripts/e2e.bash for ENV=restricted (make test/e2e ENV=restricted): the restricted-namespace profile on
-# kind, after scripts/kind-platform.bash has done the platform team's part. No demo load runs, so a pod in the
-# namespace sends its own trace, log and metric, and each is read back through Cerberus and through Grafana.
-# It uses e2e.bash's step and poll, the port-forwarded $cerberus and $grafana, $grafana_login, $start and $end.
+# Sourced by scripts/e2e.bash for ENV=restricted and ENV=standalone (make test/e2e ENV=<env>): a restricted-namespace
+# profile on kind, after scripts/kind-platform.bash has done the platform team's part. No demo load runs, so a pod in
+# the namespace sends its own trace, log and metric, and each is read back through Cerberus and through Grafana.
+# For standalone, ClickHouse runs without the operator and serves only TLS: nothing listens on a plaintext port,
+# every client's queries arrived over TLS, and a client with the wrong CA or dialling the wrong name is refused.
+# It uses e2e.bash's step and poll, $ENV, the port-forwarded $cerberus and $grafana, $grafana_login, $start and $end.
 
 ns="$(yq '.namespace' cluster-configs/app-of-apps/values.yaml)"
-restricted_values=cluster-configs/overrides/values-restricted.yaml
+restricted_values="cluster-configs/overrides/values-$ENV.yaml"
 operator_ns="$(yq '.global.networkPolicy.namespaces.operator // "clickhouse-operator"' "$restricted_values")"
 grafana_host="$(yq '.global.exposure.hosts.grafana' "$restricted_values")"
+standalone="$(yq '.global.clickhouse.standalone // false' "$restricted_values")"
 
 if kubectl get namespace argocd >/dev/null 2>&1; then
-  project="$(yq '.spec.project' cluster-configs/app-of-apps/app-of-apps-restricted.yaml)"
+  project="$(yq '.spec.project' "cluster-configs/app-of-apps/app-of-apps-$ENV.yaml")"
   step "Argo CD: the $project AppProject allows no cluster-scoped kind"
   kubectl -n argocd get appproject "$project" -o json | jq -e '.spec.clusterResourceWhitelist // [] | length == 0' >/dev/null ||
     { echo "  $project allows: $(kubectl -n argocd get appproject "$project" -o jsonpath='{.spec.clusterResourceWhitelist}')"; exit 1; }
@@ -29,15 +32,26 @@ if kubectl get namespace argocd >/dev/null 2>&1; then
   echo "  ok"
 fi
 
-step "ClickHouse: the shared operator in $operator_ns reconciled the installation in $ns"
-[[ -z "$(kubectl -n "$ns" get deployments -l app.kubernetes.io/name=clickhouse-operator -o name)" ]] ||
-  { echo "  $ns runs its own ClickHouse operator"; exit 1; }
-kubectl -n "$operator_ns" wait deployment -l app.kubernetes.io/name=clickhouse-operator --for=condition=Available \
-  --timeout=60s >/dev/null
-chi_status="$(kubectl -n "$ns" get chi otel -o jsonpath='{.status.status}')"
-[[ "$chi_status" == Completed ]] || { echo "  the installation is $chi_status, not Completed"; exit 1; }
-kubectl -n "$ns" wait pod -l clickhouse.altinity.com/chi=otel --for=condition=Ready --timeout=120s >/dev/null
-echo "  ok: Completed, every ClickHouse pod Ready"
+if [[ "$standalone" == true ]]; then
+  step "ClickHouse: runs standalone in $ns, with no operator and no installation, and the schema Job completed"
+  [[ -z "$(kubectl get deployments -A -l app.kubernetes.io/name=clickhouse-operator -o name)" ]] ||
+    { echo "  a ClickHouse operator runs in the cluster"; exit 1; }
+  ! kubectl get crd clickhouseinstallations.clickhouse.altinity.com >/dev/null 2>&1 ||
+    { echo "  the cluster has the ClickHouseInstallation CRD"; exit 1; }
+  kubectl -n "$ns" wait deployment/clickhouse --for=condition=Available --timeout=120s >/dev/null
+  kubectl -n "$ns" wait job -l app.kubernetes.io/name=clickhouse-schema --for=condition=Complete --timeout=300s >/dev/null
+  echo "  ok: deployment/clickhouse Available, $(kubectl -n "$ns" get jobs -l app.kubernetes.io/name=clickhouse-schema -o name) Complete"
+else
+  step "ClickHouse: the shared operator in $operator_ns reconciled the installation in $ns"
+  [[ -z "$(kubectl -n "$ns" get deployments -l app.kubernetes.io/name=clickhouse-operator -o name)" ]] ||
+    { echo "  $ns runs its own ClickHouse operator"; exit 1; }
+  kubectl -n "$operator_ns" wait deployment -l app.kubernetes.io/name=clickhouse-operator --for=condition=Available \
+    --timeout=60s >/dev/null
+  chi_status="$(kubectl -n "$ns" get chi otel -o jsonpath='{.status.status}')"
+  [[ "$chi_status" == Completed ]] || { echo "  the installation is $chi_status, not Completed"; exit 1; }
+  kubectl -n "$ns" wait pod -l clickhouse.altinity.com/chi=otel --for=condition=Ready --timeout=120s >/dev/null
+  echo "  ok: Completed, every ClickHouse pod Ready"
+fi
 
 step "Collector: runs as a gateway only, with no agent DaemonSet"
 kubectl -n "$ns" rollout status deployment/otel-collector --timeout=60s >/dev/null
@@ -127,6 +141,12 @@ poll "Istio: the Prometheus datasource is healthy through the Gateway too" \
   '.status == "OK"' \
   -u "$grafana_login" -H "Host: $grafana_host" http://localhost:18088/api/datasources/uid/cerberus-prometheus/health
 
+if [[ "$standalone" == true ]]; then
+  # After the probe's signals were written and read, so every client has queried the server.
+  # shellcheck source=scripts/e2e-standalone.bash
+  source scripts/e2e-standalone.bash
+fi
+
 # Every Secret value the stack reads, looked for in its pods' logs and in the live objects that configure them.
 # Only the Secret's name is printed.
 step "Credentials: no Secret value appears in $ns's logs, ConfigMaps, workloads or Applications"
@@ -134,15 +154,24 @@ haystack="$(mktemp)"
 for pod in $(kubectl -n "$ns" get pods -o name); do
   kubectl -n "$ns" logs "$pod" --all-containers >>"$haystack" 2>/dev/null || true
 done
-kubectl -n "$ns" get configmaps,deployments,jobs,chi -o yaml >>"$haystack"
+workload_kinds=configmaps,deployments,jobs
+refs=(clickhouse-admin:password clickhouse-writer:password clickhouse-reader:password
+  clickhouse-analyst:password clickhouse-garmr:password grafana-admin:admin-password)
+if [[ "$standalone" == true ]]; then
+  # The server's private key, as well as the passwords.
+  refs+=("$(yq '.global.clickhouse.tls.serverSecret' "$restricted_values"):tls.key")
+else
+  workload_kinds+=,chi
+fi
+kubectl -n "$ns" get "$workload_kinds" -o yaml >>"$haystack"
 kubectl -n argocd get applications -o yaml >>"$haystack" 2>/dev/null || true
 leaks=()
-for ref in clickhouse-admin:password clickhouse-writer:password clickhouse-reader:password \
-  clickhouse-analyst:password clickhouse-garmr:password grafana-admin:admin-password; do
+for ref in "${refs[@]}"; do
   value="$(kubectl -n "$ns" get secret "${ref%%:*}" -o go-template="{{index .data \"${ref#*:}\" | base64decode}}")"
   [[ -n "$value" ]] || { echo "  ${ref%%:*} has no ${ref#*:}"; rm -f "$haystack"; exit 1; }
-  grep -qF -f <(printf '%s\n' "$value") "$haystack" && leaks+=("${ref%%:*}")
+  # Every line of the value is a pattern, but a PEM key's armour lines are the same in every key.
+  grep -qF -f <(grep -v -e '^-----' <<<"$value") "$haystack" && leaks+=("${ref%%:*}")
 done
 rm -f "$haystack"
 ((${#leaks[@]} == 0)) || { echo "  found the value of: ${leaks[*]}"; exit 1; }
-echo "  ok: $(kubectl -n "$ns" get pods -o name | wc -l) pods' logs and the live objects hold none of 6 Secret values"
+echo "  ok: $(kubectl -n "$ns" get pods -o name | wc -l) pods' logs and the live objects hold none of ${#refs[@]} Secret values"

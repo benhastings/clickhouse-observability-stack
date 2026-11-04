@@ -490,6 +490,10 @@ With `standalone: true`:
   when `global.services.clickhouse` is not `<host>:9440`. The certificate must carry `serverName`; the Service's
   short name `clickhouse` holds in any namespace. Backups dial that name, since clickhouse-backup can't override
   the name it verifies.
+- Cerberus dials HTTPS on `8443` instead of the native protocol on `9440`, verified the same way
+  (`CERBERUS_CH_PROTOCOL: http`, at the host of `global.services.clickhouse`). This is a stopgap: Cerberus v1.22
+  always installs its own dialer, which clickhouse-go uses in place of its TLS dial, so Cerberus can't speak
+  native TLS. Its HTTP transport keeps TLS on that dialer. It goes back to `9440` once Cerberus dials native TLS.
 - The Service's and container's TLS ports are named `tcp-*`, so under Istio the server's TLS rides inside the
   mesh's mTLS as opaque TCP.
 - The server's configuration is `files/server.yaml.tpl`, the same file the ClickHouseInstallation is rendered from:
@@ -504,7 +508,7 @@ With `standalone: true`:
   it does with the operator: both reach the server on `9440` over TLS as `otel_admin`.
 - NetworkPolicies select the server's pods by `app.kubernetes.io/name: clickhouse` instead of the operator's
   `clickhouse.altinity.com/chi` label, and drop the operator's and the interserver rules. The server admits clients
-  only on `9440`, and the collector on `9363`, which it scrapes the same way.
+  only on `9440`, Cerberus alone on `8443`, and the collector on `9363`, which it scrapes the same way.
 - As with the operator, the server reads its users' passwords only from Kubernetes Secrets, so `vault.enabled`
   fails the render for it; its certificate is likewise a Kubernetes Secret, not a Vault record.
 
@@ -515,6 +519,19 @@ Application, sizing and backup) is
 `make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
 anything that selects the operator's pods.
+
+To try it on kind, run `make cluster/up ENV=standalone` or `make test/e2e ENV=standalone` (with
+`REVISION=<branch>` for a pushed branch). As for `restricted`, it installs Istio and `scripts/kind-platform.bash`
+plays the platform team, but installs no operator: it generates a throwaway CA and a certificate for `clickhouse`
+with openssl, never written to the repository, and creates the `clickhouse-tls` Secret and the `platform-ca-bundle`
+ConfigMap from them. The e2e run makes the same checks as for `restricted`, with the server's private key among the
+Secret values it looks for, and also checks that there is no operator or ClickHouseInstallation CRD, that the
+schema Job completed, that the server listens on no plaintext client port (`9000`, `8123`, `9004`, `9005`, `9009`),
+and that every native query in `system.query_log` arrived over TLS, including the collector's, the readers' and
+the schema Job's (Cerberus's arrive over HTTPS, there is no plaintext HTTP port, and the server's own flushes of
+async inserts are left out). From a pod in the namespace, the schema Job's own client config accepts the server by `clickhouse` with the
+platform's CA, and refuses it with another CA and by the name `clickhouse.observability.svc.cluster.local` the
+certificate does not carry. CI runs it alongside `restricted`.
 
 ### An external ClickHouse
 
@@ -550,11 +567,12 @@ With `external: true`:
 - The `clickhouse` application renders only its schema Job and the ConfigMap with its SQL (see
   [Who applies the schema](#who-applies-the-schema)). `clickhouse.backup` fails the render, because backups are
   the service owner's.
-- The collector, Cerberus, garmr sql-adapter, garmr and the schema Job all dial `global.services.clickhouse`. Each
+- The collector, garmr sql-adapter, garmr and the schema Job all dial `global.services.clickhouse`, and Cerberus
+  the same host's HTTPS port, `8443`, as for [a standalone ClickHouse](#a-standalone-clickhouse). Each
   connects over TLS and verifies the server's certificate against `tls.serverName` and the bundle in
   `tls.caConfigMap`. The render fails without either of them. There is no setting that skips verification, and
   no client presents a certificate of its own.
-- NetworkPolicies allow that address's port, to `networkPolicyPeers` or, when it is empty, to any destination.
+- NetworkPolicies allow that address's port, and `8443` for Cerberus, to `networkPolicyPeers` or, when it is empty, to any destination.
   They no longer allow the operator's pods. The collector no longer scrapes ClickHouse.
 - `make helm/install` installs no operator, and `make cluster/preflight` checks the service contract below
   instead of a StorageClass and an operator.
@@ -1745,6 +1763,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 | kubeconform + policy | invalid objects, missing memory limits, unpinned images; anything cluster-scoped or in another namespace in the `restricted` and `paas` profiles, and a ClickHouseInstallation or operator in `paas` | `make check`, pinned schemas |
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
 | kind e2e, restricted | the `restricted` profile deployed against a shared operator and Gateway: nothing cluster-scoped, a trace, log and metric through to Grafana, no Secret value in logs | CI on PRs labelled `restricted`, or `make test/e2e ENV=restricted` |
+| kind e2e, standalone | the `standalone` profile with no operator and a certificate the stand-in platform issues: the `restricted` checks, plus TLS only, every client's queries over TLS, and a wrong CA or server name refused | CI on PRs labelled `restricted`, or `make test/e2e ENV=standalone` |
 
 Everything that could drift is pinned: tool versions in the `Makefile`, Kubernetes `1.37.0` for rendering,
 schemas and the kind node image (by digest), and the schema sources by commit. No chart is fetched from a

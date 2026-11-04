@@ -1037,12 +1037,21 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].command[2]
           pattern: '--secure --tls-sni-override "\$CLICKHOUSE_TLS_SERVER_NAME"'
+      # With --config-file, clickhouse-client ignores CLICKHOUSE_HOST, CLICKHOUSE_USER and CLICKHOUSE_PASSWORD
+      # and dials localhost, so the TLS client names all three.
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'set -- --config-file /tmp/client.xml --host "\$CLICKHOUSE_HOST" --port "\$CLICKHOUSE_PORT" --user "\$CLICKHOUSE_USER" --password "\$CLICKHOUSE_PASSWORD"'
       - matchRegex:
           path: spec.template.spec.containers[0].command[2]
           pattern: <verificationMode>strict</verificationMode>
       - matchRegex:
           path: spec.template.spec.containers[0].command[2]
           pattern: <name>RejectCertificateHandler</name>
+      # Set, not left to the default, which has changed between ClickHouse releases.
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: <extendedVerification>true</extendedVerification>
       - notMatchRegex:
           path: spec.template.spec.containers[0].command[2]
           pattern: (?i)accept-invalid-certificate|AcceptCertificateHandler|verificationMode>none

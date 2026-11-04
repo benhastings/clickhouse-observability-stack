@@ -32,6 +32,12 @@ if kubectl get crd applications.argoproj.io >/dev/null 2>&1 && kubectl get names
       exit 1
     fi
     echo "  $ready/$expected ready ($total present)"
+    # Its pod is deleted at the Job's deadline, taking the reason it never finished with it, so say it now.
+    if ((SECONDS % 60 < 5)); then
+      schema_log="$(kubectl -n observability logs -l app.kubernetes.io/name=clickhouse-schema -c clickhouse-schema \
+        --tail=6 2>/dev/null | grep -v "^$" || true)"
+      [[ -z "$schema_log" ]] || echo "  clickhouse-schema: ${schema_log//$'\n'/$'\n'  clickhouse-schema: }"
+    fi
     sleep 5
   done
 else
@@ -94,8 +100,9 @@ now="$(date +%s)"
 start=$((now - 900))
 end=$((now + 900))
 
-# ENV=restricted has no demo load and no kubeletstats, so it runs its own smoke checks instead of the ones below.
-if [[ "$ENV" == restricted ]]; then
+# ENV=restricted and ENV=standalone have no demo load and no kubeletstats, so they run their own smoke checks
+# instead of the ones below.
+if [[ "$ENV" == restricted || "$ENV" == standalone ]]; then
   # shellcheck source=scripts/e2e-restricted.bash
   source scripts/e2e-restricted.bash
   echo "e2e: ok"

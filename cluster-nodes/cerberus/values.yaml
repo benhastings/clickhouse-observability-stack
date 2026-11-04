@@ -2,10 +2,13 @@
 configMaps:
   env:
     data:
-      CERBERUS_CH_ADDR: '{{ include "common.serviceAddress" (list $ "clickhouse") }}'
+      # Over TLS (an external or standalone ClickHouse), HTTPS on 8443 instead of the native protocol: a stopgap,
+      # because Cerberus v1.22 always installs its own dialer, which clickhouse-go uses instead of its TLS dial, so
+      # CERBERUS_CH_TLS_ENABLED does nothing on the native protocol. Its HTTP transport keeps TLS on that dialer.
+      CERBERUS_CH_ADDR: '{{ if include "common.clickhouseTLS" . }}{{ include "common.clickhouseHTTPSAddress" . }}{{ else }}{{ include "common.serviceAddress" (list $ "clickhouse") }}{{ end }}'
       CERBERUS_CH_DATABASE: otel
       CERBERUS_CH_USERNAME: otel_reader
-      CERBERUS_CH_PROTOCOL: native
+      CERBERUS_CH_PROTOCOL: '{{ if include "common.clickhouseTLS" . }}http{{ else }}native{{ end }}'
       CERBERUS_CH_DIAL_TIMEOUT: 10s
       # An external ClickHouse (global.clickhouse.external) over TLS, verified against the platform's CA bundle and
       # the certificate's name. Empty values leave TLS off; there is no insecure option to set.
@@ -103,4 +106,4 @@ networkPolicy:
           protocol: TCP
   # ClickHouse: the operator's pods, or with global.clickhouse.external the service owner's endpoint.
   egress: |-
-    {{- include "common.clickhouseEgress" (list . (list 9000 8123)) }}
+    {{- include "common.clickhouseEgress" (list . (ternary (list 8123) (list 9000 8123) (include "common.clickhouseTLS" . | eq "true"))) }}

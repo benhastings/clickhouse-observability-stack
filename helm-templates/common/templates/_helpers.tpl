@@ -335,11 +335,21 @@ overrides them once under global. It takes (list $root "<name>") and fails on an
 common.clickhouseEgress renders the NetworkPolicy egress rule an app uses to reach ClickHouse. It takes
 (list $root (list <port>...)): the ports on the ClickHouse pods this stack runs, selected by
 common.clickhousePodLabels. With global.clickhouse.external, ClickHouse is a service someone else runs:
-the rule allows only the port of global.services.clickhouse, to global.clickhouse.networkPolicyPeers, or to any
-destination when that is empty, and the in-cluster ports are dropped. With global.clickhouse.standalone, the
-server is TLS only: the rule allows the standalone pods' 9440 instead of the ports named, plus 9363 (Prometheus)
-when the app names it.
+the rule allows the port of global.services.clickhouse for the native port 9000, and 8443 for the HTTP port 8123,
+to global.clickhouse.networkPolicyPeers, or to any destination when that is empty; with no port named, the
+service's port. With global.clickhouse.standalone, the server is TLS only: each port named becomes its TLS
+counterpart on the standalone pods, 9440 for 9000 and 8443 for 8123, and 9363 (Prometheus) stays.
 */ -}}
+
+{{- /*
+common.clickhouseHTTPSAddress: ClickHouse's HTTPS address, the host of global.services.clickhouse on 8443, which
+a standalone ClickHouse serves and an external one is expected to. Cerberus dials it instead of the native port
+while its v1.22 dialer drops TLS on the native protocol (README: A standalone ClickHouse).
+*/ -}}
+
+{{- define "common.clickhouseHTTPSAddress" -}}
+{{- include "common.serviceAddress" (list . "clickhouse") | splitList ":" | first -}}:8443
+{{- end -}}
 
 {{- /*
 common.clickhouseExternal is "true" with global.clickhouse.external and empty without. An external ClickHouse
@@ -448,7 +458,10 @@ emptyDir: {}
 {{- $ports := index . 1 -}}
 {{- $v := include "common.values" $root | fromYaml -}}
 {{- if include "common.clickhouseExternal" $root -}}
-{{- $port := include "common.serviceAddress" (list $root "clickhouse") | splitList ":" | last -}}
+{{- $port := include "common.serviceAddress" (list $root "clickhouse") | splitList ":" | last | int -}}
+{{- $external := list -}}
+{{- if or (has 9000 $ports) (not $ports) }}{{ $external = append $external $port }}{{ end -}}
+{{- if has 8123 $ports }}{{ $external = append $external 8443 }}{{ end -}}
 {{- with $v.global.clickhouse.networkPolicyPeers }}
 - to:
     {{- toYaml . | nindent 4 }}
@@ -456,8 +469,10 @@ emptyDir: {}
 {{- else }}
 - ports:
 {{- end }}
-    - port: {{ int $port }}
+    {{- range $external }}
+    - port: {{ . }}
       protocol: TCP
+    {{- end }}
 {{- else }}
 - to:
     - podSelector:
@@ -465,9 +480,15 @@ emptyDir: {}
           {{- include "common.clickhousePodLabels" $root | nindent 10 }}
   ports:
     {{- if include "common.clickhouseTLS" $root }}
-    {{- /* A standalone server listens on no plaintext native or HTTP port: 9440, and 9363 for the scraper. */}}
+    {{- /* A standalone server listens on no plaintext native or HTTP port: 9440, 8443, and 9363 for the scraper. */}}
+    {{- if has 9000 $ports }}
     - port: 9440
       protocol: TCP
+    {{- end }}
+    {{- if has 8123 $ports }}
+    - port: 8443
+      protocol: TCP
+    {{- end }}
     {{- if has 9363 $ports }}
     - port: 9363
       protocol: TCP

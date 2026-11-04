@@ -37,11 +37,11 @@ data:
   CERBERUS_ADMIT_TEMPO: "true"
   CERBERUS_AUTO_CREATE_DATABASE: "false"
   CERBERUS_AUTO_CREATE_SCHEMA: "false"
-  CERBERUS_CH_ADDR: "clickhouse.paas.example:9440"
+  CERBERUS_CH_ADDR: "clickhouse.paas.example:8443"
   CERBERUS_CH_DATABASE: "otel"
   CERBERUS_CH_DIAL_TIMEOUT: "10s"
   CERBERUS_CH_OPTIMIZATIONS: "auto"
-  CERBERUS_CH_PROTOCOL: "native"
+  CERBERUS_CH_PROTOCOL: "http"
   CERBERUS_CH_TLS_CA_FILE: "/etc/clickhouse-ca/ca.crt"
   CERBERUS_CH_TLS_ENABLED: "true"
   CERBERUS_CH_TLS_SERVER_NAME: "clickhouse.paas.example"
@@ -109,7 +109,7 @@ spec:
         app.kubernetes.io/name: cerberus
         app.kubernetes.io/instance: cerberus
       annotations:
-        checksum/config: d172e8b51771b949a3043457a7241d97ff60fbd70ef2e37a1bd6affe0cf13462
+        checksum/config: fb40bfa8b3d6836f62707702740b7dfc8f355507ecfe4be8f4637303d8e1170b
     spec:
       serviceAccountName: cerberus
       automountServiceAccountToken: false
