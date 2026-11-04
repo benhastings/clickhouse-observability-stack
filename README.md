@@ -513,7 +513,15 @@ With `standalone: true`:
   from Vault instead: the pod gets the Vault Agent Injector's annotations for every `clickhouse-<user>` password
   (pre-populate only, so a rotation is a restart), and the container starts through a shell that exports each file
   as the variable `users.d` reads, then runs the server. A missing file or an empty field stops it before it starts,
-  rather than leave a user without a password. Its certificate is still a Kubernetes Secret, not a Vault record.
+  rather than leave a user without a password.
+- With `global.clickhouse.tls.vault: true` as well, the TLS material comes from Vault too, and nothing TLS-related
+  is a Kubernetes object: `caConfigMap` and `serverSecret` keep their names but name Vault records, in the same
+  shape as a Secret's (the CA is key `caKey` of record `caConfigMap`; the certificate and key are keys `tls.crt` and
+  `tls.key` of record `serverSecret`; with `vault.secret`, the fields `<caConfigMap>-<caKey>`,
+  `<serverSecret>-tls.crt` and `<serverSecret>-tls.key`). The server's agent writes its certificate and key, and the
+  agent of every client (and of the schema Job and backups) writes the CA bundle, which the client verifies
+  against exactly as before. Every one of them must be on Vault; one that isn't fails the render. Rotation is a
+  restart ([the runbook](docs/runbook.md#rotating-credentials-and-the-certificate)).
 
 Running it (first install, restart, upgrade, rollback, credential and certificate rotation, pausing a failing
 Application, sizing and backup) is
@@ -1294,6 +1302,8 @@ stays a Kubernetes Secret.
 | `clickhouse-analyst` | `username`, `password` | ClickHouse; notebooks and jobs | `clickhouse-analyst-password` (standalone server) | `observability/clickhouse-analyst` |
 | `clickhouse-garmr` | `username`, `password` | ClickHouse; `garmr` (`password`) | `clickhouse-garmr-password` | `observability/clickhouse-garmr` |
 | `clickhouse-backup` | `access_key`, `secret_key` | the backup CronJob, with `clickhouse.backup` | `clickhouse-backup-access_key`, `clickhouse-backup-secret_key` | - |
+| `clickhouse-tls` (`tls.serverSecret`) | `tls.crt`, `tls.key` | the standalone ClickHouse server | `clickhouse-tls-tls.crt`, `clickhouse-tls-tls.key`, with `global.clickhouse.tls.vault` | - |
+| `platform-ca-bundle` (`tls.caConfigMap`, a ConfigMap) | `ca.crt` (`tls.caKey`) | every ClickHouse client, with TLS | `platform-ca-bundle-ca.crt`, with `global.clickhouse.tls.vault` | - |
 | `clickhouse-operator-credentials` | `username`, `password` | the ClickHouse operator | - | `observability/clickhouse-operator-credentials` |
 | `grafana-admin` | `admin-user`, `admin-password` | `grafana` | `grafana-admin-admin-user`, `grafana-admin-admin-password` | `observability/grafana-admin` |
 | `grafana-oauth` | `client-secret` | `grafana`, with `auth.genericOauth` | `grafana-oauth-client-secret` | - |

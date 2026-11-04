@@ -6,6 +6,14 @@ its password from the environment variable CLICKHOUSE_PASSWORD_<USER>, which dep
 user's Secret, so no password is in this ConfigMap and nothing creates a user with SQL.
 */}}
 {{- $server := tpl (.Files.Get "files/server.yaml.tpl") . | fromYaml }}
+{{- /* With global.clickhouse.tls.vault the certificate and key are the files the Vault agent writes instead. */}}
+{{- $tls := (include "common.values" . | fromYaml).global.clickhouse.tls }}
+{{- $certificate := "/etc/clickhouse-server/tls/tls.crt" }}
+{{- $key := "/etc/clickhouse-server/tls/tls.key" }}
+{{- if include "common.clickhouseTLSVault" . }}
+{{- $certificate = include "common.secretFilePath" (list . (dict "secret" $tls.serverSecret "key" "tls.crt")) }}
+{{- $key = include "common.secretFilePath" (list . (dict "secret" $tls.serverSecret "key" "tls.key")) }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -34,8 +42,8 @@ data:
       <https_port>8443</https_port>
       <openSSL>
         <server>
-          <certificateFile>/etc/clickhouse-server/tls/tls.crt</certificateFile>
-          <privateKeyFile>/etc/clickhouse-server/tls/tls.key</privateKeyFile>
+          <certificateFile>{{ $certificate }}</certificateFile>
+          <privateKeyFile>{{ $key }}</privateKeyFile>
           <verificationMode>none</verificationMode>
           <loadDefaultCAFile>false</loadDefaultCAFile>
           <cacheSessions>true</cacheSessions>

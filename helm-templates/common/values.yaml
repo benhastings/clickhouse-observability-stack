@@ -47,6 +47,9 @@ global:
   # no plaintext native or HTTP port (only 9363, Prometheus, for the collector), so global.services.clickhouse is
   # clickhouse:9440 and tls.serverName and tls.caConfigMap are required as for external. Its certificate and key
   # are tls.serverSecret, a kubernetes.io/tls Secret the platform provides in the stack's namespace.
+  # tls.vault true reads that TLS material from Vault instead, through the same Vault agent as the passwords (every
+  # client of ClickHouse, and the standalone server, must be on Vault): caConfigMap and serverSecret then name Vault
+  # records, the CA key caKey of the first and keys tls.crt and tls.key of the second.
   # networkPolicyPeers are the NetworkPolicy peers the address resolves to; empty allows its port anywhere.
   clickhouse:
     external: false
@@ -57,6 +60,7 @@ global:
       caConfigMap: ""
       caKey: ca.crt
       serverSecret: ""
+      vault: false
   # How long the stack keeps each signal, in days: ClickHouse's TTLs (the clickhouse node's schema) and Cerberus's
   # metadata lookback (CERBERUS_PROM_METADATA_LOOKBACK, which must cover the metrics) both read these, so they
   # can't drift apart. Three weeks of traces to search, two of logs, and 90 days of metrics. curatedMetrics is the

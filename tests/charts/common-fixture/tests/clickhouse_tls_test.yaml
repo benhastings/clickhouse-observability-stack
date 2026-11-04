@@ -107,6 +107,53 @@ tests:
               mountPath: /etc/clickhouse-ca
               readOnly: true
 
+  - it: with tls.vault, has the Vault agent write the CA bundle from the caConfigMap record instead of mounting the ConfigMap
+    set:
+      <<: *standalone
+      global.clickhouse.tls.vault: true
+      vault.enabled: true
+      vault.secret: OBS_SECRET
+      configMaps.main.data.ca: '{{ include "common.clickhouseCA" . }}'
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+          any: true
+      - notExists:
+          path: spec.template.spec.containers[?(@.name == "sidecar")].volumeMounts
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-platform-ca-ca.crt"]
+          value: secret/data/OBS_SECRET
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-platform-ca-ca.crt"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "platform-ca-ca.crt" }}{{- end -}}'
+
+  - it: with tls.vault, points clients at the file the Vault agent writes
+    set:
+      <<: *standalone
+      global.clickhouse.tls.vault: true
+      vault.enabled: true
+      configMaps.main.data.ca: '{{ include "common.clickhouseCA" . }}'
+    template: templates/configmap.yaml
+    documentSelector:
+      path: metadata.name
+      value: fixture
+    asserts:
+      - equal:
+          path: data.ca
+          value: /vault/secrets/platform-ca-ca.crt
+
+  - it: fails tls.vault for an app that is not on Vault, since no agent would write the CA bundle
+    set:
+      <<: *standalone
+      global.clickhouse.tls.vault: true
+    template: templates/deployment.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.clickhouse.tls.vault is true but vault.enabled is false"
+
   - it: fails a standalone ClickHouse with no server name, since no client could verify it
     set:
       <<: *standalone

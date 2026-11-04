@@ -393,3 +393,79 @@ tests:
       - equal:
           path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-admin-password"]
           value: secret/data/OBS_SECRET
+
+  - it: with tls.vault, reads the certificate and key from the Vault agent's files instead of the Secret
+    set:
+      global.vault.enabled: true
+      global.vault.secret: OBS_SECRET
+      global.clickhouse.tls.vault: true
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls
+          any: true
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-clickhouse-tls-tls.key"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "clickhouse-tls-tls.key" }}{{- end -}}'
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-tls-tls.crt"]
+          value: secret/data/OBS_SECRET
+      # The certificate is a file, not a password: it is never exported into the environment.
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: TLS_
+
+  - it: with tls.vault, points the server's openSSL config at the Vault agent's files
+    set:
+      global.vault.enabled: true
+      global.clickhouse.tls.vault: true
+    template: templates/objects.yaml
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-server
+    asserts:
+      - matchRegex:
+          path: data["listen.xml"]
+          pattern: <certificateFile>/vault/secrets/clickhouse-tls-tls.crt</certificateFile>\s*<privateKeyFile>/vault/secrets/clickhouse-tls-tls.key</privateKeyFile>
+
+  - it: with tls.vault, has the schema Job read the CA bundle from Vault, not the ConfigMap
+    set:
+      global.vault.enabled: true
+      global.clickhouse.tls.vault: true
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-platform-ca-ca.crt"]
+          value: secret/data/platform-ca
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_CA_FILE
+            value: /vault/secrets/platform-ca-ca.crt
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+            configMap:
+              name: platform-ca
+
+  - it: fails tls.vault with the server off Vault
+    set:
+      global.clickhouse.tls.vault: true
+    template: templates/objects.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.clickhouse.tls.vault is true but vault.enabled is false"
