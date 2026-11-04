@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cspell:words storageclass
+# cspell:words storageclass mutatingwebhookconfiguration admissionregistration
 # preflight-test.bash: run preflight.bash for the restricted-namespace profiles against a stub kubectl that answers
 # as kind does after scripts/kind-platform.bash: the stack's namespace labelled for Istio injection, every Secret
 # present, restricted's shared operator Ready, and a clickhouse-operator namespace that exists without the label
@@ -22,6 +22,8 @@ args=" $* "
 namespace_json() {
   if [[ "$1" == "${STUB_UNLABELLED:-}" || "$1" == clickhouse-operator ]]; then
     printf '{"metadata": {"name": "%s", "labels": {}}}\n' "$1"
+  elif [[ -n "${STUB_AMBIENT:-}" ]]; then
+    printf '{"metadata": {"name": "%s", "labels": {"istio.io/dataplane-mode": "ambient"}}}\n' "$1"
   else
     printf '{"metadata": {"name": "%s", "labels": {"istio-injection": "enabled"}}}\n' "$1"
   fi
@@ -37,7 +39,9 @@ case "$args" in
   *" get pods "*) echo '{"items": [{"status": {"conditions": [{"type": "Ready", "status": "True"}]}}]}' ;;
   *" get configmap "*) echo '{"data": {"ca.crt": "-----BEGIN CERTIFICATE-----"}}' ;;
   *" get sc -o name "*) echo storageclass.storage.k8s.io/standard ;;
-  *" get secret "* | *" get serviceaccount "* | *" get sc "*) ;;
+  *" get mutatingwebhookconfigurations "*) echo mutatingwebhookconfiguration.admissionregistration.k8s.io/vault-agent-injector-cfg ;;
+  *" get secret "*) [[ -z "${STUB_NO_SECRETS:-}" ]] ;;
+  *" get serviceaccount "* | *" get sc "*) ;;
   *) echo "kubectl stub: unexpected call: $*" >&2; exit 1 ;;
 esac
 STUB
@@ -82,3 +86,12 @@ if out="$(run env PREFLIGHT_REVISION=feat/some-branch)"; then
   fail "standalone passed with bootstrap's revision a branch"
 fi
 echo "preflight-test: ok, bootstrap's <revision> is checked in place of the files'"
+# On Vault no clickhouse-<user> Secret, TLS Secret or CA ConfigMap exists, and preflight must not ask for one.
+out="$(PATH="$work/bin:$PATH" STUB_NO_SECRETS=1 STUB_AMBIENT=1 ENV=tenant-vault ALLOW_MUTABLE_REVISION=1 scripts/preflight.bash 2>&1)" ||
+  fail "tenant-vault failed with no Secrets in the namespace: $(grep -E 'FAIL|stub' <<<"$out")"
+grep -q "secret/data/OBS_SECRET" <<<"$out" || fail "tenant-vault did not list its Vault fields"
+echo "preflight-test: ok, tenant-vault passes with no Secrets and lists its Vault fields"
+if PATH="$work/bin:$PATH" STUB_NO_SECRETS=1 ENV=standalone ALLOW_MUTABLE_REVISION=1 scripts/preflight.bash >/dev/null 2>&1; then
+  fail "standalone passed with no Secrets in the namespace"
+fi
+echo "preflight-test: ok, standalone still requires its Secrets"
