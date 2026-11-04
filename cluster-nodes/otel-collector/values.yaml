@@ -137,8 +137,8 @@ configMaps:
           clickhouse:
             create_schema: false
             database: otel
-            endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s{{ if include "common.clickhouseExternal" . }}&secure=true{{ end }}
-            {{- if include "common.clickhouseExternal" . }}
+            endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s{{ if include "common.clickhouseTLS" . }}&secure=true{{ end }}
+            {{- if include "common.clickhouseTLS" . }}
             # An external ClickHouse over TLS, verified against the platform's CA bundle and the certificate's name.
             tls:
               ca_file: {{ include "common.clickhouseCA" . }}
@@ -622,8 +622,8 @@ daemonset:
             clickhouse:
               create_schema: false
               database: otel
-              endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s{{ if include "common.clickhouseExternal" . }}&secure=true{{ end }}
-              {{- if include "common.clickhouseExternal" . }}
+              endpoint: tcp://{{ include "common.serviceAddress" (list $ "clickhouse") }}?dial_timeout=10s{{ if include "common.clickhouseTLS" . }}&secure=true{{ end }}
+              {{- if include "common.clickhouseTLS" . }}
               tls:
                 ca_file: {{ include "common.clickhouseCA" . }}
                 server_name_override: {{ .Values.global.clickhouse.tls.serverName }}
