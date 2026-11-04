@@ -532,6 +532,11 @@ smoke test passes on the new one.
   `otel-collector`, `cerberus`, `garmr-sql-adapter`, `garmr`, plus a new schema Job), then rotate the server
   certificate, then remove the old CA. Doing it in the other order refuses every client.
 - Back out: restore the previous Secret value (and the previous bundle); same checks.
+- **With `global.clickhouse.tls.vault`** the certificate, key and CA bundle are Vault fields, written once by the
+  Vault agent before each pod starts (pre-populate only), so nothing refreshes them: write the new values in Vault,
+  then `make cluster/restart APP=clickhouse` for the certificate, and restart each client (and let a new schema Job
+  run) for the CA. The order for a new CA is the same: both CAs in the bundle field and every client restarted
+  first, then the certificate, then the old CA out.
 
 **What ClickHouse reloads by itself.** Its `config.d` and `users.d` files from the `clickhouse-server` ConfigMap
 are re-read when they change, but the pod's Deployment carries a `checksum/config` annotation, so a ConfigMap

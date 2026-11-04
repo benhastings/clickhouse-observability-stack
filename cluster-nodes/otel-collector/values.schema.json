@@ -648,6 +648,11 @@
                   "type": "string",
                   "description": "with `standalone`, required: the `kubernetes.io/tls` Secret in the stack's namespace with the server's certificate and key (`tls.crt`, `tls.key`), which the platform provides. The stack never issues a certificate",
                   "x-default": "`\"\"`"
+                },
+                "vault": {
+                  "type": "boolean",
+                  "description": "`true`: ClickHouse's TLS material comes from Vault through the Vault agent, not from Kubernetes objects. `caConfigMap` and `serverSecret` then name Vault records in the secretEnv shape (with `vault.secret`, the fields `<caConfigMap>-<caKey>`, `<serverSecret>-tls.crt` and `<serverSecret>-tls.key`); every app that reads them must have `vault.enabled`",
+                  "x-default": "`false`"
                 }
               }
             }

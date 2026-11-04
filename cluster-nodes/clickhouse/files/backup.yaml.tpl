@@ -8,7 +8,7 @@
 {{- if not $b.bucket }}
 {{- fail "clickhouse.backup.bucket is required when clickhouse.backup.enabled is true" }}
 {{- end }}
-{{- $vault := include "common.jobVaultAnnotations" (list $ $b.secretEnv) }}
+{{- $vault := include "common.jobVaultAnnotations" (list $ (include "common.withClickhouseCA" (list $ $b.secretEnv) | fromYaml)) }}
 {{- $tls := include "common.clickhouseTLS" . }}
 apiVersion: batch/v1
 kind: CronJob

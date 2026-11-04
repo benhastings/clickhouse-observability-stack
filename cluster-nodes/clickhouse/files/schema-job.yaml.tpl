@@ -22,7 +22,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: clickhouse-schema
-      {{- $vault := include "common.jobVaultAnnotations" (list $ $s.secretEnv) }}
+      {{- $vault := include "common.jobVaultAnnotations" (list $ (include "common.withClickhouseCA" (list $ $s.secretEnv) | fromYaml)) }}
       {{- if or $vault (include "common.istioSidecar" $) }}
       annotations:
         {{- if include "common.istioSidecar" $ }}

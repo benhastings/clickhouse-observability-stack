@@ -95,7 +95,7 @@
     {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- $mounts := default list $c.volumeMounts }}
-  {{- if and $c.clickhouseCA (include "common.clickhouseTLS" $root) }}
+  {{- if and $c.clickhouseCA (include "common.clickhouseTLS" $root) (not (include "common.clickhouseTLSVault" $root)) }}
   {{- $mounts = append $mounts (dict "name" "clickhouse-ca" "mountPath" "/etc/clickhouse-ca" "readOnly" true) }}
   {{- end }}
   {{- with $mounts }}
@@ -169,7 +169,7 @@ spec:
   {{- /* A container with clickhouseCA mounts ClickHouse's CA bundle whenever common.clickhouseTLS holds (common.clickhouseCAVolume). */}}
   {{- $clickhouseCA := false }}
   {{- range $d.containers }}{{ if and . .clickhouseCA }}{{ $clickhouseCA = true }}{{ end }}{{ end }}
-  {{- $clickhouseCA = and $clickhouseCA (include "common.clickhouseTLS" $root) }}
+  {{- $clickhouseCA = and $clickhouseCA (include "common.clickhouseTLS" $root) (not (include "common.clickhouseTLSVault" $root)) }}
   {{- if or $d.volumes $clickhouseCA }}
   volumes:
     {{- range $name, $volume := $d.volumes }}
@@ -440,17 +440,57 @@ render (the clickhouse node's schema Job).
 
 {{- define "common.clickhouseCA" -}}
 {{- $v := include "common.values" . | fromYaml -}}
+{{- if include "common.clickhouseTLSVault" . -}}
+{{- include "common.secretFilePath" (list . (include "common.clickhouseCAEntry" . | fromYaml)) -}}
+{{- else -}}
 {{- printf "/etc/clickhouse-ca/%s" $v.global.clickhouse.tls.caKey -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "common.clickhouseCAVolume" -}}
 {{- $v := include "common.values" . | fromYaml -}}
-{{- if include "common.clickhouseTLS" . -}}
+{{- if and (include "common.clickhouseTLS" .) (not (include "common.clickhouseTLSVault" .)) -}}
 configMap:
   name: {{ $v.global.clickhouse.tls.caConfigMap }}
 {{- else -}}
 emptyDir: {}
 {{- end -}}
+{{- end -}}
+
+{{- /*
+common.clickhouseTLSVault is "true" when ClickHouse's TLS material comes from Vault (global.clickhouse.tls.vault)
+rather than from the ConfigMap and Secret the names point at: the Vault agent writes the CA bundle, and for the
+standalone server its certificate and key, as files. The names stay what they were and become Vault records in
+the secretEnv shape, so they follow vault.path and vault.secret as passwords do: the CA is key caKey of record
+caConfigMap, the certificate and key are keys tls.crt and tls.key of record serverSecret (with vault.secret, the
+fields <caConfigMap>-<caKey>, <serverSecret>-tls.crt and <serverSecret>-tls.key). It fails the render for an app
+that is not on Vault, which would have no agent to write them. common.clickhouseCAEntry is the CA's entry, and
+common.withClickhouseCA (list $root $secretEnv) adds it to a secretEnv map for a pod's Vault annotations.
+*/ -}}
+
+{{- define "common.clickhouseTLSVault" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+{{- if and $v.global.clickhouse.tls.vault (include "common.clickhouseTLS" .) -}}
+{{- if not (include "common.vaultEnabled" .) -}}
+{{- fail (printf "%s: global.clickhouse.tls.vault is true but vault.enabled is false, so no Vault agent would write ClickHouse's CA bundle; turn Vault on for it, or read the CA from global.clickhouse.tls.caConfigMap (README: A standalone ClickHouse)" (include "common.fullname" .)) -}}
+{{- end -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "common.clickhouseCAEntry" -}}
+{{- $v := include "common.values" . | fromYaml -}}
+secret: {{ $v.global.clickhouse.tls.caConfigMap | quote }}
+key: {{ $v.global.clickhouse.tls.caKey | quote }}
+{{- end -}}
+
+{{- define "common.withClickhouseCA" -}}
+{{- $root := index . 0 -}}
+{{- $secretEnv := deepCopy (default dict (index . 1)) -}}
+{{- if include "common.clickhouseTLSVault" $root -}}
+{{- $_ := set $secretEnv "CLICKHOUSE_CA" (include "common.clickhouseCAEntry" $root | fromYaml) -}}
+{{- end -}}
+{{- toYaml $secretEnv -}}
 {{- end -}}
 
 {{- define "common.clickhouseEgress" -}}
@@ -542,7 +582,7 @@ paths both set to the app's name.
 {{- if include "common.vaultEnabled" $root }}
 {{- range $name, $c := $d.containers }}
 {{- if $c }}
-{{- range $envName, $s := $c.secretEnv }}{{ if include "common.entryEnabled" (list $root $s) }}true{{ end }}{{ end }}
+{{- range $envName, $s := include "common.containerVaultEntries" (list $root $c) | fromYaml }}{{ if include "common.entryEnabled" (list $root $s) }}true{{ end }}{{ end }}
 {{- end }}
 {{- end }}
 {{- end -}}
@@ -690,6 +730,21 @@ field: {{ default $s.key $field | quote }}
 {{- end -}}
 {{- end -}}
 
+{{- /*
+(list $root $container): what the Vault agent writes for one container: its secretEnv, and with clickhouseCA and
+common.clickhouseTLSVault, ClickHouse's CA bundle.
+*/ -}}
+
+{{- define "common.containerVaultEntries" -}}
+{{- $root := index . 0 -}}
+{{- $c := index . 1 -}}
+{{- if $c.clickhouseCA -}}
+{{- include "common.withClickhouseCA" (list $root $c.secretEnv) -}}
+{{- else -}}
+{{- toYaml (default dict $c.secretEnv) -}}
+{{- end -}}
+{{- end -}}
+
 {{- /* (list $root $workload): the Vault Agent Injector annotations for one pod. */ -}}
 
 {{- define "common.vaultAnnotations" -}}
@@ -699,7 +754,7 @@ field: {{ default $s.key $field | quote }}
 {{- $annotations := dict "vault.hashicorp.com/agent-inject" "true" "vault.hashicorp.com/role" (default (include "common.fullname" $root) $v.vault.role) -}}
 {{- range $name, $c := $d.containers }}
 {{- if $c }}
-{{- range $envName, $s := $c.secretEnv }}
+{{- range $envName, $s := include "common.containerVaultEntries" (list $root $c) | fromYaml }}
 {{- if include "common.entryEnabled" (list $root $s) }}
 {{- $file := include "common.secretFilePath" (list $root $s) -}}
 {{- $record := include "common.vaultRecord" (list $root $s) | fromYaml -}}

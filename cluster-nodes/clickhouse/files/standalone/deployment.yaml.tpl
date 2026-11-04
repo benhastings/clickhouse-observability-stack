@@ -19,11 +19,19 @@ With vault.enabled the passwords are files the Vault agent writes before the ser
 for the Jobs: the server reads them once, so a rotation is a restart), and a shell exports each as the variable
 users.d reads with from_env, then execs the server. Without it they are secretKeyRefs on the same variables.
 */}}
-{{- $vault := include "common.jobVaultAnnotations" (list $ $secretEnv) }}
+{{- $tlsVault := include "common.clickhouseTLSVault" . }}
+{{- $agent := $secretEnv }}
+{{- if $tlsVault }}
+{{- /* global.clickhouse.tls.vault: the agent writes the certificate and key too, which config.yaml.tpl points at. */}}
+{{- $serverTLS := (include "common.values" . | fromYaml).global.clickhouse.tls.serverSecret }}
+{{- $agent = merge (dict "TLS_CERTIFICATE" (dict "secret" $serverTLS "key" "tls.crt") "TLS_KEY" (dict "secret" $serverTLS "key" "tls.key")) $secretEnv }}
+{{- end }}
+{{- $vault := include "common.jobVaultAnnotations" (list $ $agent) }}
 {{- /*
 TLS only (config.yaml.tpl): every client verifies the server against global.clickhouse.tls, which
 common.clickhouseTLS checks, and the server's certificate and key are global.clickhouse.tls.serverSecret: a
-kubernetes.io/tls Secret the platform provides, mounted here. The tenant never issues a certificate.
+kubernetes.io/tls Secret the platform provides, mounted here, or with global.clickhouse.tls.vault the same names read
+as Vault records, written by the Vault agent. The tenant never issues a certificate.
 */}}
 {{- $_ := include "common.clickhouseTLS" . }}
 {{- $serverSecret := $v.global.clickhouse.tls.serverSecret }}
@@ -126,9 +134,11 @@ spec:
               mountPath: /var/log/clickhouse-server
             - name: tmp
               mountPath: /tmp
+            {{- if not $tlsVault }}
             - name: tls
               mountPath: /etc/clickhouse-server/tls
               readOnly: true
+            {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -153,6 +163,7 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if not $tlsVault }}
         - name: tls
           secret:
             secretName: {{ $serverSecret }}
@@ -162,3 +173,4 @@ spec:
                 path: tls.crt
               - key: tls.key
                 path: tls.key
+        {{- end }}
