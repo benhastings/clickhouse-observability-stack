@@ -509,8 +509,11 @@ With `standalone: true`:
 - NetworkPolicies select the server's pods by `app.kubernetes.io/name: clickhouse` instead of the operator's
   `clickhouse.altinity.com/chi` label, and drop the operator's and the interserver rules. The server admits clients
   only on `9440`, Cerberus alone on `8443`, and the collector on `9363`, which it scrapes the same way.
-- As with the operator, the server reads its users' passwords only from Kubernetes Secrets, so `vault.enabled`
-  fails the render for it; its certificate is likewise a Kubernetes Secret, not a Vault record.
+- With `vault.enabled` on `clickhouse` (and its clients, which must agree), the server reads its users' passwords
+  from Vault instead: the pod gets the Vault Agent Injector's annotations for every `clickhouse-<user>` password
+  (pre-populate only, so a rotation is a restart), and the container starts through a shell that exports each file
+  as the variable `users.d` reads, then runs the server. A missing file or an empty field stops it before it starts,
+  rather than leave a user without a password. Its certificate is still a Kubernetes Secret, not a Vault record.
 
 Running it (first install, restart, upgrade, rollback, credential and certificate rotation, pausing a failing
 Application, sizing and backup) is
@@ -1246,10 +1249,11 @@ message naming the app:
 - **ClickHouse and its clients agree**: `clickhouse` (the server and the schema Job), `cerberus`, `otel-collector`,
   `garmr` and `garmr-sql-adapter` must use the same mechanism. The app-of-apps render lists each one's mechanism
   when they don't.
-- **The ClickHouse server is not on Vault yet**: the server (through the operator) reads its users' passwords
-  only from Kubernetes Secrets, so `vault.enabled` on `clickhouse` fails while it runs the server. Against
+- **The operator's ClickHouse is not on Vault**: the operator reads its users' passwords only from Kubernetes
+  Secrets, so `vault.enabled` on `clickhouse` fails while the operator runs the server.
+  [A standalone ClickHouse](#a-standalone-clickhouse) reads them from the Vault agent's files, and against
   [an external ClickHouse](#an-external-clickhouse) the node renders only the schema Job, which reads
-  `otel_admin`'s password from the Vault agent's file, so there `clickhouse` and its clients can all be on Vault.
+  `otel_admin`'s password the same way, so with either `clickhouse` and its clients can all be on Vault.
 
 The mechanism is the environment's secret owner's choice, made in its `values-<env>.yaml`:
 
@@ -1287,7 +1291,7 @@ stays a Kubernetes Secret.
 | `clickhouse-admin` | `username`, `password` | ClickHouse; the schema Job and the backup CronJob (`password`) | `clickhouse-admin-password` | `observability/clickhouse-admin` |
 | `clickhouse-writer` | `username`, `password` | ClickHouse; `otel-collector` (`password`) | `clickhouse-writer-password` | `observability/clickhouse-writer` |
 | `clickhouse-reader` | `username`, `password` | ClickHouse; `cerberus`, `garmr-sql-adapter` (`password`) | `clickhouse-reader-password` | `observability/clickhouse-reader` |
-| `clickhouse-analyst` | `username`, `password` | ClickHouse; notebooks and jobs | - | `observability/clickhouse-analyst` |
+| `clickhouse-analyst` | `username`, `password` | ClickHouse; notebooks and jobs | `clickhouse-analyst-password` (standalone server) | `observability/clickhouse-analyst` |
 | `clickhouse-garmr` | `username`, `password` | ClickHouse; `garmr` (`password`) | `clickhouse-garmr-password` | `observability/clickhouse-garmr` |
 | `clickhouse-backup` | `access_key`, `secret_key` | the backup CronJob, with `clickhouse.backup` | `clickhouse-backup-access_key`, `clickhouse-backup-secret_key` | - |
 | `clickhouse-operator-credentials` | `username`, `password` | the ClickHouse operator | - | `observability/clickhouse-operator-credentials` |

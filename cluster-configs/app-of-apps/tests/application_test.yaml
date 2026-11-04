@@ -606,6 +606,20 @@ tests:
       - hasDocuments:
           count: 9
 
+  - it: accepts a standalone ClickHouse and every client on Vault, with External Secrets off
+    set:
+      global.clickhouse.standalone: true
+      global.vault.enabled: true
+      global.vault.secret: OBS_SECRET
+      global.externalSecrets.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: clickhouse-test
+    asserts:
+      - equal:
+          path: spec.source.helm.valuesObject.global.vault.enabled
+          value: true
+
   - it: ignores a disabled ClickHouse client
     set:
       applications.garmr.enabled: false

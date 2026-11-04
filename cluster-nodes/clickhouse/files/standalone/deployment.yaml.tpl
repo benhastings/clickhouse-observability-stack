@@ -15,6 +15,12 @@ directly rather than through the image's entrypoint, which would write a default
 {{- $_ := set $secretEnv (printf "CLICKHOUSE_PASSWORD_%s" (upper $user)) (dict "secret" $u.secret "key" "password") }}
 {{- end }}
 {{- /*
+With vault.enabled the passwords are files the Vault agent writes before the server starts (pre-populate only, as
+for the Jobs: the server reads them once, so a rotation is a restart), and a shell exports each as the variable
+users.d reads with from_env, then execs the server. Without it they are secretKeyRefs on the same variables.
+*/}}
+{{- $vault := include "common.jobVaultAnnotations" (list $ $secretEnv) }}
+{{- /*
 TLS only (config.yaml.tpl): every client verifies the server against global.clickhouse.tls, which
 common.clickhouseTLS checks, and the server's certificate and key are global.clickhouse.tls.serverSecret: a
 kubernetes.io/tls Secret the platform provides, mounted here. The tenant never issues a certificate.
@@ -41,8 +47,12 @@ spec:
         {{- include "common.clickhousePodLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ tpl (.Files.Get "files/standalone/config.yaml.tpl") . | sha256sum }}
+        {{- with $vault }}
+        {{- . | nindent 8 }}
+        {{- end }}
     spec:
-      automountServiceAccountToken: false
+      # The Vault agent logs in with the pod's ServiceAccount token.
+      automountServiceAccountToken: {{ ne $vault "" }}
       securityContext:
         {{- toYaml (mustMergeOverwrite (deepCopy $v.deployment.podSecurityContext) (dict "runAsUser" 101 "runAsGroup" 101 "fsGroup" 101)) | nindent 8 }}
       terminationGracePeriodSeconds: 60
@@ -53,8 +63,21 @@ spec:
         - name: clickhouse
           image: {{ include "common.image" (list $ $ch.image) | quote }}
           command:
+            {{- if $vault }}
+            - /bin/sh
+            - -c
+            - |
+              # A missing file or an empty field stops the server rather than start a user with no password.
+              set -eu
+              {{- include "common.secretEnvExports" (list $ $secretEnv) | trim | nindent 14 }}
+              {{- range $envName, $_ := $secretEnv }}
+              : "${{ "{" }}{{ $envName }}:?is empty in Vault}"
+              {{- end }}
+              exec /usr/bin/clickhouse-server --config-file=/etc/clickhouse-server/config.xml
+            {{- else }}
             - /usr/bin/clickhouse-server
             - --config-file=/etc/clickhouse-server/config.xml
+            {{- end }}
           # Named tcp-* so Istio passes the server's own TLS through as opaque TCP, inside its mTLS.
           ports:
             - name: tcp-https
@@ -66,8 +89,10 @@ spec:
             - name: http-metrics
               containerPort: 9363
               protocol: TCP
+          {{- with include "common.secretEnv" (list $ $secretEnv) | trim }}
           env:
-            {{- include "common.secretEnv" (list $ $secretEnv) | nindent 12 }}
+            {{- . | nindent 12 }}
+          {{- end }}
           # Loading a large table's parts can take minutes after a restart: up to ten before the server is
           # given up on, and no liveness probe to restart it during a long merge.
           startupProbe:

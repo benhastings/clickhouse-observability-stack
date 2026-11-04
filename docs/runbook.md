@@ -412,9 +412,11 @@ unless they only read.
 
 ### Lifecycle
 
-**First install.** Pre-create, in the namespace: the `clickhouse-admin`, `-writer`, `-reader` and `-garmr` Secrets
-(key `password`), the `clickhouse-tls` Secret (`kubernetes.io/tls`) and the CA ConfigMap. `make cluster/preflight
-ENV=<env>` checks they exist. Then bootstrap. Waves hold everything behind ClickHouse: the `clickhouse` Application
+**First install.** Pre-create, in the namespace: the `clickhouse-admin`, `-writer`, `-reader`, `-analyst` and `-garmr`
+Secrets (key `password`), the `clickhouse-tls` Secret (`kubernetes.io/tls`) and the CA ConfigMap. On Vault
+(`vault.enabled` for `clickhouse` and its clients), write the password fields to the Vault record instead and create
+no `clickhouse-<user>` Secret; the server's pod waits in `vault-agent-init` until it can read every one of them, and
+stops at start if one is empty. `make cluster/preflight ENV=<env>` checks the Secrets exist, or lists the Vault fields. Then bootstrap. Waves hold everything behind ClickHouse: the `clickhouse` Application
 is healthy once the Deployment is Available, and the schema Job (`clickhouse-schema-<hash>`) logs `waiting for
 ClickHouse` until the server accepts `otel_admin`, then completes.
 
