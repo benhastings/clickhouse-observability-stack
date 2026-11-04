@@ -393,6 +393,264 @@ ClickHouseInstallation in the cluster, the platform's included. So look before y
 Never broaden the AppProject to let the stale child sync. Its `clusterResourceWhitelist` is the namespace's
 boundary; the fix is to remove the child, not the boundary.
 
+## Operating a standalone ClickHouse
+
+For an environment with `global.clickhouse.standalone: true` (the `standalone` profile; README: [A standalone
+ClickHouse](../README.md#a-standalone-clickhouse)). The tenant runs the server: one Deployment named `clickhouse`,
+one `clickhouse-data` volume, and no operator to restart, resize or heal anything. With the operator, a
+ClickHouseInstallation or an external ClickHouse, the commands below do not apply; the pod there is
+`chi-otel-main-0-0-0`, or the service owner's.
+
+> **Rehearsal status.** These procedures are written from the chart (`cluster-nodes/clickhouse/files/standalone/`)
+> and the scripts, and **have not been rehearsed**. The standalone kind cluster that would prove them is
+> [#259](https://github.com/benhastings/clickhouse-observability-stack/issues/259) (PR #292), still in flight when
+> this was written, and the machine this was written on cannot run Docker. [Rehearse before you rely on
+> them](#rehearsal-checklist); when you do, replace this note with what you ran, where, and at which revision.
+
+Commands assume `kubectl config set-context --current --namespace=<your namespace>`, and change the cluster
+unless they only read.
+
+### Lifecycle
+
+**First install.** Pre-create, in the namespace: the `clickhouse-admin`, `-writer`, `-reader` and `-garmr` Secrets
+(key `password`), the `clickhouse-tls` Secret (`kubernetes.io/tls`) and the CA ConfigMap. `make cluster/preflight
+ENV=<env>` checks they exist. Then bootstrap. Waves hold everything behind ClickHouse: the `clickhouse` Application
+is healthy once the Deployment is Available, and the schema Job (`clickhouse-schema-<hash>`) logs `waiting for
+ClickHouse` until the server accepts `otel_admin`, then completes.
+
+```bash
+kubectl rollout status deploy/clickhouse --timeout=5m
+kubectl get endpoints clickhouse      # ready addresses on 9440 and 8443
+kubectl get jobs -l app.kubernetes.io/instance=clickhouse
+```
+
+**Restart.** `kubectl rollout restart deploy/clickhouse`. The strategy is `Recreate`, because the volume is
+`ReadWriteOnce`: the old pod stops before the new one starts, so ClickHouse is down for the shutdown plus the
+start, usually a minute or two. The collector queues and retries, Cerberus and Grafana return errors, and nothing
+is lost unless the outage outlasts the collector's queue (`CollectorExportQueueFull` and `CollectorRefusingData`
+say so). A single server has no rolling restart; do it in a quiet hour. The startup probe waits for `/ping`; a pod
+that is `Running` but not Ready is still loading parts.
+
+**Image upgrade.** Bump `clickhouse.image.tag` and the node's `appVersion` in a PR, as the README's version-bump
+rule says, one component per PR. Argo CD syncs it as a restart (above). Before merging, read ClickHouse's release
+notes for the jump (changelog entries marked backward incompatible), and take a backup first
+([Backup and restore](#backup-and-restore)). Afterwards: the schema Job runs again if the rendered SQL changed,
+the pod is Ready, and the [smoke test](#smoke-test-five-minutes) passes. ClickHouse upgrades the on-disk format
+as it reads old parts, and newer versions do not always read what an older one wrote, so **rolling back an image
+across a minor version is not safe** (see Rollback).
+
+**Failed bootstrap.** Look in this order:
+
+1. The pod is `Pending`: the PVC is unbound (`kubectl describe pvc clickhouse-data`: no StorageClass, or a quota
+   on storage), or the namespace quota refuses the pod ([A pod is `Pending`](#a-pod-is-pending)).
+2. `ContainerCreating` for long: a missing Secret or ConfigMap it mounts or reads
+   (`clickhouse-tls`, `clickhouse-server`, a `clickhouse-<user>` Secret). `describe pod` names it. Create it and the
+   pod starts by itself.
+3. `CrashLoopBackOff`: `kubectl logs deploy/clickhouse --previous`. A bad certificate or key shows as an OpenSSL
+   error at startup; a wrong password variable shows nothing at start but the clients are refused.
+4. Running, never Ready: the probe is `/ping` over HTTPS on 8443. The same TLS error from a client
+   (`certificate verify failed`) means the certificate does not carry `global.clickhouse.tls.serverName`, or the CA
+   bundle is not the one that signed it.
+5. Ready, schema Job failing: `kubectl logs job/clickhouse-schema-<hash>`. A failing job is retried and every
+   statement is idempotent; fix the cause and delete the failed Job so Argo CD recreates it.
+
+The data volume is not touched by a failed bootstrap. If you delete the Application and start over, the PVC stays
+(below) and the new server reads whatever the old one wrote.
+
+**PVC retention.** `clickhouse-data` carries `argocd.argoproj.io/sync-options: Prune=false,Delete=false` and
+`helm.sh/resource-policy: keep`. Pruning, deleting the Application and `helm uninstall` all leave it. Two
+consequences: reinstalling reuses the data (usually what you want), and **deleting a tenant's stack does not free
+its storage or its quota**. To drop the data on purpose: `kubectl delete pvc clickhouse-data` after the pod is gone,
+and only after confirming no one needs the telemetry (or a backup is verified). The volume's reclaim policy is the
+platform's StorageClass: `Delete` removes the disk with the claim, `Retain` leaves it for the platform team.
+
+**Rollback to the previous revision, without losing telemetry.** The data is on the volume, so it survives any
+revert of configuration. Rollback therefore means putting the previous manifests back:
+
+- *Configuration, resources, retention, a bad chart change:* revert the commit (or move `targetRevision` back) and
+  let Argo CD sync; the server restarts on the old config over the same data. If the Application is failing
+  repeatedly, [pause it](#pausing-a-failing-application) first so the revert is the only thing that syncs. A
+  `global.retention` increase back to the old value does not bring back days the TTL already dropped.
+- *Image:* safe only within one minor version (patch releases). Across a minor, a downgrade may not be able to read
+  parts the newer server wrote or merged, so the supported rollback is: scale to zero, restore the pre-upgrade
+  backup into a new volume and point the Deployment at it, accepting the loss since the backup. Decide that at
+  upgrade time, not during the incident, which is why the upgrade step takes a backup first.
+- *Schema:* statements are idempotent and additive (`ALTER ... IF [NOT] EXISTS`); rolling the chart back does not
+  remove what the newer schema added, and the older apps ignore the extra columns and views.
+
+Check the result with the [smoke test](#smoke-test-five-minutes), and compare a count from before and after:
+`SELECT count() FROM otel.otel_traces` as `otel_reader` (a count only grows, apart from TTL).
+
+### Rotating credentials and the certificate
+
+The tenant's platform secret system owns the values (Vault, External Secrets or a Kubernetes Secret); the stack
+reads them. Rotate one at a time, and confirm the [smoke test](#smoke-test-five-minutes) between them.
+
+**A database password** (`clickhouse-writer`, `-reader`, `-garmr`, `-analyst`, `-admin`):
+
+| Secret | Who changes it | Restart after |
+| --- | --- | --- |
+| `clickhouse-writer` | the secret owner | `clickhouse`, then `otel-collector` |
+| `clickhouse-reader` | the secret owner | `clickhouse`, then `cerberus` and `garmr-sql-adapter` |
+| `clickhouse-garmr` | the secret owner | `clickhouse`, then `garmr` |
+| `clickhouse-analyst` | the secret owner | `clickhouse` (notebooks and jobs reconnect with the new value) |
+| `clickhouse-admin` | the secret owner | `clickhouse`; the next schema Job and backup read the new value |
+
+1. Write the new value in the secret system. A Kubernetes Secret does not roll pods by itself (unless
+   `deployment.reloader: true` and Reloader runs); a Vault record never does.
+2. Roll the server so it reads the new password: `make cluster/restart APP=clickhouse`. The server reads each
+   user's password from an environment variable at start, so **it does not reload a password by itself**.
+3. Roll the app that uses it (the table): `make cluster/restart APP=otel-collector`, and so on.
+
+**Overlap.** There is none: a ClickHouse user has one password in this configuration, so between step 2 and step 3
+that app is refused. Keep the window short by doing step 3 immediately. The collector queues meanwhile; readers
+(Cerberus, garmr sql-adapter) answer errors for that minute. A zero-downtime rotation would need two users per role,
+which the stack does not define.
+
+**Back out.** Put the old value back in the secret system and repeat steps 2 and 3. Keep the old value until the
+smoke test passes on the new one.
+
+**The server certificate** (`clickhouse-tls`, a `kubernetes.io/tls` Secret from the platform):
+
+- The platform issues it and writes the Secret; the stack never does. It must still carry
+  `global.clickhouse.tls.serverName` (the Service's short name `clickhouse`).
+- The Secret is mounted as a directory (no `subPath`), so the kubelet refreshes the files within about a minute of
+  the Secret changing. ClickHouse re-reads the certificate files when they change, without a restart, per its
+  documentation; **confirm that on your version** rather than assuming:
+
+  ```bash
+  kubectl port-forward svc/clickhouse 9440:9440 &
+  openssl s_client -connect localhost:9440 -servername clickhouse </dev/null 2>/dev/null | openssl x509 -noout -serial -enddate
+  ```
+
+  If the old serial is still served after two minutes, `kubectl rollout restart deploy/clickhouse`.
+- A new certificate from the **same CA** needs nothing on the clients: they verify against the CA bundle
+  (`platform-ca-bundle`), not the leaf. A **new CA** is an overlap problem: put both CAs in the bundle
+  (`ca.crt` may hold several PEM certificates) and wait for clients to pick it up (`make cluster/restart` for each of
+  `otel-collector`, `cerberus`, `garmr-sql-adapter`, `garmr`, plus a new schema Job), then rotate the server
+  certificate, then remove the old CA. Doing it in the other order refuses every client.
+- Back out: restore the previous Secret value (and the previous bundle); same checks.
+
+**What ClickHouse reloads by itself.** Its `config.d` and `users.d` files from the `clickhouse-server` ConfigMap
+are re-read when they change, but the pod's Deployment carries a `checksum/config` annotation, so a ConfigMap
+change rolls the pod anyway. The certificate files (above) are the one thing worth relying on without a restart.
+Passwords are not reloaded.
+
+### Pausing a failing Application
+
+When one child keeps failing to sync (a bad value, an image that will not pull), stop Argo CD retrying it without
+touching the parent `app-of-apps-<env>` or any other child. The parent has self-heal on and would put auto-sync back
+if you edited the child's manifest in Git, so pause through the Application object:
+
+```bash
+app=clickhouse-<env>          # argocd app list shows the exact name
+argocd app set "$app" --sync-policy none     # 1. turn off auto-sync for this child only
+argocd app terminate-op "$app"               # 2. stop the operation in flight
+argocd app get "$app" --refresh              # 3. re-read Git and the live state
+argocd app rollback "$app" <ID>              # 4. optionally, to a previous deployed revision (argocd app history "$app")
+```
+
+Without the `argocd` CLI, `kubectl -n argocd patch application "$app" --type merge -p '{"spec":{"syncPolicy":null}}'`
+removes auto-sync, `kubectl -n argocd patch application "$app" --type merge -p '{"operation":null}'` clears a running
+operation, and annotating it `argocd.argoproj.io/refresh=hard` refreshes it. Rollback needs the CLI or the UI, and
+**does not work while auto-sync is on**, which is why it comes after step 1. This changes the cluster.
+
+Two warnings. The parent `app-of-apps-<env>` has self-heal on and owns each child Application, so it can **put the
+child's auto-sync back** as drift from Git, within minutes. Check with `argocd app get "$app"` that `Sync Policy` is
+still `<none>` before you rely on the pause, and do steps 2 to 4 straight away. If the parent keeps reverting it,
+the pause needs the parent's self-heal off for the duration (`argocd app set app-of-apps-<env> --self-heal=false`),
+which does touch the parent: say so on the incident, and turn it back on after the fix merges. The pause is
+short-lived by design: stop the loop, roll back, fix Git. The clickhouse Application's volume is protected from
+prune, so pausing or rolling it back never removes data. **Whether the parent reverts the pause has not been
+observed**; it is on the rehearsal checklist.
+
+### Sizing and retention
+
+The README's [Disk sizing](../README.md#disk-sizing) has the formula and the measured bytes per row; `make
+measure/disk` measures them on your running server, read-only. For the standalone profile:
+
+- **Storage** is `clickhouse.storage` on `clickhouse-data`: (spans/s × 88 B × days of traces + logs/s × 89 B × days
+  of logs + samples/s × 39 B × days of metrics) × 86400 × **1.5 merge headroom**, plus a few hundred megabytes of
+  13-month rollups. The 1.5 is not slack to trim: merges need room for old and new parts at once. The figures were
+  measured on the demo load only; take your own from `make measure/disk` after a few real days.
+- **Retention** is one setting, `global.retention` (`traces`, `logs`, `metrics` in days; `curatedMetrics` for the
+  13-month rollups). ClickHouse's TTLs and Cerberus's lookback both follow it, so never set it anywhere else. A
+  shorter retention frees space as the TTL merges run, within about a day; a longer one only helps from then on.
+- **Growing the volume.** Raise `clickhouse.storage` in the environment file. It grows in place only if the
+  StorageClass allows expansion (`kubectl get storageclass <name> -o jsonpath='{.allowVolumeExpansion}'`), and some
+  drivers finish after a pod restart. A volume cannot shrink: to go smaller, restore a backup into a smaller new one.
+  The tenant's storage quota must hold the new size, or the claim stays `Pending`.
+- **Disk-full alerts.** `ClickHouseDiskFilling` (warning, above 80% for 15 minutes) and `ClickHouseDiskFull`
+  (critical, above 90% for 5) read `system.disks`, so they work on any volume type, standalone included. A full
+  disk stops inserts; the collector queues, then drops. Both ride the stack's own Alertmanager, which is on the same
+  cluster, so also give the platform a volume-usage alert on `clickhouse-data` if it can send one somewhere
+  independent. Act at the warning: lower retention (quickest) or grow the volume. The [Disk filling
+  up](#disk-filling-up) steps apply, with the pod name `deploy/clickhouse` instead of `chi-otel-main-0-0-0`.
+
+### Backup and restore
+
+Owned by the tenant, because there is no service owner behind a standalone server and the platform backs up
+volumes only if it says so. Two routes:
+
+- **`clickhouse.backup`** renders a CronJob running clickhouse-backup as `otel_admin` over the verified TLS
+  connection (README: [A standalone ClickHouse](../README.md#a-standalone-clickhouse)), to an object store whose
+  credentials are the `clickhouse-backup` Secret (`access_key`, `secret_key`). Check that the CronJob's last Job
+  succeeded in the [daily check](#daily-check-two-minutes), and **restore it once** into a scratch ClickHouse before
+  you need it; an untested backup is not a backup.
+- **Volume snapshots** from the platform, if it offers them: ask for the schedule and the restore procedure in
+  writing. A snapshot of a running ClickHouse is crash-consistent, which ClickHouse recovers from; prefer to
+  snapshot after a quiet minute.
+
+Restore is the platform's or tenant's, not Argo CD's: scale the Deployment to zero, restore into the volume (or a
+new PVC and point the Deployment at it), scale up, run the smoke test. Record who is on call for it in the go/no-go
+checklist.
+
+### One-time convergence after switching secret mechanisms
+
+An environment that moves a workload from Kubernetes Secrets to Vault (or External Secrets) can leave Argo CD
+`OutOfSync` with the container still carrying a `secretKeyRef` env var next to the Vault file. Server-side apply only
+removes the fields the same field manager owned, and the earlier apply owned the old ones in another manager's
+name, so the stale `env[].valueFrom.secretKeyRef` stays on the live Deployment and the pod keeps reading the old
+Secret.
+
+Clear it once, for the one workload, without leaving `Replace=true` on it:
+
+1. Confirm the diff is only that: `argocd app diff <app>` shows `env` entries with `secretKeyRef` removed.
+2. Sync that one Application with replacement for this sync only, not in its spec:
+
+   ```bash
+   argocd app sync <app> --replace --resource apps:Deployment:<namespace>/<deployment>
+   ```
+
+   `--replace` makes Argo CD replace the live object with the rendered one (the Deployment restarts, and with
+   `Recreate` or a single replica that is a brief outage).
+3. Check `kubectl get deploy <deployment> -o yaml | grep -c secretKeyRef` is `0` for the removed secrets, and the
+   Application is Synced.
+
+**Do not** add `Replace=true` to the node's or the Application's `syncOptions` to get this done: it stays on, and
+the next sync replaces the object each time (for Grafana it also recreates a Deployment whose data is an
+`emptyDir`). If `Replace=true` has already been left on Grafana, remove it with
+`argocd app set grafana --sync-option Replace=false` (or edit the Application's `syncOptions`), then sync once.
+That is a change to the cluster, applied by hand because Git does not set it. The alternative that touches no sync
+option: `kubectl delete deployment <deployment>` and let Argo CD recreate it; pods rebuild from the rendered
+manifest, no stale fields.
+
+### Rehearsal checklist
+
+What to run on the standalone kind cluster ([#259](https://github.com/benhastings/clickhouse-observability-stack/issues/259))
+to turn the procedures above into rehearsed ones. Record the date, revision and result of each next to it.
+
+- [ ] First install from nothing; the schema Job completes; the smoke test passes.
+- [ ] `rollout restart deploy/clickhouse`: observe the outage length and that no telemetry is missing afterwards.
+- [ ] Patch image bump, then revert the commit: telemetry count before and after.
+- [ ] Delete the Application; confirm `clickhouse-data` remains; reinstall; confirm the data is back.
+- [ ] Rotate `clickhouse-writer` and `clickhouse-reader` with `make cluster/restart`; time the refusal window.
+- [ ] Replace the `clickhouse-tls` Secret; confirm whether the new serial is served without a restart.
+- [ ] Pause a child with a deliberately bad value, terminate, refresh and roll back; confirm the parent and other
+  children are untouched, and whether the parent re-enables auto-sync.
+- [ ] Take a `clickhouse.backup` (or volume) backup and restore it into a scratch server.
+- [ ] Reproduce a stale `secretKeyRef` and clear it with `--replace`.
+
 ## Making a change safely
 
 1. Edit `cluster-configs/overrides/values-<env>.yaml`.
