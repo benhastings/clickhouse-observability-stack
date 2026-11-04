@@ -975,6 +975,7 @@ spec:
         name: clickhouse-schema
         resources:
           limits:
+            cpu: 500m
             memory: 256Mi
           requests:
             cpu: 50m
@@ -1203,6 +1204,7 @@ spec:
           name: clickhouse
           resources:
             limits:
+              cpu: "1"
               memory: 1664Mi
             requests:
               cpu: 100m

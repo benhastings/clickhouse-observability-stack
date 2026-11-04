@@ -20,6 +20,13 @@ destinationServer: https://kubernetes.default.svc
 clusterScoped: false
 
 global:
+  quota:
+    requireLimits: true
+  # The namespace's ResourceQuota wants a CPU limit on every container, which the production default leaves off.
+  # Every app gets this one unless it sets its own limits.cpu; make check/manifests fails on a container without one.
+  resources:
+    limits:
+      cpu: 500m
   # A week of each signal, for the laptop profile's 2 Gi volume below.
   retention:
     traces: 7
@@ -52,7 +59,12 @@ applications:
             cpu: 100m
             memory: 256Mi
           limits:
+            cpu: "1"
             memory: 1664Mi
+        schema:
+          resources:
+            limits:
+              cpu: 500m
         analyst:
           maxMemoryUsage: 268435456
           maxExecutionTime: 60

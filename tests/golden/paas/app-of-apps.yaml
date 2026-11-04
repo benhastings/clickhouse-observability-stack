@@ -61,6 +61,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -111,6 +116,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -145,6 +155,11 @@ spec:
     helm:
       releaseName: clickhouse
       valuesObject:
+        clickhouse:
+          schema:
+            resources:
+              limits:
+                cpu: 500m
         global:
           clickhouse:
             external: true
@@ -161,6 +176,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -216,6 +236,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -266,6 +291,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:
@@ -319,6 +349,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
         vault:
@@ -376,6 +411,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
         rbac:
@@ -428,6 +468,11 @@ spec:
               grafana: grafana.paas.example
           labels:
             environment: paas
+          quota:
+            requireLimits: true
+          resources:
+            limits:
+              cpu: 500m
           services:
             clickhouse: clickhouse.paas.example:9440
   destination:

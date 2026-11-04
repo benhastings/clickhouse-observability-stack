@@ -70,6 +70,7 @@ schema, and to the template in the same change.
 | `global.clickhouse.tls.serverName` | `""` | with `external`, required: the name the server's certificate must carry. Every client connects over TLS and verifies it; there is no option to skip verification, and no client presents a certificate of its own |
 | `global.clickhouse.tls.caConfigMap` | `""` | with `external`, required: a ConfigMap in the stack's namespace with the CA bundle that signed the server's certificate. The platform or the service owner provides it; the stack never creates a certificate |
 | `global.clickhouse.tls.caKey` | `ca.crt` | the key of the CA bundle in `caConfigMap` |
+| `global.quota.requireLimits` | `false` | the namespace has a ResourceQuota on CPU and memory, so every container, init containers and Jobs included, needs a CPU and memory request and limit; `make check/manifests` fails the environment's render on one without, and on a Vault agent without its resource annotations. Renders nothing itself |
 | `global.resources` | `requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}` | every container's requests and limits unless it sets its own; a container's `resources` override these key by key, so a container that sets only `limits.memory` keeps these requests. An environment resizes every app here |
 | `global.imagePullSecrets` | `[]` | Secret names put on every pod that sets no `imagePullSecrets` of its own. A workload's list replaces this one, as Helm does for lists |
 | `global.vault` |  | the same keys as `vault`, for every app at once; an app's own `vault` wins |

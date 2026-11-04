@@ -77,7 +77,7 @@ add a target. `make help` lists everything.
 | `make check/structure`      | the cluster-configs and cluster-nodes layout rules below                      |
 | `make check/schema`         | fails when a `values.schema.json` is stale, or when the schema accepts `deployment.replica` |
 | `make check/golden`         | fails when `tests/golden` differs from a fresh render                         |
-| `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits and pinned images         |
+| `make check/manifests`      | kubeconform over `tests/golden`, plus memory limits, pinned images, and CPU and memory requests and limits where `global.quota.requireLimits` |
 | `make check/restricted`     | fails when the `restricted` or `paas` profile's golden render has anything cluster-scoped, a Gateway, `CreateNamespace` or another namespace's Service, or, with an external ClickHouse, a ClickHouseInstallation or the operator |
 | `make check/credentials`    | fails when `tests/golden` renders a Secret value or a literal password or token |
 | `make generate`             | regenerates every `values.schema.json` and re-renders `tests/golden`; run it after any chart, values or schema change |
