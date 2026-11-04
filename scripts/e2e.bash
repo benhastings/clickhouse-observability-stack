@@ -686,11 +686,11 @@ awk -F'\t' '{printf "  %s traces from web through payments, log templates for %s
 # for about 25 minutes. Pull requests skip it; pushes to main, the nightly run and the slow label run it
 # (.github/workflows/e2e.yml).
 if [[ "${E2E_INCIDENT:-1}" == 1 ]]; then
-  # The demo load's first incident: from 15 minutes after it starts, payments fails 90% of charges instead of 25%,
-  # for 10 minutes. Until then nothing anomalous may fire. During it ErrorRatioAnomaly must fire for payments,
+  # The demo load's first incident: from 12 minutes after it starts, payments fails 90% of charges instead of 25%,
+  # for 8 minutes. Until then nothing anomalous may fire. During it ErrorRatioAnomaly must fire for payments,
   # print the observed ratio and its baseline, and agree with the PromQL reference rule; after it, resolve.
   anomalies='["RequestRateAnomaly", "ErrorRatioAnomaly", "LatencyAnomaly", "ErrorLogAnomaly", "TelemetryAbsent"]'
-  step "demo load: waiting for the injected incident, 15 minutes after the demo load started"
+  step "demo load: waiting for the injected incident, 12 minutes after the demo load started"
   deadline=$((SECONDS + 1500))
   until kubectl -n observability logs deploy/demo-load 2>/dev/null | grep -q "errors incident started"; do
     if ((SECONDS > deadline)); then

@@ -38,7 +38,7 @@ your apps ──OTLP──▶ OTel Collector ──▶ ClickHouse ◀── Cerb
 | **Cerberus** | A translator. Grafana speaks the query languages of Prometheus (metrics), Loki (logs) and Tempo (traces); Cerberus turns those into SQL for ClickHouse. |
 | **Grafana** | The web UI: dashboards, a search page called **Explore**, and the **Drilldown** apps. |
 | **vmalert, garmr, Alertmanager** | vmalert checks the alert rules every minute (through garmr, which runs them as SQL), and Alertmanager decides who gets told. |
-| **demo-load** | A fake shop (`web`, `checkout`, `payments`) that sends realistic telemetry, so there's something to look at before your own apps are connected. It breaks `payments` on purpose for 10 minutes every hour, so alerts have something to fire on. |
+| **demo-load** | A fake shop (`web`, `checkout`, `payments`) that sends realistic telemetry, so there's something to look at before your own apps are connected. It breaks `payments` on purpose for 8 minutes every hour, so alerts have something to fire on. |
 
 ### A few Kubernetes words
 
@@ -327,7 +327,7 @@ Give the demo load 5 minutes to produce data, then look at:
 
 - **Dashboards → Cerberus → Span metrics (RED)**. RED stands for Rate, Errors, Duration: requests per second,
   the share that fail, and how long they take. `payments` fails about 25% of the time on purpose, and about
-  90% during its incident, which runs for 10 minutes starting 15 minutes past each hour. `checkout` stays
+  90% during its incident, which runs for 8 minutes starting 12 minutes past each hour. `checkout` stays
   under 5%. Click a line for links to the matching traces and logs.
 - **Dashboards → Cerberus → Stack health**: the stack watching itself, with the collector's throughput and
   memory and ClickHouse's inserts. Check here first when data looks wrong.

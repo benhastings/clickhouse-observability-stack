@@ -37,6 +37,9 @@ applications:
       clickhouse:
         storage: 2Gi
         lowMemory: true
+        # The e2e reads trace_summary soon after the demo load starts; traces finish in seconds.
+        traceSummary:
+          lagMinutes: 2
         resources:
           requests:
             cpu: 100m

@@ -46,7 +46,7 @@ flowchart LR
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
 | `garmr` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
 | `vmalert` | `victoriametrics/vmalert:v1.153.0` | [vmalert](https://docs.victoriametrics.com/vmalert/): evaluates the alerting rules in `cluster-nodes/vmalert/files/rules/` through garmr sql-adapter and sends what fires to Alertmanager. |
-| `demo-load` | `ghcr.io/benhastings/correlated-telemetrygen:v0.2.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen) (the benhastings fork, which adds scheduled incidents): a browser front end, a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. Every hour, starting 15 minutes in, payments fails 90% of charges for 10 minutes. |
+| `demo-load` | `ghcr.io/benhastings/correlated-telemetrygen:v0.2.0` | Optional synthetic load from [correlated-telemetrygen](https://github.com/brandonapol/correlated-telemetrygen) (the benhastings fork, which adds scheduled incidents): a browser front end, a `checkout` service calling `payments`, with traces and logs that carry each other's trace and span IDs and the wide-event attributes. Every hour, starting 12 minutes in, payments fails 90% of charges for 8 minutes. |
 
 Each app is a chart in `cluster-nodes/<app>/`. No third-party Helm chart is pulled at deploy time.
 
@@ -102,7 +102,7 @@ With the default demo load:
 | `checkout` | 2 | ~2% | ~950 ms (it waits on payments) |
 | `payments` | 2 | ~25% (~90% during an incident) | ~900 ms |
 
-A quarter of charges time out at the payment gateway. Payments fails those requests, and checkout accepts the order with payment pending, so checkout's only errors are its own database failures, about 2% of orders. Fifteen minutes after the demo load starts, and then every hour, an incident raises payments' failures to 90% for ten minutes: something for the anomaly rules to find and then see recover. The dashboard's request, error and latency panels count server spans only. The operations table also lists the cache, database and outbound-call client spans.
+A quarter of charges time out at the payment gateway. Payments fails those requests, and checkout accepts the order with payment pending, so checkout's only errors are its own database failures, about 2% of orders. Twelve minutes after the demo load starts, and then every hour, an incident raises payments' failures to 90% for eight minutes: something for the anomaly rules to find and then see recover. The dashboard's request, error and latency panels count server spans only. The operations table also lists the cache, database and outbound-call client spans.
 
 Below those, the dashboard has a latency heatmap of payments' and checkout's server spans. Next to it is a service graph with the `checkout → payments` edge, red where calls fail. Under them is an error logs panel with payments' gateway timeouts. Click a series on the request, error or latency chart for its failing traces, its traces slower than the point you clicked, its error logs, or the service in Traces and Logs Drilldown. The charts show no exemplar dots: Cerberus v1.22.0 answers exemplar queries only for a bare selector, and every panel aggregates ([tsouza/cerberus#3787](https://github.com/tsouza/cerberus/issues/3787)). The exemplars are stored, so a Cerberus fix needs only `exemplar: true` back on the panels.
 
@@ -980,7 +980,7 @@ make dev/up && make dev/load
 SLACK_APP_TOKEN=xoxb-... make dev/slack SLACK_CHANNEL='#alerts-test'
 ```
 
-The demo load's hourly payments incident (15 minutes after it starts) then opens an `ErrorRatioAnomaly` thread,
+The demo load's hourly payments incident (12 minutes after it starts) then opens an `ErrorRatioAnomaly` thread,
 which gets a reply when it resolves. `make dev/apply APP=alertmanager` turns Slack off again. On an Argo CD
 cluster, create the Secret yourself and set `slack: {enabled: true, channel: ...}` under
 `applications.alertmanager.values` in the environment file, with the image tag `main` under
@@ -1094,7 +1094,7 @@ observed value and the baseline, which the annotations query from the same view 
 `files/reference/anomaly.yaml` has the same rules in PromQL over the span metrics, as the classic
 mean-and-standard-deviation rule against the last hour or the same hour last week. vmalert doesn't load it; it
 says what the SQL means, and `make test/e2e` checks the error-ratio one agrees with ErrorRatioAnomaly on the
-injected incident. The e2e waits for the demo load's first incident (15 minutes in), checks no anomaly fired
+injected incident. The e2e waits for the demo load's first incident (12 minutes in), checks no anomaly fired
 before it, then that ErrorRatioAnomaly fires for payments, prints both numbers, agrees with the PromQL (evaluated
 5 minutes into the incident, before incident minutes enter the reference's hour of mean and deviation), and
 resolves once the incident is over. That makes it the longest part of `make test/e2e`, about 30 minutes.

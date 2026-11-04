@@ -128,6 +128,11 @@ clickhouse:
       - error_ratio
       - latency_p95_ms
       - error_logs_per_minute
+  # otel_features.trace_summary writes a trace this many minutes after its root span starts, so every span of
+  # it has arrived. A new trace is queryable no sooner than that (the e2e shortens it); it applies to the view
+  # when it is created.
+  traceSummary:
+    lagMinutes: 5
   # Service level objectives, computed by ClickHouse in the otel_slo database (see files/schema.sql.tpl) from
   # each service's server spans: availability is the share not in error, latency the share no slower than
   # latency.thresholdMs. default applies to every service, and services.<name> overrides any of its keys:
