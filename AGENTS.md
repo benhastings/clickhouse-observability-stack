@@ -248,6 +248,8 @@ tests/*_test.yaml        helm-unittest suites
   `paas` is the same tenant profile consuming a service owner's ClickHouse (`global.clickhouse.external`): no
   operator and no ClickHouseInstallation, every client over verified TLS with the platform's CA bundle, and never
   an option to skip verification. It is rendered and checked, not deployed: kind has no external ClickHouse.
+  `tenant-vault` is `standalone` with every credential and certificate from the Vault Agent Injector, ambient mode,
+  network policies and a quota; rendered and checked (`check/restricted`, the quota check), not deployed.
 
 Argo CD deploys from `main` on GitHub, never from your working tree, so a change is not live on a cluster until
 it is merged (or until you point `targetRevision` at your branch in a throwaway cluster — never commit that).
