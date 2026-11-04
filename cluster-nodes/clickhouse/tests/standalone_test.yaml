@@ -4,6 +4,10 @@ release:
   namespace: observability
 set:
   global.clickhouse.standalone: true
+  global.clickhouse.tls.serverName: clickhouse
+  global.clickhouse.tls.caConfigMap: platform-ca
+  global.clickhouse.tls.serverSecret: clickhouse-tls
+  global.services.clickhouse: clickhouse:9440
 tests:
   - it: renders no ClickHouseInstallation and nothing cluster-scoped, only namespaced objects
     template: templates/objects.yaml
@@ -79,7 +83,7 @@ tests:
           path: spec.template.spec.containers[0].image
           value: clickhouse/clickhouse-server:26.9.5.2
 
-  - it: waits for the server with startup and readiness probes on /ping
+  - it: waits for the server with startup and readiness probes on /ping, over HTTPS
     template: templates/objects.yaml
     documentSelector:
       path: kind
@@ -89,12 +93,14 @@ tests:
           path: spec.template.spec.containers[0].startupProbe.httpGet
           value:
             path: /ping
-            port: http
+            port: tcp-https
+            scheme: HTTPS
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
           value:
             path: /ping
-            port: http
+            port: tcp-https
+            scheme: HTTPS
 
   - it: runs as the clickhouse user with a read-only root filesystem and no service account token
     template: templates/objects.yaml
@@ -138,7 +144,7 @@ tests:
       - notExists:
           path: spec.storageClassName
 
-  - it: serves clickhouse:9000 and :8123, the addresses every client dials
+  - it: serves only clickhouse:9440 and :8443, over TLS, named tcp-* so Istio treats them as opaque TCP
     template: templates/objects.yaml
     documentSelector:
       path: kind
@@ -147,13 +153,13 @@ tests:
       - equal:
           path: spec.ports
           value:
-            - name: http
-              port: 8123
-              targetPort: http
+            - name: tcp-https
+              port: 8443
+              targetPort: tcp-https
               protocol: TCP
-            - name: tcp
-              port: 9000
-              targetPort: tcp
+            - name: tcp-native
+              port: 9440
+              targetPort: tcp-native
               protocol: TCP
       - equal:
           path: spec.selector
@@ -246,7 +252,7 @@ tests:
           pattern: '<max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>'
       - matchRegex:
           path: data["listen.xml"]
-          pattern: '<tcp_port>9000</tcp_port>'
+          pattern: '<tcp_port_secure>9440</tcp_port_secure>'
       - matchRegex:
           path: data["users.xml"]
           pattern: '<default>\s*<max_memory_usage>536870912</max_memory_usage>\s*<max_threads>2</max_threads>\s*</default>'
@@ -276,7 +282,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: CLICKHOUSE_PORT
-            value: "9000"
+            value: "9440"
 
   - it: backs the standalone server up with the same CronJob, through the clickhouse Service
     set:
