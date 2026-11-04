@@ -531,6 +531,23 @@ Running it (first install, restart, upgrade, rollback, credential and certificat
 Application, sizing and backup) is
 [the runbook's Operating a standalone ClickHouse](docs/runbook.md#operating-a-standalone-clickhouse).
 
+#### On Vault
+
+A platform that delivers secrets only through the Vault Agent Injector runs the standalone profile with no
+Kubernetes Secret, ExternalSecret or certificate Secret at all. The `tenant-vault` environment
+([`values-tenant-vault.yaml`](cluster-configs/overrides/values-tenant-vault.yaml)) is that profile, and the file
+to copy for such a site:
+
+- `global.vault` on for every app, reading one record (`secret: OBS_SECRET`) with a Kubernetes auth `role`, and
+  the agent's resource annotations, which a namespace with a quota needs on every injected pod.
+- `global.externalSecrets.enabled: false`, stated: the render refuses an app with both mechanisms.
+- `global.clickhouse.tls.vault: true`: the server's certificate and key and the clients' CA bundle are Vault fields.
+- `global.networkPolicy.vault`: where the agents reach Vault, since the policies deny other egress.
+- `global.istio.dataplaneMode: ambient` and `global.quota.requireLimits: true`, with a CPU limit on every container.
+
+`make cluster/preflight ENV=<env>` lists every Vault field it needs. It is rendered and held to the same checks as
+`standalone` and to the quota check, but not deployed.
+
 `make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
 anything that selects the operator's pods.
@@ -1620,7 +1637,8 @@ collector's `otel-collector-auth`), and Grafana signing in through OAuth with it
 namespace with nothing cluster-scoped (see [A restricted namespace](#a-restricted-namespace)), and `paas` the same
 profile consuming a platform's ClickHouse service (see [An external ClickHouse](#an-external-clickhouse)), and
 `standalone` the same profile running ClickHouse without the operator (see
-[A standalone ClickHouse](#a-standalone-clickhouse)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
+[A standalone ClickHouse](#a-standalone-clickhouse)), and `tenant-vault` that one with every credential and
+certificate from Vault, in ambient mode, under network policies and a quota (see [On Vault](#on-vault)). To add an environment, run `make env/new NAME=<env>`. It writes a short, commented
 `values-<env>.yaml` and the matching `app-of-apps-<env>.yaml`, and refuses to overwrite either unless you pass
 `FORCE=1`. An environment with nothing in it deploys as production does; add only what differs.
 

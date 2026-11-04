@@ -1,0 +1,173 @@
+# yaml-language-server: $schema=../app-of-apps/values.schema.json
+# The tenant-on-Vault profile (README: A standalone ClickHouse, On Vault): the standalone profile
+# (values-standalone.yaml) for a tenant namespace whose platform delivers every credential and certificate through
+# the Vault Agent Injector, with Istio in ambient mode, network policies and a ResourceQuota. Nothing here is a
+# Kubernetes Secret or an ExternalSecret: ClickHouse's users' passwords, its certificate and key, the CA bundle its
+# clients verify it with, and Grafana's admin login are fields of one Vault record. Copy this file
+# (make env/new NAME=<env>, then these keys) for a site of your own; it is sized like the laptop profile, and the
+# Vault role, record, address, gateway and host are placeholders. It is rendered and checked, not deployed.
+# make check/restricted fails when this environment's render gains anything cluster-scoped, a Namespace,
+# CreateNamespace or managedNamespaceMetadata, a Gateway, a Service address in another namespace, a
+# ClickHouseInstallation or a clickhouse-operator Application; make check/manifests when a container (a Vault agent
+# included) lacks a CPU or memory request or limit.
+environment: tenant-vault
+
+# The repository and revision Argo CD deploys from. They must match the bootstrap Application in
+# cluster-configs/app-of-apps/app-of-apps-tenant-vault.yaml (make check/structure enforces it). A real site pins a
+# commit or tag here, never a branch (docs/runbook.md).
+repoURL: https://github.com/benhastings/clickhouse-observability-stack.git
+targetRevision: main
+
+# The cluster the child Applications deploy into.
+destinationServer: https://kubernetes.default.svc
+
+# No CreateNamespace and no managedNamespaceMetadata on the child Applications, and an AppProject that allows no
+# cluster-scoped kind. The platform team creates the namespace beforehand and labels it
+# istio.io/dataplane-mode: ambient.
+clusterScoped: false
+
+global:
+  # Istio in ambient mode: no sidecars; the node's ztunnel carries every pod's traffic (README: Service mesh).
+  istio:
+    dataplaneMode: ambient
+  # The namespace's ResourceQuota wants a CPU and memory request and limit on every container, the Vault agents
+  # included (their four annotations below). Every app gets this CPU limit unless it sets its own limits.cpu.
+  quota:
+    requireLimits: true
+  resources:
+    limits:
+      cpu: 500m
+  # Every app's policy allows only its own traffic, and an app on Vault reaches Vault: here a Vault in the cluster's
+  # vault namespace. One outside the cluster is cidrs: [<its CIDR>] instead.
+  networkPolicy:
+    enabled: true
+    exposureNamespaces: [istio-ingress]
+    vault:
+      namespace: vault
+      podLabels:
+        app.kubernetes.io/name: vault
+  # Every credential the stack reads is a field of the one record secret/data/OBS_SECRET, read by each pod's Vault
+  # agent with its ServiceAccount through the Kubernetes auth role observability (README: The credential
+  # contract). make cluster/preflight ENV=tenant-vault lists every field it needs.
+  vault:
+    enabled: true
+    role: observability
+    secret: OBS_SECRET
+    annotations:
+      vault.hashicorp.com/agent-requests-cpu: 10m
+      vault.hashicorp.com/agent-limits-cpu: 100m
+      vault.hashicorp.com/agent-requests-mem: 32Mi
+      vault.hashicorp.com/agent-limits-mem: 64Mi
+  # One secret mechanism: Vault. Stated, so a site that copies this file doesn't keep External Secrets on beside it,
+  # which the app-of-apps refuses.
+  externalSecrets:
+    enabled: false
+  # A week of each signal, for the laptop profile's 2 Gi volume below.
+  retention:
+    traces: 7
+    logs: 7
+    metrics: 7
+  # ClickHouse without the operator, TLS only on 9440 (and 8443 for Cerberus), as in values-standalone.yaml, but
+  # with its TLS material from Vault too (tls.vault): the server's certificate and key are the fields
+  # clickhouse-tls-tls.crt and clickhouse-tls-tls.key, and the CA bundle every client verifies it against is
+  # platform-ca-bundle-ca.crt. The certificate must carry tls.serverName.
+  clickhouse:
+    standalone: true
+    tls:
+      serverName: clickhouse
+      caConfigMap: platform-ca-bundle
+      caKey: ca.crt
+      serverSecret: clickhouse-tls
+      vault: true
+  services:
+    clickhouse: clickhouse:9440
+  # Grafana through the platform's ingress gateway: one VirtualService bound to a Gateway that already exists, so
+  # no Gateway is rendered. The gateway name, its namespace and the host are placeholders.
+  exposure:
+    hosts:
+      grafana: grafana.tenant-vault.example
+    gateway:
+      name: shared-gateway
+      namespace: istio-ingress
+
+applications:
+  # The laptop profile, as in values-standalone.yaml, with the CPU limits the quota needs where an app sets its
+  # own resources.
+  clickhouse:
+    values:
+      clickhouse:
+        storage: 2Gi
+        lowMemory: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 1664Mi
+        schema:
+          resources:
+            limits:
+              cpu: 500m
+        analyst:
+          maxMemoryUsage: 268435456
+          maxExecutionTime: 60
+          maxRowsToRead: 200000000
+          quota:
+            readRows: 2000000000
+            executionTime: 1800
+
+  cerberus:
+    values:
+      deployment:
+        replicas: 1
+        containers:
+          cerberus:
+            env:
+              GOMEMLIMIT: 322122547B
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 384Mi
+
+  # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats (README: Collector
+  # RBAC: cluster-wide or one namespace). The collector stays inside the cluster, with no bearer token.
+  otel-collector:
+    values:
+      rbac:
+        scope: namespace
+      exposure:
+        host: ""
+      collector:
+        auth:
+          enabled: false
+      deployment:
+        containers:
+          otel-collector:
+            env:
+              GOMEMLIMIT: 204MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+
+  # Grafana's admin login is from Vault like everything else (grafana-admin-admin-user and -admin-password), and
+  # it keeps its login form: single sign-on is a site's own (README: Grafana sign-in with Keycloak).
+  grafana:
+    values:
+      auth:
+        genericOauth:
+          enabled: false
+      deployment:
+        containers:
+          grafana:
+            env:
+              GOMEMLIMIT: 920MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 96Mi

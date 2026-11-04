@@ -188,6 +188,11 @@ if [[ "$external_secrets" == true ]]; then
   [[ -n "$(yq '.global.externalSecrets.secretStoreRef.name // ""' "$values")" ]] ||
     fail "global.externalSecrets.enabled is true but global.externalSecrets.secretStoreRef.name is empty"
 fi
+# app_vault <app>: "true" when the app reads its credentials from Vault (its own vault.enabled, else the global one),
+# so the Secrets it would otherwise read need not exist: the records preflight listed above are Vault's.
+app_vault() {
+  yq "[.global.vault.enabled, .applications.\"$1\".values.vault.enabled] | [false] + map(select(. != null)) | .[-1]" "$values"
+}
 # require_declared_secret <namespace> <name> <consumer>: as require_secret, unless External Secrets makes it.
 require_declared_secret() {
   [[ "$external_secrets" == true ]] || require_secret "$@"
@@ -199,7 +204,7 @@ if app_enabled clickhouse-operator &&
   [[ "$(yq '.applications.clickhouse-operator.values.secrets.credentials.create' "$values")" != true ]]; then
   require_declared_secret "$operator_namespace" clickhouse-operator-credentials "clickhouse-operator"
 fi
-if app_enabled clickhouse && [[ "$clickhouse_external" != true ]]; then
+if app_enabled clickhouse && [[ "$clickhouse_external" != true && "$(app_vault clickhouse)" != true ]]; then
   for user in admin:"clickhouse schema Job" writer:otel-collector reader:cerberus analyst:"notebooks and jobs"; do
     if [[ "$(yq ".applications.clickhouse.values.secrets.${user%%:*}.create" "$values")" != true ]]; then
       require_declared_secret "$default_namespace" "clickhouse-${user%%:*}" "clickhouse, ${user#*:}"
@@ -207,7 +212,7 @@ if app_enabled clickhouse && [[ "$clickhouse_external" != true ]]; then
   done
 fi
 # garmr's ClickHouse user exists unless the environment turns clickhouse.garmr off.
-if app_enabled clickhouse && [[ "$clickhouse_external" != true ]] && [[ "$(yq '.applications.clickhouse.values.clickhouse.garmr.enabled' "$values")" != false ]] &&
+if app_enabled clickhouse && [[ "$clickhouse_external" != true && "$(app_vault clickhouse)" != true ]] && [[ "$(yq '.applications.clickhouse.values.clickhouse.garmr.enabled' "$values")" != false ]] &&
   [[ "$(yq '.applications.clickhouse.values.secrets.garmr.create' "$values")" != true ]]; then
   require_declared_secret "$default_namespace" clickhouse-garmr "clickhouse, garmr serve"
 fi
@@ -232,16 +237,28 @@ fi
 # before the first sync, and the platform's CA bundle has to be in the namespace. Only existence is checked.
 if [[ "$clickhouse_external" == true ]]; then
   contract="global.clickhouse.external is true (README: The ClickHouse service contract)"
-  app_enabled clickhouse && require_declared_secret "$default_namespace" clickhouse-admin "$contract: the schema Job's migration identity, otel_admin; or set applications.clickhouse.enabled: false if the service owner applies the schema"
-  app_enabled otel-collector && require_declared_secret "$default_namespace" clickhouse-writer "$contract: otel-collector, otel_writer"
-  if app_enabled cerberus || app_enabled garmr-sql-adapter; then
-    require_declared_secret "$default_namespace" clickhouse-reader "$contract: cerberus and garmr sql-adapter, otel_reader"
+  # ClickHouse and its clients agree on one mechanism (the render refuses otherwise), so on Vault none of these is a
+  # Secret.
+  if [[ "$(app_vault clickhouse)" != true ]]; then
+    if app_enabled clickhouse; then
+      require_declared_secret "$default_namespace" clickhouse-admin "$contract: the schema Job's migration identity, otel_admin; or set applications.clickhouse.enabled: false if the service owner applies the schema"
+    fi
+    if app_enabled otel-collector; then
+      require_declared_secret "$default_namespace" clickhouse-writer "$contract: otel-collector, otel_writer"
+    fi
+    if app_enabled cerberus || app_enabled garmr-sql-adapter; then
+      require_declared_secret "$default_namespace" clickhouse-reader "$contract: cerberus and garmr sql-adapter, otel_reader"
+    fi
+    if app_enabled garmr; then
+      require_declared_secret "$default_namespace" clickhouse-garmr "$contract: garmr serve, otel_garmr"
+    fi
   fi
-  app_enabled garmr && require_declared_secret "$default_namespace" clickhouse-garmr "$contract: garmr serve, otel_garmr"
   ca_configmap="$(yq '.global.clickhouse.tls.caConfigMap // ""' "$values")"
   ca_key="$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$values")"
   if [[ -z "$ca_configmap" || -z "$(yq '.global.clickhouse.tls.serverName // ""' "$values")" ]]; then
     fail "$contract, so global.clickhouse.tls.serverName and global.clickhouse.tls.caConfigMap are required"
+  elif [[ "$(yq '.global.clickhouse.tls.vault // false' "$values")" == true ]]; then
+    : # global.clickhouse.tls.vault: the CA bundle is the Vault field listed above, not a ConfigMap.
   elif ! ca_json="$(kubectl -n "$default_namespace" get configmap "$ca_configmap" -o json 2>/dev/null)"; then
     fail "ConfigMap $ca_configmap (global.clickhouse.tls.caConfigMap) is missing in namespace $default_namespace: ask the platform team for the CA bundle that signed the ClickHouse service's certificate"
   elif [[ "$(yq -p json ".data.\"$ca_key\" // \"\"" <<<"$ca_json")" != *"BEGIN CERTIFICATE"* ]]; then
