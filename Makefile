@@ -172,6 +172,10 @@ test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Arg
 test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (21) of synthetic traces at RATE (50) spans/s; by hand, not CI
 	RATE=$(or $(RATE),50) DAYS=$(or $(DAYS),21) scripts/traceql-bench.bash
 
+.PHONY: measure/disk
+measure/disk: ## Read-only: bytes per row, ingest rates and peak disk use from the running ClickHouse, for the README's Disk sizing
+	scripts/measure-disk.bash
+
 .PHONY: test/quota
 test/quota: ## Prove check-quota.bash rejects a missing CPU limit, request, or Vault agent resources
 	scripts/check-quota-test.bash
