@@ -508,6 +508,10 @@ With `standalone: true`:
 - As with the operator, the server reads its users' passwords only from Kubernetes Secrets, so `vault.enabled`
   fails the render for it; its certificate is likewise a Kubernetes Secret, not a Vault record.
 
+Running it (first install, restart, upgrade, rollback, credential and certificate rotation, pausing a failing
+Application, sizing and backup) is
+[the runbook's Operating a standalone ClickHouse](docs/runbook.md#operating-a-standalone-clickhouse).
+
 `make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
 anything that selects the operator's pods.
