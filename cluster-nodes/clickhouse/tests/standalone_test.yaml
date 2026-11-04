@@ -328,10 +328,68 @@ tests:
       - failedTemplate:
           errorPattern: global.clickhouse.standalone runs one server
 
-  - it: refuses vault.enabled, as with the operator, because the server reads passwords only from Secrets
+  - it: reads every user's password from the Vault agent's files, with no secretKeyRef, before the server starts
     set:
       global.vault.enabled: true
+      global.vault.secret: OBS_SECRET
     template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
     asserts:
-      - failedTemplate:
-          errorPattern: 'vault.enabled is true, but the ClickHouse server reads its users'' passwords only from the Kubernetes Secrets'
+      - notExists:
+          path: spec.template.spec.containers[0].env
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-pre-populate-only"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: clickhouse
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-analyst-password"]
+          value: secret/data/OBS_SECRET
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-template-clickhouse-writer-password"]
+          value: '{{- with secret "secret/data/OBS_SECRET" -}}{{ index .Data.data "clickhouse-writer-password" }}{{- end -}}'
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - /bin/sh
+            - -c
+            - |
+              # A missing file or an empty field stops the server rather than start a user with no password.
+              set -eu
+              CLICKHOUSE_PASSWORD_OTEL_ADMIN="$(cat '/vault/secrets/clickhouse-admin-password')"
+              export CLICKHOUSE_PASSWORD_OTEL_ADMIN
+              CLICKHOUSE_PASSWORD_OTEL_ANALYST="$(cat '/vault/secrets/clickhouse-analyst-password')"
+              export CLICKHOUSE_PASSWORD_OTEL_ANALYST
+              CLICKHOUSE_PASSWORD_OTEL_GARMR="$(cat '/vault/secrets/clickhouse-garmr-password')"
+              export CLICKHOUSE_PASSWORD_OTEL_GARMR
+              CLICKHOUSE_PASSWORD_OTEL_READER="$(cat '/vault/secrets/clickhouse-reader-password')"
+              export CLICKHOUSE_PASSWORD_OTEL_READER
+              CLICKHOUSE_PASSWORD_OTEL_WRITER="$(cat '/vault/secrets/clickhouse-writer-password')"
+              export CLICKHOUSE_PASSWORD_OTEL_WRITER
+              : "${CLICKHOUSE_PASSWORD_OTEL_ADMIN:?is empty in Vault}"
+              : "${CLICKHOUSE_PASSWORD_OTEL_ANALYST:?is empty in Vault}"
+              : "${CLICKHOUSE_PASSWORD_OTEL_GARMR:?is empty in Vault}"
+              : "${CLICKHOUSE_PASSWORD_OTEL_READER:?is empty in Vault}"
+              : "${CLICKHOUSE_PASSWORD_OTEL_WRITER:?is empty in Vault}"
+              exec /usr/bin/clickhouse-server --config-file=/etc/clickhouse-server/config.xml
+
+  - it: keeps the schema Job on the same Vault record as the server, with no secretKeyRef
+    set:
+      global.vault.enabled: true
+      global.vault.secret: OBS_SECRET
+    template: templates/objects.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.valueFrom)]
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-admin-password"]
+          value: secret/data/OBS_SECRET

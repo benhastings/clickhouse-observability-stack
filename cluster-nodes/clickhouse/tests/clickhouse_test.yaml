@@ -1124,13 +1124,13 @@ tests:
       - failedTemplate:
           errorPattern: global.clickhouse.tls.caConfigMap is empty
 
-  - it: fails on vault.enabled, because the server reads its users' passwords only from Kubernetes Secrets
+  - it: fails on vault.enabled, because the operator reads its users' passwords only from Kubernetes Secrets
     set:
       global.vault.enabled: true
     template: templates/objects.yaml
     asserts:
       - failedTemplate:
-          errorPattern: '^clickhouse: vault.enabled is true, but the ClickHouse server reads its users'' passwords only from the Kubernetes Secrets clickhouse-<user>'
+          errorPattern: '^clickhouse: vault.enabled is true, but the ClickHouse operator reads its users'' passwords only from the Kubernetes Secrets clickhouse-<user>'
 
   - it: reads otel_admin's password from the Vault agent's file in the schema Job, with an external ClickHouse
     set:
@@ -1194,7 +1194,7 @@ tests:
       - notExists:
           path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject"]
 
-  # The server can't be on Vault until it reads its passwords from files (#255), so this leaves its Installation out.
+  # The operator can't read its passwords from Vault, so this leaves its Installation out.
   - it: reads the backup CronJob's credentials from the Vault agent's files, keeping clickhouse-backup's arguments
     set:
       vault.enabled: true
