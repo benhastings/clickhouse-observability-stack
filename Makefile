@@ -119,7 +119,7 @@ check/spelling: ## cspell against cspell.json (American and British English)
 	npm run --silent spell
 
 .PHONY: check/manifests
-check/manifests: ## kubeconform tests/golden against pinned schemas; require memory limits and pinned images
+check/manifests: ## kubeconform tests/golden against pinned schemas; require memory limits, pinned images, and CPU and memory requests and limits where global.quota.requireLimits
 	KUBE_VERSION=$(KUBE_VERSION) scripts/check-manifests.bash
 
 .PHONY: check/restricted
@@ -161,7 +161,7 @@ deps: ## Rebuild every local chart's file:// dependencies from Chart.lock
 	@helm dependency build cluster-configs/stack >/dev/null
 
 .PHONY: test
-test: test/unit test/credentials test/kind-profiles test/live ## Every offline test
+test: test/unit test/credentials test/kind-profiles test/live test/quota ## Every offline test
 
 .PHONY: test/e2e
 test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Argo CD, then query the stack; MESH=istio or MESH=ambient for an Istio profile, ENV=restricted for the restricted namespace
@@ -171,6 +171,10 @@ test/e2e: ## Needs Docker: kind cluster at REVISION (default main), wait for Arg
 .PHONY: test/traceql-latency
 test/traceql-latency: ## Needs Docker: time TraceQL through Cerberus over DAYS (21) of synthetic traces at RATE (50) spans/s; by hand, not CI
 	RATE=$(or $(RATE),50) DAYS=$(or $(DAYS),21) scripts/traceql-bench.bash
+
+.PHONY: test/quota
+test/quota: ## Prove check-quota.bash rejects a missing CPU limit, request, or Vault agent resources
+	scripts/check-quota-test.bash
 
 .PHONY: test/live
 test/live: ## Prove check-live.bash reports a changed revision, valuesObject, missing and extra Application, from a fixture

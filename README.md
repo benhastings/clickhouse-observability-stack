@@ -1261,6 +1261,30 @@ A sender outside the release namespace can still set its own `k8s.*` resource at
 OpenTelemetry SDK's `OTEL_RESOURCE_ATTRIBUTES` and the downward API. `rbac.scope: namespace` changes only the
 collector; the ClickHouse operator's ClusterRole and CRDs are separate.
 
+### A namespace with a resource quota
+
+A namespace whose `ResourceQuota` covers CPU and memory rejects any pod with a container that lacks a CPU or memory
+request or limit, init containers, Jobs and Vault agents included. Set `global.quota.requireLimits: true` in the
+environment's file (`restricted` and `paas` do), and `make check/manifests` (`scripts/check-quota.bash`) fails the
+render of that environment on a container missing any of the four, and on a Vault-injected pod without
+`vault.hashicorp.com/agent-requests-cpu`, `-requests-mem`, `-limits-cpu` and `-limits-mem` (set them under
+`global.vault.annotations`). The production default has no CPU limit, so such an environment sets
+`global.resources.limits.cpu` and, for ClickHouse's own containers, `clickhouse.resources.limits.cpu` and
+`clickhouse.schema.resources.limits.cpu`, as `values-restricted.yaml` does. The check does not see what the mesh
+injects: an Istio sidecar's resources come from the `sidecar.istio.io/proxy*` annotations or the mesh's defaults.
+
+The `restricted` profile's budget, summed from `tests/golden/restricted` without sidecars:
+
+| | CPU requests | CPU limits | Memory requests | Memory limits |
+| --- | --- | --- | --- | --- |
+| Steady state: 7 Deployments, one replica each, plus ClickHouse | 215m | 4.5 | 608Mi | 3840Mi |
+| Schema Job, while it runs | +50m | +500m | +64Mi | +256Mi |
+| Rollout surge: one extra pod per Deployment being rolled (the default `maxSurge` of 25% rounds up to one) | + that Deployment's own row | | | |
+
+Size the quota for the steady state plus the largest single Deployment (Grafana: 25m, 500m, 96Mi, 1Gi) plus the
+schema Job. Rolling several apps at once needs each of theirs on top, so sync them one wave at a time. Resize with
+`global.resources`; the `paas` profile, with its larger Cerberus and collector, is the sum of its own file.
+
 ### Disk sizing
 
 Compressed bytes per row on disk, indexes and projections included, measured on kind (ClickHouse 26.9.5.2)

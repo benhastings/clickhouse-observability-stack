@@ -637,6 +637,17 @@
             }
           }
         },
+        "quota": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requireLimits": {
+              "type": "boolean",
+              "description": "the namespace has a ResourceQuota on CPU and memory, so every container, init containers and Jobs included, needs a CPU and memory request and limit; `make check/manifests` fails the environment's render on one without, and on a Vault agent without its resource annotations. Renders nothing itself",
+              "x-default": "`false`"
+            }
+          }
+        },
         "resources": {
           "type": "object",
           "description": "every container's requests and limits unless it sets its own; a container's `resources` override these key by key, so a container that sets only `limits.memory` keeps these requests. An environment resizes every app here",

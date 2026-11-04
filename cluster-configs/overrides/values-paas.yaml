@@ -22,6 +22,13 @@ destinationServer: https://kubernetes.default.svc
 clusterScoped: false
 
 global:
+  quota:
+    requireLimits: true
+  # The namespace's ResourceQuota wants a CPU limit on every container, which the production default leaves off.
+  # Every app gets this one unless it sets its own limits.cpu; make check/manifests fails on a container without one.
+  resources:
+    limits:
+      cpu: 500m
   # The service owner's ClickHouse (README: The ClickHouse service contract). Every client reaches it at
   # services.clickhouse over TLS and verifies its certificate against tls.serverName and the CA bundle in the
   # ConfigMap tls.caConfigMap, which the platform puts in this namespace. The users and their Secrets
@@ -52,7 +59,12 @@ applications:
   # enabled: false here and hand them the clickhouse-schema ConfigMap from make render ENV=paas (README: The ClickHouse service
   # contract).
   clickhouse:
-    values: {}
+    values:
+      clickhouse:
+        schema:
+          resources:
+            limits:
+              cpu: 500m
 
   # A Role and RoleBinding in this namespace instead of a ClusterRole, and no kubeletstats or node metrics
   # (README: Collector RBAC: cluster-wide or one namespace, for what that loses). OTLP stays inside the cluster,

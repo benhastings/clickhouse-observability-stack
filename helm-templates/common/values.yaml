@@ -66,6 +66,9 @@ global:
     waypoint:
       name: ""
       namespace: ""
+  # A namespace quota on CPU and memory: true makes check/manifests require a request and a limit for both on every container.
+  quota:
+    requireLimits: false
   imagePullSecrets: []
   # Every container's requests and limits unless it sets its own, key by key: a container that sets only
   # limits.memory keeps these requests. Sized for a small sidecar-like service; a node writes resources only when

@@ -42,4 +42,6 @@ if ((errors > 0)); then
   echo "check-manifests: $errors problem(s) found"
   exit 1
 fi
+
+scripts/check-quota.bash
 echo "check-manifests: ok"
