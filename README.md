@@ -41,7 +41,7 @@ flowchart LR
 | `clickhouse` | `clickhouse/clickhouse-server:26.9.27.3` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. It only reads: the `clickhouse` app's schema Job creates the tables. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) and Kubernetes events from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
-| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
+| `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus, a read-only one for Alertmanager and a ClickHouse one for the 13-month rollups, the provisioned dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |
 | `alertmanager` | `quay.io/prometheus/alertmanager:v0.34.1` | [Alertmanager](https://github.com/prometheus/alertmanager): groups, silences and sends the alerts rule evaluators raise. One replica with no gossip cluster. It sends nothing until an environment adds a receiver. |
 | `garmr-sql-adapter` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr)'s SQL adapter: serves the Prometheus query API to vmalert and answers each query by running it as ClickHouse SQL, read-only, as `otel_reader`. |
 | `garmr` | `ghcr.io/benhastings/garmr:v0.3.0` | [garmr](https://github.com/benhastings/garmr) serve: takes every Alertmanager notification and keeps one incident per alert group in ClickHouse's `garmr` database, with the failing service's new error logs, a failing trace and its baseline attached, and, with `slack.enabled`, one Slack thread each, with acknowledge, silence and resolve buttons. |
@@ -638,7 +638,7 @@ name them.
 | Secret | User | Grants | Read by |
 | --- | --- | --- | --- |
 | `clickhouse-writer` | `otel_writer` | `INSERT ON otel.*` | the collector |
-| `clickhouse-reader` | `otel_reader` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_slo.*`, `otel_rollup.*`, `system.view_refreshes`, `system.disks` | Cerberus, garmr sql-adapter |
+| `clickhouse-reader` | `otel_reader` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_slo.*`, `otel_rollup.*`, `system.view_refreshes`, `system.disks` | Cerberus, garmr sql-adapter, Grafana's rollups datasource |
 | `clickhouse-garmr` | `otel_garmr` | `SELECT, INSERT, ALTER UPDATE, ALTER DELETE ON garmr.*`, `SELECT ON otel.*`, `otel_features.*`, `otel_baseline.*` | garmr serve |
 | `clickhouse-analyst` | `otel_analyst` | `SELECT ON otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*`, `otel_rollup.*`, `INSERT ON otel_ml.*`, under limits of the service owner's choosing | notebooks and jobs, not a workload |
 | `clickhouse-admin` | `otel_admin` | only if the service owner delegates migrations: create and alter tables, views and databases in `otel`, `otel_features`, `otel_ml`, `otel_baseline`, `otel_slo`, `otel_rollup` and `garmr`, and be the definer of their views | the schema Job |
@@ -737,7 +737,7 @@ Each ClickHouse user does one job, with its own Secret (keys `username` and `pas
 |---|---|---|---|
 | `otel_admin` | `clickhouse-admin` | all | the schema Job and the backup CronJob |
 | `otel_writer` | `clickhouse-writer` | `INSERT` on `otel.*` | the collector |
-| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `otel_rollup.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter |
+| `otel_reader` | `clickhouse-reader` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_slo.*`, `otel_rollup.*`, `system.view_refreshes` and `system.disks` | Cerberus, garmr sql-adapter, Grafana's rollups datasource |
 | `otel_analyst` | `clickhouse-analyst` | `SELECT` on `otel.*`, `otel_baseline.*`, `otel_features.*`, `otel_slo.*` and `otel_rollup.*`; `INSERT` on `otel_ml.*` | notebooks, ML jobs, ad hoc SQL |
 | `otel_garmr` | `clickhouse-garmr` | `SELECT`, `INSERT`, `ALTER UPDATE` and `ALTER DELETE` on `garmr.*`; `SELECT` on `otel.*`, `otel_features.*` and `otel_baseline.*` | garmr serve |
 
@@ -993,9 +993,18 @@ WHERE bucket >= toStartOfMonth(now() - INTERVAL 12 MONTH)
 GROUP BY month, service_name ORDER BY month, service_name
 ```
 
-Grafana doesn't read them yet. Cerberus serves only the `otel` tables, whose daily partitions expire at
-`global.retention.metrics`, so the 13-month series can't be written back as `slo:*` and `baseline:*` are. A
-ClickHouse datasource in Grafana is a follow-up.
+Cerberus serves only the `otel` tables, whose daily partitions expire at `global.retention.metrics`, so the 13-month
+series can't be written back as `slo:*` and `baseline:*` are. Grafana reads them with SQL instead, through the
+**ClickHouse (rollups)** datasource (uid `clickhouse-rollup`, the pinned
+[ClickHouse plugin](https://grafana.com/grafana/plugins/grafana-clickhouse-datasource/)). It connects as
+`otel_reader` with `otel_rollup` as its default database, to the native port, or to 9440 over TLS against
+`global.clickhouse.tls`'s CA. The plugin verifies the certificate only under the host it dials, so with TLS the render
+fails unless `tls.serverName` is the host of `global.services.clickhouse`. Its password is `clickhouse-reader`'s
+(`password`): `$__env{CLICKHOUSE_READER_PASSWORD}` with Vault off, the agent's file through `$__file{}` with it on. Grafana expands environment
+variables in provisioning values after reading the file, so a password containing `$` won't survive. The **Year over
+year** dashboard draws requests per second, the error ratio, p95 latency and node CPU against the same window 52
+weeks earlier, plus each service per month for the last 13 months. Its year-earlier lines stay empty until the
+rollups are a year old.
 
 Cost, measured on a local `clickhouse-server:26.9.5.2` with synthetic rollups (100 services and 1,000 series over
 400 days of hours and 35 days of 5-minute buckets, after merges): a service bucket is 92 bytes with its t-digest
@@ -1324,7 +1333,7 @@ stays a Kubernetes Secret.
 | --- | --- | --- | --- | --- |
 | `clickhouse-admin` | `username`, `password` | ClickHouse; the schema Job and the backup CronJob (`password`) | `clickhouse-admin-password` | `observability/clickhouse-admin` |
 | `clickhouse-writer` | `username`, `password` | ClickHouse; `otel-collector` (`password`) | `clickhouse-writer-password` | `observability/clickhouse-writer` |
-| `clickhouse-reader` | `username`, `password` | ClickHouse; `cerberus`, `garmr-sql-adapter` (`password`) | `clickhouse-reader-password` | `observability/clickhouse-reader` |
+| `clickhouse-reader` | `username`, `password` | ClickHouse; `cerberus`, `garmr-sql-adapter`, `grafana` (`password`) | `clickhouse-reader-password` | `observability/clickhouse-reader` |
 | `clickhouse-analyst` | `username`, `password` | ClickHouse; notebooks and jobs | `clickhouse-analyst-password` (standalone server) | `observability/clickhouse-analyst` |
 | `clickhouse-garmr` | `username`, `password` | ClickHouse; `garmr` (`password`) | `clickhouse-garmr-password` | `observability/clickhouse-garmr` |
 | `clickhouse-backup` | `access_key`, `secret_key` | the backup CronJob, with `clickhouse.backup` | `clickhouse-backup-access_key`, `clickhouse-backup-secret_key` | - |
@@ -1722,7 +1731,7 @@ else in `observability`.
 | ClickHouse | installation `otel`; Service `clickhouse`; Job `clickhouse-schema-<hash>` | `observability` | `8123` http, `9000` tcp | `clickhouse-admin`, `clickhouse-writer`, `clickhouse-reader`, `clickhouse-analyst`, `clickhouse-garmr` (`password`; `username` is set to `otel_admin`, `otel_writer`, `otel_reader`, `otel_analyst`, `otel_garmr` when the Secret is created) | 1 |
 | Cerberus | `cerberus` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | collector | `otel-collector` | `observability` | `4317` OTLP gRPC, `4318` OTLP http, `8088` Alertmanager history | `clickhouse-writer` (`password`); `otel-collector-auth` (`token`) only with `collector.auth.enabled` | 3 |
-| Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`) | 3 |
+| Grafana | `grafana` | `observability` | `80` http (pod port `3000`) | `grafana-admin` (`admin-user`, `admin-password`); `clickhouse-reader` (`password`) for the rollups datasource | 3 |
 | garmr sql-adapter | `garmr-sql-adapter` | `observability` | `8080` http | `clickhouse-reader` (`password`) | 2 |
 | garmr | `garmr` | `observability` | `8080` http | `clickhouse-garmr` (`password`); `garmr-slack` (`bot-token`, `app-token`) only with `slack.enabled` | 2 |
 | Alertmanager | `alertmanager` | `observability` | `9093` http | none | 3 |

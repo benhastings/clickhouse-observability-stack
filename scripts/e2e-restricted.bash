@@ -141,6 +141,26 @@ poll "Grafana: the Prometheus datasource reads the probe metric" "$metric_check"
 poll "Grafana: the Prometheus datasource reads the probe span's span metrics" "$span_metrics_check" \
   -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/query" "${span_metrics_query[@]}"
 
+# The ClickHouse datasource, as otel_reader straight to ClickHouse (over TLS against the platform's CA for
+# standalone): the probe's server span in the 5-minute rollup. A POST, which poll (curl -G) can't send.
+poll "Grafana: datasource clickhouse-rollup is healthy" \
+  '.status == "OK"' \
+  -u "$grafana_login" "$grafana/api/datasources/uid/clickhouse-rollup/health"
+step "Grafana: the ClickHouse datasource reads the probe span from otel_rollup"
+rollup_query="$(jq -nc --arg svc "$probe_service" '{from: "now-1h", to: "now", queries: [{refId: "A",
+  datasource: {uid: "clickhouse-rollup"}, format: 1,
+  rawSql: ("SELECT sum(requests) FROM otel_rollup.services_5m WHERE service_name = '"'"'" + $svc + "'"'"'")}]}')"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until rollup="$(curl -fsS -X POST -u "$grafana_login" -H 'Content-Type: application/json' -d "$rollup_query" \
+  "$grafana/api/ds/query" 2>/dev/null)" && jq -e '.results.A.frames[0].data.values[0][0] >= 1' <<<"$rollup" >/dev/null 2>&1; do
+  if ((SECONDS > deadline)); then
+    echo "  last response: ${rollup:0:500}"
+    exit 1
+  fi
+  sleep 5
+done
+echo "  ok"
+
 # Grafana's VirtualService binds it to the platform's Gateway; reach it the way a browser would, by its host.
 kubectl -n istio-ingress port-forward svc/istio-ingressgateway 18088:80 >/dev/null 2>&1 &
 sleep 3
