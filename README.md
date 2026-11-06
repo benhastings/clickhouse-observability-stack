@@ -547,8 +547,15 @@ to copy for such a site:
 - `global.networkPolicy.vault`: where the agents reach Vault, since the policies deny other egress.
 - `global.istio.dataplaneMode: ambient` and `global.quota.requireLimits: true`, with a CPU limit on every container.
 
-`make cluster/preflight ENV=<env>` lists every Vault field it needs. It is rendered and held to the same checks as
-`standalone` and to the quota check, but not deployed.
+`make cluster/preflight ENV=<env>` lists every Vault field it needs. It is held to the same checks as `standalone`
+and to the quota check, and `make test/e2e ENV=tenant-vault` deploys it on kind (CI on PRs labelled `restricted`):
+`scripts/kind-platform.bash` installs Istio in ambient mode, Vault in dev mode and its Agent Injector (outside the
+mesh, at pinned versions), enables Kubernetes auth with the `observability` role bound to the namespace's
+ServiceAccounts and allowed to read only `OBS_SECRET`, and writes that record with a field for every entry
+`scripts/secret-records.bash` lists: random passwords, and the throwaway certificate, key and CA. No Kubernetes
+Secret is created. The run makes the `standalone` checks, reading every credential from Vault, and fails when a pod
+that asks for the agent wasn't injected, a pod reads a ClickHouse password through a `secretKeyRef`, or the
+namespace holds a `clickhouse-<user>` Secret. The quota itself isn't stood up on kind.
 
 `make check/restricted` holds `standalone` to everything [a restricted namespace](#a-restricted-namespace) is held
 to, and, as for an external ClickHouse, fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
@@ -1830,6 +1837,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
 | kind e2e, restricted | the `restricted` profile deployed against a shared operator and Gateway: nothing cluster-scoped, a trace, log and metric through to Grafana, no Secret value in logs | CI on PRs labelled `restricted`, or `make test/e2e ENV=restricted` |
 | kind e2e, standalone | the `standalone` profile with no operator and a certificate the stand-in platform issues: the `restricted` checks, plus TLS only, every client's queries over TLS, and a wrong CA or server name refused | CI on PRs labelled `restricted`, or `make test/e2e ENV=standalone` |
+| kind e2e, tenant-vault | the `tenant-vault` profile in ambient mode with every credential and the certificate in a dev Vault: the `standalone` checks, plus every pod that asks for the agent injected, and no ClickHouse password as a Secret or `secretKeyRef` | CI on PRs labelled `restricted`, or `make test/e2e ENV=tenant-vault` |
 
 Everything that could drift is pinned: tool versions in the `Makefile`, Kubernetes `1.37.0` for rendering,
 schemas and the kind node image (by digest), and the schema sources by commit. No chart is fetched from a

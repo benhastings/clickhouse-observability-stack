@@ -5346,7 +5346,7 @@ spec:
         vault.hashicorp.com/agent-limits-mem: 64Mi
         vault.hashicorp.com/agent-requests-cpu: 10m
         vault.hashicorp.com/agent-requests-mem: 32Mi
-        vault.hashicorp.com/role: grafana
+        vault.hashicorp.com/role: observability
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: true

@@ -65,6 +65,17 @@ tests:
             name: GF_SECURITY_ADMIN_PASSWORD
           any: true
 
+  - it: logs in to Vault with the environment's role when global.vault names one for every app
+    set:
+      global.vault.role: observability
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/role"]
+          value: observability
+
   - it: reads the admin login from the grafana-admin Secret with Vault off
     set:
       vault.enabled: false

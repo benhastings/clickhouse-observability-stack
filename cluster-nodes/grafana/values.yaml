@@ -441,8 +441,7 @@ networkPolicy:
 
 # Grafana reads its secrets from Vault: the Vault Agent Injector writes <vault.path>/grafana-admin and
 # <vault.path>/grafana-oauth (key client-secret) into the pod, and the pod authenticates with Vault's Kubernetes
-# auth role grafana, bound to its ServiceAccount. vault.enabled: false reads the Kubernetes Secrets of the same
-# names instead.
+# auth role, bound to its ServiceAccount: global.vault.role when an environment names one for every app, otherwise
+# grafana (the chart's name). vault.enabled: false reads the Kubernetes Secrets of the same names instead.
 vault:
   enabled: true
-  role: grafana
