@@ -308,10 +308,12 @@ probe_service=acceptance-probe
 run="$(openssl rand -hex 8)"
 trace="$(openssl rand -hex 16)"
 t1="$(date +%s%N)"
-span="$(jq -nc --arg svc "$probe_service" --arg trace "$trace" --arg span "$(openssl rand -hex 8)" \
+# The span is named for this run, so its span metrics can't be an earlier run's series, which the collector keeps
+# reporting.
+span="$(jq -nc --arg svc "$probe_service" --arg run "$run" --arg trace "$trace" --arg span "$(openssl rand -hex 8)" \
   --arg t0 "$((t1 - 20000000))" --arg t1 "$t1" \
   '{resourceSpans: [{resource: {attributes: [{key: "service.name", value: {stringValue: $svc}}]},
-    scopeSpans: [{spans: [{traceId: $trace, spanId: $span, name: "GET /acceptance", kind: 2,
+    scopeSpans: [{spans: [{traceId: $trace, spanId: $span, name: ("GET /acceptance/" + $run), kind: 2,
       startTimeUnixNano: $t0, endTimeUnixNano: $t1}]}]}]}')"
 log="$(jq -nc --arg svc "$probe_service" --arg run "$run" --arg t "$t1" --arg trace "$trace" \
   '{resourceLogs: [{resource: {attributes: [{key: "service.name", value: {stringValue: $svc}}]},
@@ -372,13 +374,22 @@ metric_check='[.data.result[].value[1] | tonumber] == [42]'
 log_query=(--data-urlencode "query={service_name=\"$probe_service\"} | run=\"$run\""
   --data-urlencode "start=$((now - 900))000000000" --data-urlencode "end=$((now + 900))000000000" --data-urlencode 'limit=10')
 metric_query=(--data-urlencode "query=acceptance_probe{service_name=\"$probe_service\", run=\"$run\"}")
+# The collector's spanmetrics connector turns the synthetic span into a calls counter: what the service dashboard
+# and Metrics Drilldown read.
+span_metrics_check='[.data.result[].value[1] | tonumber] | length > 0 and all(. >= 1)'
+span_metrics_query=(--data-urlencode
+  "query=sum(traces_span_metrics_calls{service_name=\"$probe_service\", span_name=\"GET /acceptance/$run\"})")
 
 if [[ -z "$cerberus" ]]; then
-  for signal in trace log metric; do record FAIL "Cerberus: reads the synthetic $signal" "no Cerberus endpoint"; done
+  for signal in trace log metric "span's span metrics"; do
+    record FAIL "Cerberus: reads the synthetic $signal" "no Cerberus endpoint"
+  done
 else
   read_back "Cerberus: reads the synthetic trace (TraceQL API)" "$trace_check" "$cerberus/api/traces/$trace"
   read_back "Cerberus: reads the synthetic log (LogQL)" "$log_check" "$cerberus/loki/api/v1/query_range" "${log_query[@]}"
   read_back "Cerberus: reads the synthetic metric (PromQL)" "$metric_check" "$cerberus/api/v1/query" "${metric_query[@]}"
+  read_back "Cerberus: reads the synthetic span's span metrics (PromQL)" "$span_metrics_check" "$cerberus/api/v1/query" \
+    "${span_metrics_query[@]}"
 fi
 
 grafana_auth=()
@@ -389,7 +400,8 @@ elif [[ -n "${GRAFANA_AUTH:-}" ]]; then
 fi
 grafana_checks=("Grafana: the Tempo datasource opens the synthetic trace"
   "Grafana: the Loki datasource finds the synthetic log"
-  "Grafana: the Prometheus datasource reads the synthetic metric")
+  "Grafana: the Prometheus datasource reads the synthetic metric"
+  "Grafana: the Prometheus datasource reads the synthetic span's span metrics")
 if [[ -z "$grafana" ]]; then
   for check in "${grafana_checks[@]}"; do record FAIL "$check" "no Grafana endpoint"; done
 elif ((${#grafana_auth[@]} == 0)); then
@@ -399,6 +411,8 @@ else
   read_back "${grafana_checks[0]}" "$trace_check" "${grafana_auth[@]}" "$proxy/cerberus-tempo/api/traces/$trace"
   read_back "${grafana_checks[1]}" "$log_check" "${grafana_auth[@]}" "$proxy/cerberus-loki/loki/api/v1/query_range" "${log_query[@]}"
   read_back "${grafana_checks[2]}" "$metric_check" "${grafana_auth[@]}" "$proxy/cerberus-prometheus/api/v1/query" "${metric_query[@]}"
+  read_back "${grafana_checks[3]}" "$span_metrics_check" "${grafana_auth[@]}" "$proxy/cerberus-prometheus/api/v1/query" \
+    "${span_metrics_query[@]}"
 fi
 
 # ---- Report ----

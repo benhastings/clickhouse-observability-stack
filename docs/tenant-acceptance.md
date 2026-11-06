@@ -67,7 +67,7 @@ the report, which also says how each workload gets its credentials. `make check/
 | Secrets: no pod waits on a missing Secret | 1 |
 | Vault: no pod is stuck in `vault-agent-init`, or with its `vault-agent` in `CrashLoopBackOff` | 1 |
 | Quota: no pod creation is refused by the quota or admission | 5 |
-| OTLP, Cerberus and Grafana: a synthetic trace, log and metric are accepted and read back | 3 |
+| OTLP, Cerberus and Grafana: a synthetic trace, log and metric are accepted and read back, with the trace's span metrics | 3 |
 
 With `paas`, ClickHouse is the service owner's, so its readiness, endpoints and ports are `SKIP`; the schema Job and
 the round trip still prove the stack reaches it. A `restricted` install serves ClickHouse's plaintext ports, so it

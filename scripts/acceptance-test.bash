@@ -160,9 +160,11 @@ expected=(
   "Cerberus: reads the synthetic trace (TraceQL API)"
   "Cerberus: reads the synthetic log (LogQL)"
   "Cerberus: reads the synthetic metric (PromQL)"
+  "Cerberus: reads the synthetic span's span metrics (PromQL)"
   "Grafana: the Tempo datasource opens the synthetic trace"
   "Grafana: the Loki datasource finds the synthetic log"
   "Grafana: the Prometheus datasource reads the synthetic metric"
+  "Grafana: the Prometheus datasource reads the synthetic span's span metrics"
 )
 actual="$(sed -n 's/^FAIL: \(.*\) | .*$/\1/p' <<<"$out")"
 [[ "$actual" == "$(printf '%s\n' "${expected[@]}")" ]] ||
@@ -171,7 +173,7 @@ grep -q 'secret "clickhouse-admin" not found' <<<"$out" || fail "the missing Sec
 grep -q 'replicaset/cerberus-5c6b: .*exceeded quota: compute' <<<"$out" || fail "the ReplicaSet's quota refusal is not named"
 grep -q 'job/clickhouse-schema-f64b48da: .*exceeded quota: compute' <<<"$out" || fail "the Job's quota refusal is not named"
 grep -q 'pod/grafana-6c4d: vault-agent-init still running' <<<"$out" || fail "the pod stuck on Vault injection is not named"
-grep -q 'Result: \*\*FAIL\*\*, 4 passed, 15 failed' "$work/broken.md" || fail "the report does not record the failures: $(grep Result "$work/broken.md")"
+grep -q 'Result: \*\*FAIL\*\*, 4 passed, 17 failed' "$work/broken.md" || fail "the report does not record the failures: $(grep Result "$work/broken.md")"
 echo "acceptance-test: ok, a broken standalone namespace fails the ${#expected[@]} checks it should, and only those"
 
 if out="$(PATH="$work/bin:$PATH" REPORT="$work/any-name.md" STUB_ANY_NAME=1 GRAFANA_AUTH=admin:stub ROLLBACK_REVISION=0123abcd \
