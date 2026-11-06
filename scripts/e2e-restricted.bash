@@ -238,8 +238,16 @@ rm -f "$haystack"
 echo "  ok: $(kubectl -n "$ns" get pods -o name | wc -l) pods' logs and the live objects hold none of ${#refs[@]} Secret values"
 
 # The go/no-go's in-environment proof, as a tenant runs it (make test/acceptance): read-only apart from its own
-# synthetic signals, with the Grafana login handed to it rather than read from the Secret.
+# synthetic signals, with the Grafana login handed to it rather than read from the Secret. With tls.vault the CA
+# bundle is a Vault field, not a ConfigMap, so it's handed over as CA_FILE, as an operator would.
 if [[ "$standalone" == true || "$external" == true ]]; then
   step "Acceptance: scripts/acceptance.bash $ENV passes in $ns"
-  GRAFANA_AUTH="$grafana_login" REPORT="dist/acceptance/$ENV-e2e.md" scripts/acceptance.bash "$ENV"
+  ca_file=""
+  if [[ "$(yq '.global.clickhouse.tls.vault // false' "$restricted_values")" == true ]]; then
+    ca_file="$(mktemp)"
+    secret_value "$(yq '.global.clickhouse.tls.caConfigMap' "$restricted_values")" \
+      "$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$restricted_values")" >"$ca_file"
+  fi
+  CA_FILE="$ca_file" GRAFANA_AUTH="$grafana_login" REPORT="dist/acceptance/$ENV-e2e.md" scripts/acceptance.bash "$ENV"
+  [[ -z "$ca_file" ]] || rm -f "$ca_file"
 fi
