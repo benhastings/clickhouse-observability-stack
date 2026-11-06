@@ -107,7 +107,9 @@ elif [[ "$(yq '.global.clickhouse.external // false' "$values")" == true ]]; the
     --set global.mesh=kubernetes --set global.clickhouse.standalone=true \
     --set global.clickhouse.tls.serverName="$server_name" --set global.clickhouse.tls.caConfigMap="$ca_configmap" \
     --set global.clickhouse.tls.caKey="$ca_key" --set global.clickhouse.tls.serverSecret=clickhouse-tls \
-    --set global.services.clickhouse=clickhouse:9440 --set clickhouse.storage=2Gi --set clickhouse.lowMemory=true
+    --set global.services.clickhouse=clickhouse:9440 --set clickhouse.storage=2Gi --set clickhouse.lowMemory=true \
+    --set clickhouse.resources.requests.cpu=100m --set clickhouse.resources.requests.memory=256Mi \
+    --set clickhouse.resources.limits.cpu=1 --set clickhouse.resources.limits.memory=1664Mi
   kubectl -n "$service_ns" wait job -l app.kubernetes.io/name=clickhouse-schema --for=condition=Complete --timeout=300s >/dev/null
   echo "==> Platform: CoreDNS resolves $host to clickhouse.$service_ns.svc.cluster.local"
   corefile="$(kubectl -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
