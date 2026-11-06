@@ -1,5 +1,6 @@
 # shellcheck shell=bash disable=SC2154
-# Sourced by scripts/e2e.bash for ENV=restricted and ENV=standalone (make test/e2e ENV=<env>): a restricted-namespace
+# cspell:words startswith
+# Sourced by scripts/e2e.bash for ENV=restricted, ENV=standalone and ENV=tenant-vault (make test/e2e ENV=<env>): a restricted-namespace
 # profile on kind, after scripts/kind-platform.bash has done the platform team's part. No demo load runs, so a pod in
 # the namespace sends its own trace, log and metric, and each is read back through Cerberus and through Grafana.
 # For standalone, ClickHouse runs without the operator and serves only TLS: nothing listens on a plaintext port,
@@ -177,8 +178,29 @@ if [[ "$standalone" == true ]]; then
   source scripts/e2e-standalone.bash
 fi
 
+# On Vault, the platform's agent is the only way a credential reaches a pod: every pod that reads one was injected,
+# none reads a ClickHouse password through a secretKeyRef, and the namespace holds no clickhouse-<user> Secret.
+if [[ "$(yq '.global.vault.enabled // false' "$restricted_values")" == true ]]; then
+  step "Vault: every credential arrives through the agent, and $ns holds no ClickHouse password Secret"
+  pods="$(kubectl -n "$ns" get pods -o json)"
+  refs="$(jq -r '.items[] | .metadata.name as $pod | .spec | (.containers + (.initContainers // []))[] | .env[]? |
+    select(.valueFrom.secretKeyRef.name // "" | startswith("clickhouse-")) | "\($pod): \(.name) from \(.valueFrom.secretKeyRef.name)"' <<<"$pods")"
+  [[ -z "$refs" ]] || { echo "  ${refs//$'\n'/$'\n'  }"; exit 1; }
+  secrets="$(kubectl -n "$ns" get secrets -o name | grep -E '^secret/clickhouse-(admin|writer|reader|analyst|garmr)$' || true)"
+  [[ -z "$secrets" ]] || { echo "  $ns holds ${secrets//$'\n'/, }"; exit 1; }
+  injected="$(jq -r '[.items[] | select(.metadata.annotations["vault.hashicorp.com/agent-inject"] == "true")] |
+    map(select(.metadata.annotations["vault.hashicorp.com/agent-inject-status"] != "injected") | .metadata.name) | join(", ")' <<<"$pods")"
+  [[ -z "$injected" ]] || { echo "  asked for the Vault agent but weren't injected: $injected"; exit 1; }
+  echo "  ok: $(jq '[.items[] | select(.metadata.annotations["vault.hashicorp.com/agent-inject-status"] == "injected")] | length' <<<"$pods") pods injected, no secretKeyRef to a ClickHouse password, no ClickHouse password Secret"
+  # Grafana's admin login is the record's, not the image's default, which it keeps if it never reads the files.
+  step "Vault: Grafana refuses its default admin login"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -u admin:admin "$grafana/api/org")"
+  [[ "$code" == 401 ]] || { echo "  admin:admin got $code"; exit 1; }
+  echo "  ok"
+fi
+
 # Every Secret value the stack reads, looked for in its pods' logs and in the live objects that configure them.
-# Only the Secret's name is printed.
+# Only the Secret's name is printed. On Vault the values are read from the record instead.
 step "Credentials: no Secret value appears in $ns's logs, ConfigMaps, workloads or Applications"
 haystack="$(mktemp)"
 for pod in $(kubectl -n "$ns" get pods -o name); do
@@ -197,7 +219,7 @@ kubectl -n "$ns" get "$workload_kinds" -o yaml >>"$haystack"
 kubectl -n argocd get applications -o yaml >>"$haystack" 2>/dev/null || true
 leaks=()
 for ref in "${refs[@]}"; do
-  value="$(kubectl -n "$ns" get secret "${ref%%:*}" -o go-template="{{index .data \"${ref#*:}\" | base64decode}}")"
+  value="$(secret_value "${ref%%:*}" "${ref#*:}")"
   [[ -n "$value" ]] || { echo "  ${ref%%:*} has no ${ref#*:}"; rm -f "$haystack"; exit 1; }
   # Every line of the value is a pattern, but a PEM key's armour lines are the same in every key.
   grep -qF -f <(grep -v -e '^-----' <<<"$value") "$haystack" && leaks+=("${ref%%:*}")
@@ -207,8 +229,16 @@ rm -f "$haystack"
 echo "  ok: $(kubectl -n "$ns" get pods -o name | wc -l) pods' logs and the live objects hold none of ${#refs[@]} Secret values"
 
 # The go/no-go's in-environment proof, as a tenant runs it (make test/acceptance): read-only apart from its own
-# synthetic signals, with the Grafana login handed to it rather than read from the Secret.
+# synthetic signals, with the Grafana login handed to it rather than read from the Secret. With tls.vault the CA
+# bundle is a Vault field, not a ConfigMap, so it's handed over as CA_FILE, as an operator would.
 if [[ "$standalone" == true ]]; then
   step "Acceptance: scripts/acceptance.bash $ENV passes in $ns"
-  GRAFANA_AUTH="$grafana_login" REPORT="dist/acceptance/$ENV-e2e.md" scripts/acceptance.bash "$ENV"
+  ca_file=""
+  if [[ "$(yq '.global.clickhouse.tls.vault // false' "$restricted_values")" == true ]]; then
+    ca_file="$(mktemp)"
+    secret_value "$(yq '.global.clickhouse.tls.caConfigMap' "$restricted_values")" \
+      "$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$restricted_values")" >"$ca_file"
+  fi
+  CA_FILE="$ca_file" GRAFANA_AUTH="$grafana_login" REPORT="dist/acceptance/$ENV-e2e.md" scripts/acceptance.bash "$ENV"
+  [[ -z "$ca_file" ]] || rm -f "$ca_file"
 fi

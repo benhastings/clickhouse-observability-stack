@@ -73,8 +73,21 @@ grafana=http://localhost:13000
 otlp=http://localhost:14318
 alertmanager=http://localhost:19093
 vmalert=http://localhost:18880
-grafana_login="$(kubectl -n observability get secret grafana-admin \
-  -o go-template='{{index .data "admin-user" | base64decode}}:{{index .data "admin-password" | base64decode}}')"
+# secret_value <Secret> <key>: a credential the stack reads, from its Kubernetes Secret, or, in an environment on Vault
+# (global.vault.enabled), from the Vault record scripts/kind-platform.bash wrote, where it is field <Secret>-<key> of
+# the one record global.vault.secret or field <key> of record <Secret>.
+secret_value() {
+  local values="cluster-configs/overrides/values-$ENV.yaml" record field
+  if [[ "$(yq '.global.vault.enabled // false' "$values")" == true ]]; then
+    record="$(yq '.global.vault.secret // ""' "$values")"
+    field="$1-$2"
+    [[ -n "$record" ]] || { record=$1; field=$2; }
+    kubectl -n vault exec vault-0 -- env VAULT_TOKEN=root vault kv get -field="$field" "secret/$record"
+  else
+    kubectl -n observability get secret "$1" -o go-template="{{index .data \"$2\" | base64decode}}"
+  fi
+}
+grafana_login="$(secret_value grafana-admin admin-user):$(secret_value grafana-admin admin-password)"
 
 poll() {
   local description=$1 check=$2
@@ -100,9 +113,9 @@ now="$(date +%s)"
 start=$((now - 900))
 end=$((now + 900))
 
-# ENV=restricted and ENV=standalone have no demo load and no kubeletstats, so they run their own smoke checks
-# instead of the ones below.
-if [[ "$ENV" == restricted || "$ENV" == standalone ]]; then
+# ENV=restricted, ENV=standalone and ENV=tenant-vault have no demo load and no kubeletstats, so they run their own
+# smoke checks instead of the ones below.
+if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault ]]; then
   # shellcheck source=scripts/e2e-restricted.bash
   source scripts/e2e-restricted.bash
   echo "e2e: ok"
@@ -389,7 +402,7 @@ poll "Metrics Drilldown: the label names of one metric, for its group-by" \
 clickhouse_pod="$(kubectl -n observability get pods -l clickhouse.altinity.com/chi=otel -o name | head -1)"
 clickhouse_as() { # <admin|writer|reader|analyst> <query>
   local password
-  password="$(kubectl -n observability get secret "clickhouse-$1" -o go-template='{{.data.password | base64decode}}')"
+  password="$(secret_value "clickhouse-$1" password)"
   kubectl -n observability exec -i "$clickhouse_pod" -c clickhouse -- \
     clickhouse-client --user "otel_$1" --password "$password" --multiquery --query "$2"
 }

@@ -4,7 +4,9 @@
 # Pass a git revision to deploy that commit or branch instead of main. MESH=istio runs the stack in Istio.
 # ENV=restricted bootstraps the restricted environment instead, in Istio, after scripts/kind-platform.bash has done
 # the platform team's part: the labelled namespace, the shared operator and the shared Gateway. ENV=standalone does
-# the same for the standalone environment, whose platform runs no operator but issues ClickHouse's certificate.
+# the same for the standalone environment, whose platform runs no operator but issues ClickHouse's certificate, and
+# ENV=tenant-vault for the standalone environment on Vault in Istio's ambient mode, whose platform runs Vault and its
+# Agent Injector and holds every credential there, so no Kubernetes Secret is created.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/local-secrets.bash
@@ -21,11 +23,12 @@ if ! kind get clusters | grep -qx "$CLUSTER"; then
 fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 
-create_local_secrets
+values="cluster-configs/overrides/values-$ENV.yaml"
+[[ "$(yq '.global.vault.enabled // false' "$values")" == true ]] || create_local_secrets
 # MESH=istio installs Istio first and deploys local with the mesh, and exposure through its gateway, on;
 # MESH=ambient does the same with Istio in ambient mode.
-if [[ "$ENV" == restricted || "$ENV" == standalone ]]; then
-  scripts/kind-istio.bash
+if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault ]]; then
+  scripts/kind-istio.bash "$(yq '.global.istio.dataplaneMode // "sidecar"' "$values")"
   scripts/kind-platform.bash "$ENV"
   KIND_CLUSTER="$CLUSTER" scripts/bootstrap.bash "$ENV" "$REVISION"
 elif [[ "${MESH:-kubernetes}" == istio ]]; then

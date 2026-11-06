@@ -170,16 +170,17 @@ for the ClickHouse installation to complete and every Deployment to roll out ins
 same checks with Istio installed and `mesh: istio`, plus sidecars, the gateway routes, Grafana's OAuth redirect to a placeholder provider, and `STRICT` mTLS. Label a
 PR `mesh` when it changes anything the mesh renders (Gateways, DestinationRules, injection, NetworkPolicies).
 
-`.github/workflows/e2e-restricted.yml` runs `make test/e2e ENV=restricted` and `make test/e2e ENV=standalone` on pull
+`.github/workflows/e2e-restricted.yml` runs `make test/e2e ENV=restricted`, `ENV=standalone` and `ENV=tenant-vault` on pull
 requests labelled `restricted` and on demand: kind with Istio, `scripts/kind-platform.bash` as the platform team (the
 labelled namespace, the shared Gateway, and the shared operator for `restricted`, or for `standalone` a throwaway CA
-and ClickHouse's certificate generated at runtime), then the environment through Argo CD and
+and ClickHouse's certificate generated at runtime; for `tenant-vault` the same in ambient mode, with Vault in dev mode
+and its Agent Injector holding every credential and the certificate in one record), then the environment through Argo CD and
 `scripts/e2e-restricted.bash`. With no demo load, it sends its own trace, log and metric and reads them back through
 Cerberus and Grafana, reaches Grafana through the Gateway, and fails when Argo CD manages anything cluster-scoped or
 outside the namespace, or a Secret value shows up in the pods' logs or the live objects. For `standalone` it also
 fails when ClickHouse listens on a plaintext client port, a native query in `system.query_log` arrived without TLS, the
-schema Job hasn't completed, the schema Job's client config accepts the server with another CA or by another name, or `scripts/acceptance.bash` (`make test/acceptance`) fails. Label a PR `restricted` when it changes what either profile renders, how the shared operator is
-used, or how ClickHouse's TLS is served or verified.
+schema Job hasn't completed, the schema Job's client config accepts the server with another CA or by another name, or `scripts/acceptance.bash` (`make test/acceptance`) fails. For `tenant-vault` it also fails when a pod that asks for the Vault agent wasn't injected, a pod reads a ClickHouse password through a `secretKeyRef`, or the namespace holds a `clickhouse-<user>` Secret. Label a PR `restricted` when it changes what any of these profiles renders, how the shared operator is
+used, how ClickHouse's TLS is served or verified, or how a credential reaches a pod through Vault.
 
 ### Cluster nodes
 

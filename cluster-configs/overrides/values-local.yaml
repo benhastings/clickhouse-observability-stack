@@ -150,14 +150,6 @@ applications:
               requests:
                 cpu: 25m
                 memory: 96Mi
-            # Startup is slow on a small machine; liveness only counts once it's up.
-            startupProbe:
-              httpGet:
-                path: /api/health
-                port: grafana
-              periodSeconds: 10
-              timeoutSeconds: 30
-              failureThreshold: 60
         volumes:
           # Grafana's database is thrown away on restart and is small (about 2 MB),
           # so keep it in memory: on a laptop disk its 1,400-odd startup migrations

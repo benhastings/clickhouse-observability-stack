@@ -5,7 +5,8 @@
 # Kubernetes Secret or an ExternalSecret: ClickHouse's users' passwords, its certificate and key, the CA bundle its
 # clients verify it with, and Grafana's admin login are fields of one Vault record. Copy this file
 # (make env/new NAME=<env>, then these keys) for a site of your own; it is sized like the laptop profile, and the
-# Vault role, record, address, gateway and host are placeholders. It is rendered and checked, not deployed.
+# Vault role, record, address, gateway and host are placeholders. make test/e2e ENV=tenant-vault deploys it on kind,
+# with a dev Vault standing in for the platform's.
 # make check/restricted fails when this environment's render gains anything cluster-scoped, a Namespace,
 # CreateNamespace or managedNamespaceMetadata, a Gateway, a Service address in another namespace, a
 # ClickHouseInstallation or a clickhouse-operator Application; make check/manifests when a container (a Vault agent

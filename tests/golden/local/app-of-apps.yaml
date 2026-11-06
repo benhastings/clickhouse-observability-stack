@@ -434,13 +434,6 @@ spec:
                 requests:
                   cpu: 25m
                   memory: 96Mi
-              startupProbe:
-                failureThreshold: 60
-                httpGet:
-                  path: /api/health
-                  port: grafana
-                periodSeconds: 10
-                timeoutSeconds: 30
           strategy:
             type: Recreate
           volumes:

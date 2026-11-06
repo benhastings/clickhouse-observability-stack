@@ -113,6 +113,13 @@ configMaps:
         disable_plugins = grafana-pyroscope-app,grafana-advisor-app
         [unified_storage]
         index_path = /var/lib/grafana-search/bleve
+        {{- if (include "common.values" $ | fromYaml).vault.enabled }}
+        ; The admin login from the Vault agent's files. Not GF_SECURITY_ADMIN_*__FILE: only the image's shell
+        ; entrypoint reads those, and the distroless image has none, so Grafana would keep admin/admin.
+        [security]
+        admin_user = $__file{{ "{" }}{{ include "common.secretFile" (list $ "grafana" "GF_SECURITY_ADMIN_USER") }}{{ "}" }}
+        admin_password = $__file{{ "{" }}{{ include "common.secretFile" (list $ "grafana" "GF_SECURITY_ADMIN_PASSWORD") }}{{ "}" }}
+        {{- end }}
         {{- if or .Values.auth.disableLoginForm .Values.auth.loginMaximumLifetimeDuration }}
         [auth]
         {{- if .Values.auth.disableLoginForm }}
@@ -337,13 +344,9 @@ deployment:
         GF_SECURITY_ADMIN_USER:
           secret: '{{ include "common.fullname" . }}-admin'
           key: admin-user
-          vault:
-            env: GF_SECURITY_ADMIN_USER__FILE
         GF_SECURITY_ADMIN_PASSWORD:
           secret: '{{ include "common.fullname" . }}-admin'
           key: admin-password
-          vault:
-            env: GF_SECURITY_ADMIN_PASSWORD__FILE
         # Only with auth.genericOauth.enabled, so Grafana without single sign-on needs no grafana-oauth secret.
         GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
           if: '{{ .Values.auth.genericOauth.enabled }}'
@@ -355,6 +358,15 @@ deployment:
           key: password
       # ClickHouse's CA bundle, for the datasource's tlsCACert, when clients reach ClickHouse over TLS.
       clickhouseCA: true
+      # A first start runs Grafana's 1,400-odd database migrations, which take minutes on a slow disk (tenant-vault
+      # on kind restarted it mid-migration under liveness alone): up to 10 minutes before liveness counts.
+      startupProbe:
+        httpGet:
+          path: /api/health
+          port: grafana
+        periodSeconds: 10
+        timeoutSeconds: 30
+        failureThreshold: 60
       livenessProbe:
         httpGet:
           path: /api/health
@@ -487,8 +499,7 @@ networkPolicy:
 
 # Grafana reads its secrets from Vault: the Vault Agent Injector writes <vault.path>/grafana-admin and
 # <vault.path>/grafana-oauth (key client-secret) into the pod, and the pod authenticates with Vault's Kubernetes
-# auth role grafana, bound to its ServiceAccount. vault.enabled: false reads the Kubernetes Secrets of the same
-# names instead.
+# auth role, bound to its ServiceAccount: global.vault.role when an environment names one for every app, otherwise
+# grafana (the chart's name). vault.enabled: false reads the Kubernetes Secrets of the same names instead.
 vault:
   enabled: true
-  role: grafana
