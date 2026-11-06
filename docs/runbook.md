@@ -525,7 +525,7 @@ reads them. Rotate one at a time, and confirm the [smoke test](#smoke-test-five-
 | Secret | Who changes it | Restart after |
 | --- | --- | --- |
 | `clickhouse-writer` | the secret owner | `clickhouse`, then `otel-collector` |
-| `clickhouse-reader` | the secret owner | `clickhouse`, then `cerberus` and `garmr-sql-adapter` |
+| `clickhouse-reader` | the secret owner | `clickhouse`, then `cerberus`, `garmr-sql-adapter` and `grafana` |
 | `clickhouse-garmr` | the secret owner | `clickhouse`, then `garmr` |
 | `clickhouse-analyst` | the secret owner | `clickhouse` (notebooks and jobs reconnect with the new value) |
 | `clickhouse-admin` | the secret owner | `clickhouse`; the next schema Job and backup read the new value |

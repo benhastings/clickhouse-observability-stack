@@ -30,6 +30,22 @@ metadata:
     app.kubernetes.io/version: "13.2.2"
     environment: restricted
 data:
+  clickhouse.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: ClickHouse (rollups)
+        uid: clickhouse-rollup
+        type: grafana-clickhouse-datasource
+        editable: false
+        jsonData:
+          host: clickhouse
+          port: 9000
+          protocol: native
+          username: otel_reader
+          defaultDatabase: otel_rollup
+        secureJsonData:
+          password: $__env{CLICKHOUSE_READER_PASSWORD}
+    
   dashboards.yaml: |-
     apiVersion: 1
     providers:
@@ -124,7 +140,7 @@ data:
     [plugins]
     ; Only the Drilldown apps, pinned. Grafana adds its default preinstall list
     ; to these; everything on it that isn't bundled in the image is disabled.
-    preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1
+    preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1,grafana-clickhouse-datasource@4.23.4
     preinstall_auto_update = false
     disable_plugins = grafana-pyroscope-app,grafana-advisor-app
     [unified_storage]
@@ -5165,6 +5181,506 @@ data:
         }
       ]
     }
+  year-over-year.json: |
+    {
+      "title": "Year over year",
+      "uid": "year-over-year",
+      "description": "Each service's requests, errors and latency, and node CPU, against the same window a year earlier, from the 13-month rollups in ClickHouse.",
+      "schemaVersion": 41,
+      "editable": false,
+      "graphTooltip": 1,
+      "tags": [
+        "rollups",
+        "clickhouse"
+      ],
+      "time": {
+        "from": "now-30d",
+        "to": "now"
+      },
+      "refresh": "",
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "label": "Service",
+            "type": "query",
+            "datasource": {
+              "type": "grafana-clickhouse-datasource",
+              "uid": "clickhouse-rollup"
+            },
+            "definition": "SELECT DISTINCT ServiceName FROM otel_rollup.service_1h ORDER BY ServiceName",
+            "query": "SELECT DISTINCT ServiceName FROM otel_rollup.service_1h ORDER BY ServiceName",
+            "refresh": 2,
+            "includeAll": true,
+            "multi": true,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "annotations": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "text",
+          "title": "",
+          "gridPos": {
+            "h": 3,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "The curated rollups in `otel_rollup`, read with SQL through the **ClickHouse (rollups)** datasource as `otel_reader`. They keep each service's server spans at 1 hour for `global.retention.curatedMetrics` (13 months by default), long after the raw traces and metrics behind Cerberus are gone. The dashed line is the same window 52 weeks earlier, so weekdays line up; it stays empty until the rollups are a year old, because they start when the `otel_rollup` database is created."
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Requests per second",
+          "description": "Server spans per second across the selected services, from otel_rollup.service_1h.",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-rollup"
+          },
+          "interval": "1h",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 3
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*a year earlier"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(Bucket) AS time, sum(Requests) / $__interval_s AS \"requests/s\"\nFROM otel_rollup.service_1h\nWHERE $__timeFilter(Bucket) AND ServiceName IN (${service:singlequote})\nGROUP BY time ORDER BY time"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(Bucket + INTERVAL 52 WEEK) AS time, sum(Requests) / $__interval_s AS \"requests/s, a year earlier\"\nFROM otel_rollup.service_1h\nWHERE Bucket >= $__fromTime - INTERVAL 52 WEEK AND Bucket <= $__toTime - INTERVAL 52 WEEK AND ServiceName IN (${service:singlequote})\nGROUP BY time ORDER BY time"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Error ratio",
+          "description": "Server spans with an error status, as a share of all server spans of the selected services.",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-rollup"
+          },
+          "interval": "1h",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 3
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*a year earlier"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(Bucket) AS time, sum(Errors) / sum(Requests) AS \"error ratio\"\nFROM otel_rollup.service_1h\nWHERE $__timeFilter(Bucket) AND ServiceName IN (${service:singlequote})\nGROUP BY time ORDER BY time"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(Bucket + INTERVAL 52 WEEK) AS time, sum(Errors) / sum(Requests) AS \"error ratio, a year earlier\"\nFROM otel_rollup.service_1h\nWHERE Bucket >= $__fromTime - INTERVAL 52 WEEK AND Bucket <= $__toTime - INTERVAL 52 WEEK AND ServiceName IN (${service:singlequote})\nGROUP BY time ORDER BY time"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "p95 latency",
+          "description": "The 95th percentile of the selected services' server-span duration, merged from the hourly t-digests.",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-rollup"
+          },
+          "interval": "1h",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 11
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*a year earlier"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(Bucket) AS time, quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(DurationMs)[3] AS \"p95\"\nFROM otel_rollup.service_1h\nWHERE $__timeFilter(Bucket) AND ServiceName IN (${service:singlequote})\nGROUP BY time ORDER BY time"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(Bucket + INTERVAL 52 WEEK) AS time, quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(DurationMs)[3] AS \"p95, a year earlier\"\nFROM otel_rollup.service_1h\nWHERE Bucket >= $__fromTime - INTERVAL 52 WEEK AND Bucket <= $__toTime - INTERVAL 52 WEEK AND ServiceName IN (${service:singlequote})\nGROUP BY time ORDER BY time"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Node CPU",
+          "description": "Cores in use across every node (k8s.node.cpu.usage, a curated metric), averaged over each interval.",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-rollup"
+          },
+          "interval": "1h",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 11
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "spanNulls": false
+              },
+              "decimals": 2
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*a year earlier"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        10,
+                        10
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "text"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(bucket) AS time, sum(avg) / ($__interval_s / 3600) AS \"cores\"\nFROM otel_rollup.metrics_1h\nWHERE $__timeFilter(bucket) AND metric_name = 'k8s.node.cpu.usage'\nGROUP BY time ORDER BY time"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 0,
+              "queryType": "timeseries",
+              "rawSql": "SELECT $__timeInterval(bucket + INTERVAL 52 WEEK) AS time, sum(avg) / ($__interval_s / 3600) AS \"cores, a year earlier\"\nFROM otel_rollup.metrics_1h\nWHERE bucket >= $__fromTime - INTERVAL 52 WEEK AND bucket <= $__toTime - INTERVAL 52 WEEK AND metric_name = 'k8s.node.cpu.usage'\nGROUP BY time ORDER BY time"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "table",
+          "title": "Monthly, per service",
+          "description": "Each selected service per calendar month over the last 13 months, whatever the dashboard's time range.",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-rollup"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 19
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "error ratio"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percentunit"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "p95 (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "requests"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "short"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "month",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-rollup"
+              },
+              "editorType": "sql",
+              "format": 1,
+              "queryType": "table",
+              "rawSql": "SELECT toStartOfMonth(Bucket) AS month, ServiceName AS service, sum(Requests) AS requests,\n       sum(Errors) / sum(Requests) AS \"error ratio\",\n       quantilesTDigestMerge(0.5, 0.9, 0.95, 0.99)(DurationMs)[3] AS \"p95 (ms)\"\nFROM otel_rollup.service_1h\nWHERE Bucket >= toStartOfMonth(now() - INTERVAL 12 MONTH) AND ServiceName IN (${service:singlequote})\nGROUP BY month, service ORDER BY month DESC, service"
+            }
+          ]
+        }
+      ]
+    }
 ---
 # Source: grafana/templates/service.yaml
 apiVersion: v1
@@ -5219,7 +5735,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: ab1f94d12af44f1788e12021090f36db209ada34783614f9085a85f40768cf00
+        checksum/config: 2319b2d1a674eea9246b81e10e936b28f8e654c418b7d2791ae873c827b10d1a
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
@@ -5240,6 +5756,11 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
+            - name: CLICKHOUSE_READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: clickhouse-reader
             - name: GF_PATHS_DATA
               value: "/var/lib/grafana/"
             - name: GF_PATHS_LOGS
@@ -5301,6 +5822,9 @@ spec:
             - mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
               name: config
               subPath: datasources.yaml
+            - mountPath: /etc/grafana/provisioning/datasources/clickhouse.yaml
+              name: config
+              subPath: clickhouse.yaml
             - mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
               name: config
               subPath: dashboards.yaml

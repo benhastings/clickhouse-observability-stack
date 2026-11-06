@@ -1,0 +1,161 @@
+suite: grafana clickhouse rollups
+release:
+  name: grafana
+  namespace: observability
+tests:
+  - it: provisions the rollups datasource as otel_reader on clickhouse:9000, with its password from Vault by default
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - equal:
+          path: data["clickhouse.yaml"]
+          value: |-
+            apiVersion: 1
+            datasources:
+              - name: ClickHouse (rollups)
+                uid: clickhouse-rollup
+                type: grafana-clickhouse-datasource
+                editable: false
+                jsonData:
+                  host: clickhouse
+                  port: 9000
+                  protocol: native
+                  username: otel_reader
+                  defaultDatabase: otel_rollup
+                secureJsonData:
+                  password: $__file{/vault/secrets/clickhouse-reader-password}
+
+  - it: has the Vault agent write otel_reader's password from clickhouse-reader
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-clickhouse-reader-password"]
+          value: secret/data/clickhouse-reader
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_READER_PASSWORD
+          any: true
+
+  - it: reads otel_reader's password from the clickhouse-reader Secret with Vault off
+    set:
+      vault.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLICKHOUSE_READER_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-reader
+                key: password
+        documentSelector:
+          path: kind
+          value: Deployment
+      - matchRegex:
+          path: data["clickhouse.yaml"]
+          pattern: "(?m)^      password: \\$__env\\{CLICKHOUSE_READER_PASSWORD\\}$"
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+
+  - it: dials an external ClickHouse over TLS, verified against the platform's CA bundle
+    set:
+      vault.enabled: false
+      global.services.clickhouse: clickhouse.paas.example:9440
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.paas.example
+      global.clickhouse.tls.caConfigMap: platform-ca
+    asserts:
+      - matchRegex:
+          path: data["clickhouse.yaml"]
+          pattern: "host: clickhouse.paas.example\\n      port: 9440\\n"
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - matchRegex:
+          path: data["clickhouse.yaml"]
+          pattern: "secure: true\\n      tlsAuthWithCACert: true\\n"
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - matchRegex:
+          path: data["clickhouse.yaml"]
+          pattern: "tlsCACert: \\$__file\\{/etc/clickhouse-ca/ca.crt\\}"
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - notMatchRegex:
+          path: data["clickhouse.yaml"]
+          pattern: tlsSkipVerify
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: clickhouse-ca
+            configMap:
+              name: platform-ca
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: reads ClickHouse's CA bundle from Vault with global.clickhouse.tls.vault
+    set:
+      global.services.clickhouse: clickhouse:9440
+      global.clickhouse.standalone: true
+      global.clickhouse.tls.serverName: clickhouse
+      global.clickhouse.tls.caConfigMap: platform-ca
+      global.clickhouse.tls.serverSecret: clickhouse-tls
+      global.clickhouse.tls.vault: true
+    asserts:
+      - matchRegex:
+          path: data["clickhouse.yaml"]
+          pattern: "tlsCACert: \\$__file\\{/vault/secrets/platform-ca-ca.crt\\}"
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+      - exists:
+          path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-platform-ca-ca.crt"]
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: fails the render when the certificate's name isn't the host the datasource dials
+    set:
+      vault.enabled: false
+      global.services.clickhouse: clickhouse.paas.example:9440
+      global.clickhouse.external: true
+      global.clickhouse.tls.serverName: clickhouse.internal
+      global.clickhouse.tls.caConfigMap: platform-ca
+    asserts:
+      - failedTemplate:
+          errorPattern: "global.clickhouse.tls.serverName must be clickhouse.paas.example"
+
+  - it: reaches ClickHouse's native port when network policies are on
+    set:
+      global.networkPolicy.enabled: true
+    template: templates/networkpolicy.yaml
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels:
+                    clickhouse.altinity.com/chi: otel
+            ports:
+              - port: 9000
+                protocol: TCP
+
+  - it: provisions the Year over year dashboard from files
+    documentSelector:
+      path: metadata.name
+      value: grafana-dashboards
+    asserts:
+      - exists:
+          path: data["year-over-year.json"]
