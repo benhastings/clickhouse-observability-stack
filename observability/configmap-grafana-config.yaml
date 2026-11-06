@@ -13,6 +13,21 @@ metadata:
     app.kubernetes.io/version: "13.2.2"
     environment: dev
 data:
+  clickhouse.yaml: |-
+    apiVersion: 1
+    datasources:
+      - name: ClickHouse (rollups)
+        uid: clickhouse-rollup
+        type: grafana-clickhouse-datasource
+        editable: false
+        jsonData:
+          host: clickhouse
+          port: 9000
+          protocol: native
+          username: otel_reader
+          defaultDatabase: otel_rollup
+        secureJsonData:
+          password: $__env{CLICKHOUSE_READER_PASSWORD}
   dashboards.yaml: |-
     apiVersion: 1
     providers:
@@ -107,7 +122,7 @@ data:
     [plugins]
     ; Only the Drilldown apps, pinned. Grafana adds its default preinstall list
     ; to these; everything on it that isn't bundled in the image is disabled.
-    preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1
+    preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1,grafana-clickhouse-datasource@4.23.4
     preinstall_auto_update = false
     disable_plugins = grafana-pyroscope-app,grafana-advisor-app
     [unified_storage]
