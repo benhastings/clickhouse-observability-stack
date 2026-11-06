@@ -1,8 +1,9 @@
 # The restricted-namespace profiles of the end-to-end test: kind with Istio, a stand-in platform team
 # (scripts/kind-platform.bash: the labelled namespace, the shared Gateway, and either the shared ClickHouse operator for
 # restricted or, for standalone, a CA and ClickHouse's certificate made at runtime; for tenant-vault, the same in
-# Istio's ambient mode with every credential and the certificate in Vault and its Agent Injector), then the environment
-# through Argo CD and its smoke checks. All three run on demand and on pull requests labelled `restricted`.
+# Istio's ambient mode with every credential and the certificate in Vault and its Agent Injector; for paas, the service
+# owner's ClickHouse in its own namespace, which the tenant consumes over verified TLS), then the environment through
+# Argo CD and its smoke checks. All four run on demand and on pull requests labelled `restricted`.
 name: End to end (restricted)
 on:
   workflow_dispatch:
@@ -22,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [restricted, standalone, tenant-vault]
+        env: [restricted, standalone, tenant-vault, paas]
     name: kind (${{ matrix.env }})
     runs-on: ubuntu-latest
     timeout-minutes: 60

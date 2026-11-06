@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC2154
-# cspell:words startswith
-# Sourced by scripts/e2e.bash for ENV=restricted, ENV=standalone and ENV=tenant-vault (make test/e2e ENV=<env>): a restricted-namespace
+# cspell:words startswith statefulsets
+# Sourced by scripts/e2e.bash for ENV=restricted, ENV=standalone, ENV=tenant-vault and ENV=paas (make test/e2e ENV=<env>): a restricted-namespace
 # profile on kind, after scripts/kind-platform.bash has done the platform team's part. No demo load runs, so a pod in
 # the namespace sends its own trace, log and metric, and each is read back through Cerberus and through Grafana.
 # For standalone, ClickHouse runs without the operator and serves only TLS: nothing listens on a plaintext port,
@@ -13,6 +13,7 @@ restricted_values="cluster-configs/overrides/values-$ENV.yaml"
 operator_ns="$(yq '.global.networkPolicy.namespaces.operator // "clickhouse-operator"' "$restricted_values")"
 grafana_host="$(yq '.global.exposure.hosts.grafana' "$restricted_values")"
 standalone="$(yq '.global.clickhouse.standalone // false' "$restricted_values")"
+external="$(yq '.global.clickhouse.external // false' "$restricted_values")"
 
 if kubectl get namespace argocd >/dev/null 2>&1; then
   project="$(yq '.spec.project' "cluster-configs/app-of-apps/app-of-apps-$ENV.yaml")"
@@ -34,7 +35,15 @@ if kubectl get namespace argocd >/dev/null 2>&1; then
   echo "  ok"
 fi
 
-if [[ "$standalone" == true ]]; then
+if [[ "$external" == true ]]; then
+  step "ClickHouse: the service owner's, outside $ns: no ClickHouse here, and the schema Job completed against it"
+  [[ -z "$(kubectl -n "$ns" get deployments,statefulsets -l app.kubernetes.io/name=clickhouse -o name)" ]] ||
+    { echo "  $ns runs a ClickHouse of its own"; exit 1; }
+  ! kubectl get crd clickhouseinstallations.clickhouse.altinity.com >/dev/null 2>&1 ||
+    { echo "  the cluster has the ClickHouseInstallation CRD"; exit 1; }
+  kubectl -n "$ns" wait job -l app.kubernetes.io/name=clickhouse-schema --for=condition=Complete --timeout=300s >/dev/null
+  echo "  ok: $(yq '.global.services.clickhouse' "$restricted_values"), $(kubectl -n "$ns" get jobs -l app.kubernetes.io/name=clickhouse-schema -o name) Complete"
+elif [[ "$standalone" == true ]]; then
   step "ClickHouse: runs standalone in $ns, with no operator and no installation, and the schema Job completed"
   [[ -z "$(kubectl get deployments -A -l app.kubernetes.io/name=clickhouse-operator -o name)" ]] ||
     { echo "  a ClickHouse operator runs in the cluster"; exit 1; }
@@ -212,7 +221,7 @@ refs=(clickhouse-admin:password clickhouse-writer:password clickhouse-reader:pas
 if [[ "$standalone" == true ]]; then
   # The server's private key, as well as the passwords.
   refs+=("$(yq '.global.clickhouse.tls.serverSecret' "$restricted_values"):tls.key")
-else
+elif [[ "$external" != true ]]; then
   workload_kinds+=,chi
 fi
 kubectl -n "$ns" get "$workload_kinds" -o yaml >>"$haystack"
@@ -230,7 +239,7 @@ echo "  ok: $(kubectl -n "$ns" get pods -o name | wc -l) pods' logs and the live
 
 # The go/no-go's in-environment proof, as a tenant runs it (make test/acceptance): read-only apart from its own
 # synthetic signals, with the Grafana login handed to it rather than read from the Secret.
-if [[ "$standalone" == true ]]; then
+if [[ "$standalone" == true || "$external" == true ]]; then
   step "Acceptance: scripts/acceptance.bash $ENV passes in $ns"
   GRAFANA_AUTH="$grafana_login" REPORT="dist/acceptance/$ENV-e2e.md" scripts/acceptance.bash "$ENV"
 fi
