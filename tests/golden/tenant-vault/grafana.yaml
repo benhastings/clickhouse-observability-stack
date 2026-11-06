@@ -5924,6 +5924,13 @@ spec:
               value: "/var/lib/grafana-search/bleve"
             - name: GOMEMLIMIT
               value: "920MiB"
+          startupProbe:
+            failureThreshold: 60
+            httpGet:
+              path: /api/health
+              port: grafana
+            periodSeconds: 10
+            timeoutSeconds: 30
           livenessProbe:
             failureThreshold: 10
             httpGet:

@@ -355,6 +355,15 @@ deployment:
           key: password
       # ClickHouse's CA bundle, for the datasource's tlsCACert, when clients reach ClickHouse over TLS.
       clickhouseCA: true
+      # A first start runs Grafana's 1,400-odd database migrations, which take minutes on a slow disk (tenant-vault
+      # on kind restarted it mid-migration under liveness alone): up to 10 minutes before liveness counts.
+      startupProbe:
+        httpGet:
+          path: /api/health
+          port: grafana
+        periodSeconds: 10
+        timeoutSeconds: 30
+        failureThreshold: 60
       livenessProbe:
         httpGet:
           path: /api/health
