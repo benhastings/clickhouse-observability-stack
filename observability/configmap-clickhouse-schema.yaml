@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: clickhouse-0.1.0
-    app.kubernetes.io/version: "26.9.5.2"
+    app.kubernetes.io/version: "26.9.27.3"
     environment: dev
 data:
   schema.sql: |-
