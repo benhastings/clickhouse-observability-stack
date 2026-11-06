@@ -31,7 +31,8 @@ Decision: GO / NO-GO     Signed off by: <name>
 - Rollback revision: <SHA>
 
 ## 3. Synthetic signals round trip
-- [ ] A synthetic trace, log and metric are written by the collector and read back through Cerberus and Grafana.
+- [ ] A synthetic trace, log and metric are written by the collector and read back through Cerberus and Grafana,
+  along with the span metrics derived from the trace.
 - Owner: <name>
 - Evidence: <`make test/acceptance` report: OTLP, Cerberus and Grafana checks>
 - Rollback revision: <SHA>

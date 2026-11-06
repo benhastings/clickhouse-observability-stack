@@ -1696,7 +1696,8 @@ the collector. Each check prints `PASS`, `FAIL` or `SKIP`:
   (with an external ClickHouse, only the schema Job)
 - no pod waits on a missing Secret, and no pod creation is refused by the quota or admission
 - the synthetic trace, log and metric are read back through Cerberus and through Grafana's Tempo, Loki and
-  Prometheus datasources
+  Prometheus datasources, and so is the span metrics counter the collector derives from the trace, which the service
+  dashboard and Metrics Drilldown read
 
 Grafana needs a login, which the operator supplies because the test reads no Secret: `GRAFANA_TOKEN` (a service
 account token) or `GRAFANA_AUTH=user:password`. The endpoints default to port-forwards to the Services;

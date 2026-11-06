@@ -103,10 +103,17 @@ metric_check='[.data.result[].value[1] | tonumber] == [42]'
 log_query=(--data-urlencode "query={service_name=\"$probe_service\"} | run=\"$probe_run\""
   --data-urlencode "start=${start}000000000" --data-urlencode "end=${end}000000000" --data-urlencode 'limit=10')
 metric_query=(--data-urlencode "query=e2e_restricted_probe{service_name=\"$probe_service\", run=\"$probe_run\"}")
+# The calls counter the collector's spanmetrics connector derives from the probe span, which the service dashboard
+# and Metrics Drilldown read.
+span_metrics_check='[.data.result[].value[1] | tonumber] | length > 0 and all(. >= 1)'
+span_metrics_query=(--data-urlencode
+  "query=sum(traces_span_metrics_calls{service_name=\"$probe_service\", span_name=\"GET /restricted\"})")
 
 poll "TraceQL: Cerberus reads the probe trace $probe_trace" "$trace_check" "$cerberus/api/traces/$probe_trace"
 poll "LogQL: Cerberus reads the probe log" "$log_check" "$cerberus/loki/api/v1/query_range" "${log_query[@]}"
 poll "PromQL: Cerberus reads the probe metric" "$metric_check" "$cerberus/api/v1/query" "${metric_query[@]}"
+poll "PromQL: Cerberus reads the probe span's span metrics" "$span_metrics_check" "$cerberus/api/v1/query" \
+  "${span_metrics_query[@]}"
 
 # The collector scrapes its own telemetry: what its clickhouse exporter sent, per signal.
 for signal in spans log_records metric_points; do
@@ -131,6 +138,8 @@ poll "Grafana: the Loki datasource finds the probe log" "$log_check" \
   -u "$grafana_login" "$proxy/cerberus-loki/loki/api/v1/query_range" "${log_query[@]}"
 poll "Grafana: the Prometheus datasource reads the probe metric" "$metric_check" \
   -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/query" "${metric_query[@]}"
+poll "Grafana: the Prometheus datasource reads the probe span's span metrics" "$span_metrics_check" \
+  -u "$grafana_login" "$proxy/cerberus-prometheus/api/v1/query" "${span_metrics_query[@]}"
 
 # Grafana's VirtualService binds it to the platform's Gateway; reach it the way a browser would, by its host.
 kubectl -n istio-ingress port-forward svc/istio-ingressgateway 18088:80 >/dev/null 2>&1 &
