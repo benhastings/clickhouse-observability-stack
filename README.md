@@ -622,6 +622,14 @@ With `external: true`:
 For an external ClickHouse it also fails on a ClickHouseInstallation, a `clickhouse-operator` Application, or
 anything that still selects the operator's pods (`clickhouse.altinity.com/chi`).
 
+To try it on kind, run `make test/e2e ENV=paas` (with `REVISION=<branch>` for a pushed branch; CI runs it on PRs
+labelled `restricted`). `scripts/kind-platform.bash` plays the service owner: it runs this repository's `clickhouse`
+node in standalone mode in a `clickhouse-paas` namespace outside the mesh, with a certificate for
+`clickhouse.paas.example` from a throwaway CA and the users the stack's Secrets name, and adds a CoreDNS rewrite so
+that host resolves to it. The tenant namespace gets only the CA ConfigMap. The e2e run makes the `restricted`
+checks, checks there's no ClickHouse and no ClickHouseInstallation CRD in the tenant and that its schema Job
+completed against the external server, and runs `scripts/acceptance.bash`.
+
 #### The ClickHouse service contract
 
 The tenant supplies connection references and application configuration. Everything else is the service owner's.
@@ -1847,6 +1855,7 @@ make test/e2e REVISION=my-branch   # needs Docker: deploy a pushed branch to kin
 | kind e2e | ordering, health, and whether data actually flows from OTLP to Grafana | CI on every PR, or locally with Docker |
 | kind e2e, restricted | the `restricted` profile deployed against a shared operator and Gateway: nothing cluster-scoped, a trace, log and metric through to Grafana, no Secret value in logs | CI on PRs labelled `restricted`, or `make test/e2e ENV=restricted` |
 | kind e2e, standalone | the `standalone` profile with no operator and a certificate the stand-in platform issues: the `restricted` checks, plus TLS only, every client's queries over TLS, and a wrong CA or server name refused | CI on PRs labelled `restricted`, or `make test/e2e ENV=standalone` |
+| kind e2e, paas | the `paas` profile consuming a stand-in service owner's ClickHouse in another namespace: the `restricted` checks over verified TLS, no ClickHouse in the tenant, and the schema Job applied to the external server | CI on PRs labelled `restricted`, or `make test/e2e ENV=paas` |
 | kind e2e, tenant-vault | the `tenant-vault` profile in ambient mode with every credential and the certificate in a dev Vault: the `standalone` checks, plus every pod that asks for the agent injected, and no ClickHouse password as a Secret or `secretKeyRef` | CI on PRs labelled `restricted`, or `make test/e2e ENV=tenant-vault` |
 
 Everything that could drift is pinned: tool versions in the `Makefile`, Kubernetes `1.37.0` for rendering,

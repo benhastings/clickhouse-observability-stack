@@ -31,7 +31,10 @@ values="cluster-configs/overrides/values-$ENV.yaml"
 if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault || "$ENV" == paas ]]; then
   scripts/kind-istio.bash "$(yq '.global.istio.dataplaneMode // "sidecar"' "$values")"
   scripts/kind-platform.bash "$ENV"
-  KIND_CLUSTER="$CLUSTER" scripts/bootstrap.bash "$ENV" "$REVISION"
+  # paas is sized for a site; tests/kind/paas.values.yaml fits it on one kind node.
+  extra=""
+  [[ ! -f "tests/kind/$ENV.values.yaml" ]] || extra="tests/kind/$ENV.values.yaml"
+  KIND_CLUSTER="$CLUSTER" EXTRA_VALUES="$extra" scripts/bootstrap.bash "$ENV" "$REVISION"
 elif [[ "${MESH:-kubernetes}" == istio ]]; then
   scripts/kind-istio.bash sidecar
   KIND_CLUSTER="$CLUSTER" EXTRA_VALUES=tests/mesh/local-istio.values.yaml scripts/bootstrap.bash local "$REVISION"

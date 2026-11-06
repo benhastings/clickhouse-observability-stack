@@ -1,0 +1,42 @@
+# Merged over values-paas.yaml when make cluster/up or make test/e2e runs with ENV=paas (kind only; never an
+# environment of its own). values-paas.yaml is sized for a site; on one kind node beside the stand-in service owner's
+# ClickHouse that doesn't schedule, so these are the laptop sizes values-tenant-vault.yaml uses.
+applications:
+  cerberus:
+    values:
+      deployment:
+        replicas: 1
+        containers:
+          cerberus:
+            env:
+              GOMEMLIMIT: 322122547B
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 384Mi
+  otel-collector:
+    values:
+      deployment:
+        containers:
+          otel-collector:
+            env:
+              GOMEMLIMIT: 204MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+  grafana:
+    values:
+      deployment:
+        containers:
+          grafana:
+            env:
+              GOMEMLIMIT: 920MiB
+            resources:
+              requests:
+                cpu: 25m
+                memory: 96Mi
