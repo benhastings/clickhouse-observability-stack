@@ -3,4 +3,4 @@ name: clickhouse
 description: Single-node ClickHouse, declared as a ClickHouseInstallation or, without the operator, a Deployment, and its credentials.
 type: application
 version: 0.1.0
-appVersion: "26.9.5.2"
+appVersion: "26.9.27.3"

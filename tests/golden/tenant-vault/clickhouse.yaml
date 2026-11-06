@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: clickhouse-0.1.0
-    app.kubernetes.io/version: "26.9.5.2"
+    app.kubernetes.io/version: "26.9.27.3"
     environment: tenant-vault
 spec:
   podSelector:
@@ -139,7 +139,7 @@ metadata:
     app.kubernetes.io/part-of: clickhouse-observability-stack
     app.kubernetes.io/managed-by: Helm
     helm.sh/chart: clickhouse-0.1.0
-    app.kubernetes.io/version: "26.9.5.2"
+    app.kubernetes.io/version: "26.9.27.3"
     environment: tenant-vault
 data:
   schema.sql: |-
@@ -1458,7 +1458,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: clickhouse
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/version: 26.9.5.2
+    app.kubernetes.io/version: 26.9.27.3
     environment: tenant-vault
     helm.sh/chart: clickhouse-0.1.0
   name: clickhouse-server
@@ -1476,7 +1476,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: clickhouse
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/version: 26.9.5.2
+    app.kubernetes.io/version: 26.9.27.3
     environment: tenant-vault
     helm.sh/chart: clickhouse-0.1.0
   name: clickhouse-data
@@ -1497,7 +1497,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: clickhouse
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/version: 26.9.5.2
+    app.kubernetes.io/version: 26.9.27.3
     environment: tenant-vault
     helm.sh/chart: clickhouse-0.1.0
   name: clickhouse
@@ -1525,7 +1525,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: clickhouse
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/version: 26.9.5.2
+    app.kubernetes.io/version: 26.9.27.3
     environment: tenant-vault
     helm.sh/chart: clickhouse-0.1.0
   name: clickhouse
@@ -1603,7 +1603,7 @@ spec:
           : "${CLICKHOUSE_PASSWORD_OTEL_READER:?is empty in Vault}"
           : "${CLICKHOUSE_PASSWORD_OTEL_WRITER:?is empty in Vault}"
           exec /usr/bin/clickhouse-server --config-file=/etc/clickhouse-server/config.xml
-        image: clickhouse/clickhouse-server:26.9.5.2
+        image: clickhouse/clickhouse-server:26.9.27.3
         name: clickhouse
         ports:
         - containerPort: 8443
@@ -1702,7 +1702,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     app.kubernetes.io/name: clickhouse-schema
     app.kubernetes.io/part-of: clickhouse-observability-stack
-    app.kubernetes.io/version: 26.9.5.2
+    app.kubernetes.io/version: 26.9.27.3
     environment: tenant-vault
     helm.sh/chart: clickhouse-0.1.0
   name: clickhouse-schema-f64b48da
@@ -1779,7 +1779,7 @@ spec:
           value: /vault/secrets/platform-ca-bundle-ca.crt
         - name: CLICKHOUSE_TLS_SERVER_NAME
           value: clickhouse
-        image: clickhouse/clickhouse-server:26.9.5.2
+        image: clickhouse/clickhouse-server:26.9.27.3
         name: clickhouse-schema
         resources:
           limits:

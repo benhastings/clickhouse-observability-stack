@@ -682,7 +682,7 @@ tests:
           path: spec.templates.podTemplates[0].spec.containers[0]
           value:
             name: clickhouse
-            image: clickhouse/clickhouse-server:26.9.5.2
+            image: clickhouse/clickhouse-server:26.9.27.3
             resources:
               requests:
                 cpu: "2"
@@ -799,7 +799,7 @@ tests:
     asserts:
       - equal:
           path: spec.templates.podTemplates[0].spec.containers[0].image
-          value: registry.example/mirror/clickhouse/clickhouse-server:26.9.5.2
+          value: registry.example/mirror/clickhouse/clickhouse-server:26.9.27.3
       - equal:
           path: spec.templates.podTemplates[0].spec.imagePullSecrets
           value:
@@ -812,7 +812,7 @@ tests:
     asserts:
       - equal:
           path: spec.templates.podTemplates[0].spec.containers[0].image
-          value: clickhouse/clickhouse-server:26.9.5.2
+          value: clickhouse/clickhouse-server:26.9.27.3
       - notExists:
           path: spec.templates.podTemplates[0].spec.imagePullSecrets
 
