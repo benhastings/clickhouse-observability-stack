@@ -63,7 +63,7 @@ clickhouse:
   storageClassName: ""
   image:
     repository: clickhouse/clickhouse-server
-    tag: "26.9.5.2"
+    tag: "26.9.27.3"
   resources:
     requests:
       cpu: "2"

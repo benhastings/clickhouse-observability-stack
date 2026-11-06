@@ -38,7 +38,7 @@ flowchart LR
 | App | Image | What it does |
 |---|---|---|
 | `clickhouse-operator` | `altinity/clickhouse-operator:0.27.4` | Runs ClickHouse from a `ClickHouseInstallation` resource. CRDs and config vendored from [the operator's chart](https://github.com/Altinity/clickhouse-operator) 0.27.4. |
-| `clickhouse` | `clickhouse/clickhouse-server:26.9.5.2` | Single-node ClickHouse, tuned for low memory. |
+| `clickhouse` | `clickhouse/clickhouse-server:26.9.27.3` | Single-node ClickHouse, tuned for low memory. |
 | `cerberus` | `ghcr.io/tsouza/cerberus:1.22.0` | [Cerberus](https://github.com/tsouza/cerberus): Prometheus, Loki and Tempo HTTP APIs over ClickHouse. It only reads: the `clickhouse` app's schema Job creates the tables. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.161.0` | Receives OTLP and Alertmanager's notifications, derives span metrics and service-graph metrics, scrapes node, pod and container CPU, memory, filesystem and network from the kubelet, reads cluster state (pod phase, restarts, replicas, node conditions, requests and limits) and Kubernetes events from the API server, scrapes its own telemetry, ClickHouse and Cerberus, adds Kubernetes attributes (namespace, pod, deployment, node) to every signal, and writes to ClickHouse. |
 | `grafana` | `grafana/grafana:13.2.2-distroless` | Three datasources that point at Cerberus and a read-only one for Alertmanager, span-metrics and alert hygiene dashboards, and the Metrics, Logs and Traces Drilldown apps (pinned plugins; `local` keeps them on a 1 Gi volume). |

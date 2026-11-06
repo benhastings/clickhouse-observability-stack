@@ -81,7 +81,7 @@ tests:
           value: clickhouse-data
       - equal:
           path: spec.template.spec.containers[0].image
-          value: clickhouse/clickhouse-server:26.9.5.2
+          value: clickhouse/clickhouse-server:26.9.27.3
 
   - it: waits for the server with startup and readiness probes on /ping, over HTTPS
     template: templates/objects.yaml

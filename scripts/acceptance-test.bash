@@ -38,7 +38,7 @@ case "$args" in
     ready=1
     [[ -z "$broken" ]] || ready=0
     jq -n --argjson ready "$ready" '{items: [
-      {kind: "Deployment", metadata: {name: "clickhouse"}, spec: {replicas: 1, template: {spec: {containers: [{image: "clickhouse/clickhouse-server:26.9.5.2"}]}}},
+      {kind: "Deployment", metadata: {name: "clickhouse"}, spec: {replicas: 1, template: {spec: {containers: [{image: "clickhouse/clickhouse-server:26.9.27.3"}]}}},
         status: {readyReplicas: $ready, updatedReplicas: 1}},
       {kind: "Deployment", metadata: {name: "cerberus"}, spec: {replicas: 1, template: {spec: {containers: [{image: "cerberus:1.0.0"}]}}},
         status: {readyReplicas: $ready, updatedReplicas: $ready}}]}' ;;
@@ -139,7 +139,7 @@ grep -q '| clickhouse-standalone | Synced / Healthy | main | 0123abcd |' "$repor
   fail "the report does not record the deployed revisions"
 grep -q 'admin:stub' "$report" && fail "the report holds the Grafana login"
 grep -q 'Rollback revision: not recorded' "$report" || fail "the report does not say the rollback revision is not recorded"
-grep -q '| Deployment/clickhouse | clickhouse/clickhouse-server:26.9.5.2 | none |' "$report" ||
+grep -q '| Deployment/clickhouse | clickhouse/clickhouse-server:26.9.27.3 | none |' "$report" ||
   fail "the report does not record how each workload gets its credentials"
 echo "acceptance-test: ok, a healthy standalone namespace passes all $(grep -c '^PASS' <<<"$out") checks and the report records its revisions"
 
