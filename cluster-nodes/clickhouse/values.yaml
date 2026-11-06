@@ -239,7 +239,7 @@ configMaps:
       schema.sql: '{{ tpl (.Files.Get "files/schema.sql.tpl") . }}'
 
 # With global.networkPolicy.enabled: a policy for the ClickHouse pods, selected by common.clickhousePodLabels (the
-# operator's own label, or the standalone Deployment's). The collector, Cerberus, garmr sql-adapter, garmr serve, the schema Job and the backup job reach the native and HTTP ports, the
+# operator's own label, or the standalone Deployment's). The collector, Cerberus, garmr sql-adapter, garmr serve, Grafana's rollups datasource, the schema Job and the backup job reach the native and HTTP ports, the
 # operator reaches them from its namespace (global.networkPolicy.namespaces.operator, its pods selected by
 # global.clickhouseOperator.podLabels, which a shared operator may label differently), the collector scrapes the
 # Prometheus port, and replicas reach each other on the interserver port. A standalone server has no operator and
@@ -262,7 +262,7 @@ networkPolicy:
             matchExpressions:
               - key: app.kubernetes.io/name
                 operator: In
-                values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, clickhouse-schema, clickhouse-backup]
+                values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, grafana, clickhouse-schema, clickhouse-backup]
       ports:
         {{- if include "common.clickhouseTLS" . }}
         - port: 9440

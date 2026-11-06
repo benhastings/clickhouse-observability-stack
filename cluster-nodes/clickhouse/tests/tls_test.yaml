@@ -89,7 +89,7 @@ tests:
                     matchExpressions:
                       - key: app.kubernetes.io/name
                         operator: In
-                        values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, clickhouse-schema, clickhouse-backup]
+                        values: [otel-collector, otel-collector-agent, cerberus, garmr-sql-adapter, garmr, grafana, clickhouse-schema, clickhouse-backup]
               ports:
                 - port: 9440
                   protocol: TCP
