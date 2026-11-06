@@ -113,9 +113,9 @@ now="$(date +%s)"
 start=$((now - 900))
 end=$((now + 900))
 
-# ENV=restricted, ENV=standalone and ENV=tenant-vault have no demo load and no kubeletstats, so they run their own
-# smoke checks instead of the ones below.
-if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault ]]; then
+# ENV=restricted, ENV=standalone, ENV=tenant-vault and ENV=paas have no demo load and no kubeletstats, so they run
+# their own smoke checks instead of the ones below.
+if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault || "$ENV" == paas ]]; then
   # shellcheck source=scripts/e2e-restricted.bash
   source scripts/e2e-restricted.bash
   echo "e2e: ok"

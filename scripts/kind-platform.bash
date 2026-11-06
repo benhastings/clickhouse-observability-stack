@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# cspell:words newkey keyout addext CAcreateserial extfile
+# cspell:words newkey keyout addext CAcreateserial extfile coredns corefile
 # kind-platform.bash <env>: on kind, do what a platform team does before a restricted tenant's first sync (README:
-# A restricted namespace, A standalone ClickHouse), for make test/e2e ENV=restricted, ENV=standalone and
-# ENV=tenant-vault:
+# A restricted namespace, A standalone ClickHouse, An external ClickHouse), for make test/e2e ENV=restricted,
+# ENV=standalone, ENV=tenant-vault and ENV=paas:
 #   1. the stack's namespace, labelled istio-injection: enabled, or istio.io/dataplane-mode: ambient for an
 #      environment in ambient mode (global.istio.dataplaneMode)
 #   2. for a ClickHouse the operator runs (restricted): the Altinity operator in its own namespace, outside the
@@ -13,6 +13,11 @@
 #      written outside a temporary directory, become the kubernetes.io/tls Secret tls.serverSecret and the CA
 #      ConfigMap tls.caConfigMap. The CA's key is deleted on exit, so nothing can issue another certificate.
 #      With tls.vault they are fields of the Vault record instead (4).
+#      for an external ClickHouse (global.clickhouse.external): the service owner's, in the clickhouse-paas namespace
+#      and outside the mesh: this repository's clickhouse node in standalone mode, with a certificate for
+#      tls.serverName from such a CA, and the users the stack's Secrets name with the same passwords. A CoreDNS
+#      rewrite makes the host of global.services.clickhouse resolve to its Service, and the CA bundle is the
+#      ConfigMap tls.caConfigMap in the stack's namespace.
 #   3. the Gateway the environment's global.exposure.gateway names, serving its Grafana host over plain HTTP
 #   4. for an environment on Vault (global.vault.enabled): Vault in dev mode and its Agent Injector, in the vault
 #      namespace and outside the mesh, at pinned versions; Kubernetes auth, with the role global.vault.role bound to
@@ -47,22 +52,28 @@ else
   kubectl label namespace "$stack_ns" istio-injection=enabled --overwrite >/dev/null
 fi
 
-if [[ "$(yq '.global.clickhouse.standalone // false' "$values")" == true ]]; then
-  server_name="$(yq '.global.clickhouse.tls.serverName' "$values")"
-  server_secret="$(yq '.global.clickhouse.tls.serverSecret' "$values")"
-  ca_configmap="$(yq '.global.clickhouse.tls.caConfigMap' "$values")"
-  ca_key="$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$values")"
-  echo "==> Platform: a throwaway CA, and a certificate for $server_name in Secret $server_secret"
+# make_pki <server name>: a throwaway CA in $pki, and a certificate and key for only that name.
+make_pki() {
   pki="$(mktemp -d)"
   trap 'rm -rf "$pki"' EXIT
   openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=kind platform CA" \
     -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign \
     -keyout "$pki/ca.key" -out "$pki/ca.crt" 2>/dev/null
   # Only the name the clients verify: a client dialling the Service by any other name has to be refused.
-  openssl req -newkey rsa:2048 -nodes -subj "/CN=$server_name" -keyout "$pki/tls.key" -out "$pki/tls.csr" 2>/dev/null
+  openssl req -newkey rsa:2048 -nodes -subj "/CN=$1" -keyout "$pki/tls.key" -out "$pki/tls.csr" 2>/dev/null
   openssl x509 -req -in "$pki/tls.csr" -CA "$pki/ca.crt" -CAkey "$pki/ca.key" -CAcreateserial -days 2 \
-    -extfile <(printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\n' "$server_name") \
+    -extfile <(printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\n' "$1") \
     -out "$pki/tls.crt" 2>/dev/null
+}
+
+server_name="$(yq '.global.clickhouse.tls.serverName // ""' "$values")"
+server_secret="$(yq '.global.clickhouse.tls.serverSecret // "clickhouse-tls"' "$values")"
+ca_configmap="$(yq '.global.clickhouse.tls.caConfigMap // ""' "$values")"
+ca_key="$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$values")"
+
+if [[ "$(yq '.global.clickhouse.standalone // false' "$values")" == true ]]; then
+  echo "==> Platform: a throwaway CA, and a certificate for $server_name in Secret $server_secret"
+  make_pki "$server_name"
   # The certificate and key are a kubernetes.io/tls Secret; the CA bundle is public, so a ConfigMap. A re-run on
   # the same cluster keeps the first pair. With tls.vault they go into the Vault record below instead.
   if [[ "$tls_vault" != true ]] && ! kubectl -n "$stack_ns" get secret "$server_secret" >/dev/null 2>&1; then
@@ -70,6 +81,44 @@ if [[ "$(yq '.global.clickhouse.standalone // false' "$values")" == true ]]; the
     kubectl -n "$stack_ns" create configmap "$ca_configmap" --from-file="$ca_key=$pki/ca.crt" \
       --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     echo "    created $stack_ns/$server_secret and $stack_ns/$ca_configmap"
+  fi
+elif [[ "$(yq '.global.clickhouse.external // false' "$values")" == true ]]; then
+  service_ns=clickhouse-paas
+  address="$(yq '.global.services.clickhouse' "$values")"
+  host="${address%:*}"
+  echo "==> Platform: the service owner's ClickHouse in $service_ns, with a certificate for $server_name"
+  kubectl create namespace "$service_ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  if ! kubectl -n "$service_ns" get secret clickhouse-tls >/dev/null 2>&1; then
+    make_pki "$server_name"
+    kubectl -n "$service_ns" create secret tls clickhouse-tls --cert="$pki/tls.crt" --key="$pki/tls.key" >/dev/null
+    for ns in "$service_ns" "$stack_ns"; do
+      kubectl -n "$ns" create configmap "$ca_configmap" --from-file="$ca_key=$pki/ca.crt" \
+        --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    done
+  fi
+  # The users the stack's Secrets name, with their passwords: the service owner provisions what the tenant
+  # was handed (README: The ClickHouse service contract).
+  for user in admin writer reader analyst garmr; do
+    kubectl -n "$stack_ns" get secret "clickhouse-$user" -o json |
+      jq --arg ns "$service_ns" '{apiVersion, kind, type, data, metadata: {name: .metadata.name, namespace: $ns}}' |
+      kubectl apply -f - >/dev/null
+  done
+  helm upgrade --install clickhouse cluster-nodes/clickhouse --namespace "$service_ns" --wait --timeout 10m \
+    --set global.mesh=kubernetes --set global.clickhouse.standalone=true \
+    --set global.clickhouse.tls.serverName="$server_name" --set global.clickhouse.tls.caConfigMap="$ca_configmap" \
+    --set global.clickhouse.tls.caKey="$ca_key" --set global.clickhouse.tls.serverSecret=clickhouse-tls \
+    --set global.services.clickhouse=clickhouse:9440 --set clickhouse.storage=2Gi --set clickhouse.lowMemory=true \
+    --set clickhouse.resources.requests.cpu=100m --set clickhouse.resources.requests.memory=256Mi \
+    --set clickhouse.resources.limits.cpu=1 --set clickhouse.resources.limits.memory=1664Mi
+  kubectl -n "$service_ns" wait job -l app.kubernetes.io/name=clickhouse-schema --for=condition=Complete --timeout=300s >/dev/null
+  echo "==> Platform: CoreDNS resolves $host to clickhouse.$service_ns.svc.cluster.local"
+  corefile="$(kubectl -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
+  if [[ "$corefile" != *"rewrite name $host "* ]]; then
+    corefile="$(sed "0,/^ *ready$/s//&\n    rewrite name $host clickhouse.$service_ns.svc.cluster.local/" <<<"$corefile")"
+    kubectl -n kube-system create configmap coredns --from-literal=Corefile="$corefile" --dry-run=client -o yaml |
+      kubectl apply -f - >/dev/null
+    kubectl -n kube-system rollout restart deployment/coredns >/dev/null
+    kubectl -n kube-system rollout status deployment/coredns --timeout=120s >/dev/null
   fi
 else
   echo "==> Platform: the shared ClickHouse operator in $operator_ns"

@@ -6,7 +6,8 @@
 # the platform team's part: the labelled namespace, the shared operator and the shared Gateway. ENV=standalone does
 # the same for the standalone environment, whose platform runs no operator but issues ClickHouse's certificate, and
 # ENV=tenant-vault for the standalone environment on Vault in Istio's ambient mode, whose platform runs Vault and its
-# Agent Injector and holds every credential there, so no Kubernetes Secret is created.
+# Agent Injector and holds every credential there, so no Kubernetes Secret is created. ENV=paas consumes an external
+# ClickHouse, which scripts/kind-platform.bash runs as the service owner in its own namespace.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/local-secrets.bash
@@ -27,10 +28,13 @@ values="cluster-configs/overrides/values-$ENV.yaml"
 [[ "$(yq '.global.vault.enabled // false' "$values")" == true ]] || create_local_secrets
 # MESH=istio installs Istio first and deploys local with the mesh, and exposure through its gateway, on;
 # MESH=ambient does the same with Istio in ambient mode.
-if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault ]]; then
+if [[ "$ENV" == restricted || "$ENV" == standalone || "$ENV" == tenant-vault || "$ENV" == paas ]]; then
   scripts/kind-istio.bash "$(yq '.global.istio.dataplaneMode // "sidecar"' "$values")"
   scripts/kind-platform.bash "$ENV"
-  KIND_CLUSTER="$CLUSTER" scripts/bootstrap.bash "$ENV" "$REVISION"
+  # paas is sized for a site; tests/kind/paas.values.yaml fits it on one kind node.
+  extra=""
+  [[ ! -f "tests/kind/$ENV.values.yaml" ]] || extra="tests/kind/$ENV.values.yaml"
+  KIND_CLUSTER="$CLUSTER" EXTRA_VALUES="$extra" scripts/bootstrap.bash "$ENV" "$REVISION"
 elif [[ "${MESH:-kubernetes}" == istio ]]; then
   scripts/kind-istio.bash sidecar
   KIND_CLUSTER="$CLUSTER" EXTRA_VALUES=tests/mesh/local-istio.values.yaml scripts/bootstrap.bash local "$REVISION"
