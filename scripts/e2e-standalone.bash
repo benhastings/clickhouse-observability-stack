@@ -1,6 +1,6 @@
 # shellcheck shell=bash disable=SC2154
 # cspell:words newkey keyout
-# Sourced by scripts/e2e-restricted.bash for ENV=standalone, once the probe's trace, log and metric have been written
+# Sourced by scripts/e2e-restricted.bash for ENV=standalone and ENV=tenant-vault, once the probe's trace, log and metric have been written
 # and read back: ClickHouse serves only TLS, and its clients verify it.
 #   - nothing listens on a plaintext port: native 9000, HTTP 8123, MySQL 9004, PostgreSQL 9005, interserver 9009
 #   - every native query in system.query_log arrived over TLS, with queries from the collector's, the readers' and
@@ -8,13 +8,15 @@
 #   - with the schema Job's own client config, the server is accepted by the platform's CA and its name, and refused
 #     with another CA and by any other name. (clickhouse-client turns TLS on by itself for 9440, so it can't be made
 #     to try plaintext there; the listener check is what rules plaintext out.)
-# It uses e2e-restricted.bash's $ns and $restricted_values, and e2e.bash's step.
+# It uses e2e-restricted.bash's $ns and $restricted_values, and e2e.bash's step and secret_value.
 
 server_name="$(yq '.global.clickhouse.tls.serverName' "$restricted_values")"
 ca_configmap="$(yq '.global.clickhouse.tls.caConfigMap' "$restricted_values")"
 ca_key="$(yq '.global.clickhouse.tls.caKey // "ca.crt"' "$restricted_values")"
 tls_port="$(yq '.global.services.clickhouse' "$restricted_values")"
 tls_port="${tls_port##*:}"
+# With tls.vault the CA bundle is a Vault field the pods' agents write, not a ConfigMap to mount.
+tls_vault="$(yq '.global.clickhouse.tls.vault // false' "$restricted_values")"
 
 step "ClickHouse: listens on $tls_port and 8443, and on no plaintext client port"
 # The pod's sockets in LISTEN state (st 0A), from the kernel's table: the server image has no ss or netstat.
@@ -31,8 +33,9 @@ for port in 9000 8123 9004 9005 9009; do
 done
 echo "  ok: listening on$listening"
 
-# A client pod with the server's image, for its clickhouse-client, and the platform's CA bundle mounted where the
-# schema Job mounts it.
+# A client pod with the server's image, for its clickhouse-client, and the platform's CA bundle: mounted where the
+# schema Job mounts it, or with tls.vault copied in from Vault. It carries the schema Job's name label, the one
+# client ClickHouse's NetworkPolicy lets reach the native port that isn't a long-running app.
 image="$(kubectl -n "$ns" get deployment clickhouse -o jsonpath='{.spec.template.spec.containers[?(@.name=="clickhouse")].image}')"
 tls_client="e2e-tls-$(openssl rand -hex 4)"
 step "ClickHouse: a client pod $tls_client with the schema Job's client config"
@@ -42,6 +45,8 @@ kind: Pod
 metadata:
   name: $tls_client
   namespace: $ns
+  labels:
+    app.kubernetes.io/name: clickhouse-schema
 spec:
   restartPolicy: Never
   automountServiceAccountToken: false
@@ -75,10 +80,14 @@ spec:
           readOnly: true
   volumes:
     - name: clickhouse-ca
-      configMap:
-        name: $ca_configmap
+$(if [[ "$tls_vault" == true ]]; then echo "      emptyDir: {}"; else printf '      configMap:\n        name: %s\n' "$ca_configmap"; fi)
 POD
 kubectl -n "$ns" wait "pod/$tls_client" --for=condition=Ready --timeout=180s >/dev/null
+trusted_ca="/etc/clickhouse-ca/$ca_key"
+if [[ "$tls_vault" == true ]]; then
+  trusted_ca=/tmp/trusted-ca.crt
+  secret_value "$ca_configmap" "$ca_key" | kubectl -n "$ns" exec -i "$tls_client" -c client -- sh -c "cat >$trusted_ca"
+fi
 
 # The client config the schema Job writes, read from the live Job, so this tests what is deployed.
 job_script="$(kubectl -n "$ns" get jobs -l app.kubernetes.io/name=clickhouse-schema \
@@ -93,14 +102,14 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=untrusted e2e CA" \
 kubectl -n "$ns" exec -i "$tls_client" -c client -- sh -c 'cat >/tmp/untrusted-ca.crt' <"$untrusted/ca.crt"
 rm -rf "$untrusted"
 for ca in trusted untrusted; do
-  ca_file="/etc/clickhouse-ca/$ca_key"
+  ca_file="$trusted_ca"
   [[ "$ca" == trusted ]] || ca_file=/tmp/untrusted-ca.crt
   # shellcheck disable=SC2016 # the Job's literal $CLICKHOUSE_CA_FILE
   kubectl -n "$ns" exec -i "$tls_client" -c client -- sh -c "cat >/tmp/$ca.xml" <<<"${job_config//'$CLICKHOUSE_CA_FILE'/$ca_file}"
 done
 echo "  ok"
 
-admin_password="$(kubectl -n "$ns" get secret clickhouse-admin -o go-template='{{.data.password | base64decode}}')"
+admin_password="$(secret_value clickhouse-admin password)"
 # tls_client_query <trusted|untrusted> <host> <server-name override, or ""> <query>
 tls_client_query() {
   local args=(--host "$2" --port "$tls_port" --user otel_admin --password "$admin_password" --query "$4"
