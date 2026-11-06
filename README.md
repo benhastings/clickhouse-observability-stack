@@ -1278,7 +1278,8 @@ once, under `secretEnv` (Secret name and key). Each environment picks **one mech
   before anything reads them. Elsewhere, you create them.
 - **Vault** (`vault.enabled: true`): the pod gets [Vault Agent Injector](https://developer.hashicorp.com/vault/docs/platform/k8s/injector)
   annotations, and the agent writes each secret to a file. The app reads the file instead of an env var: Grafana
-  uses `GF_SECURITY_ADMIN_*__FILE`, the collector uses `${file:...}` in its config, and Cerberus reads
+  uses `$__file{...}` in `grafana.ini` and its provisioning (not `GF_*__FILE`, which only the image's shell entrypoint
+  reads, and the distroless image has none), the collector uses `${file:...}` in its config, and Cerberus reads
   `/etc/cerberus/cerberus.yaml`. The pod authenticates with its ServiceAccount, so `vault.role` (default: the app's
   name) must be a Vault Kubernetes auth role bound to it. The injector has to run in the cluster. With
   `global.networkPolicy.enabled`, set `global.networkPolicy.vault` too (`namespace` and `podLabels` for a Vault in

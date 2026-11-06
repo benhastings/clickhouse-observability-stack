@@ -92,26 +92,41 @@ tests:
                 name: grafana-admin
                 key: admin-password
 
-  - it: reads the admin login from Vault-injected files when Vault is on
+  - it: reads the admin login from Vault-injected files when Vault is on, through grafana.ini, not __FILE env vars
     set:
       vault.enabled: true
-    documentSelector:
-      path: kind
-      value: Deployment
     asserts:
       - equal:
           path: spec.template.metadata.annotations["vault.hashicorp.com/agent-inject-secret-grafana-admin-admin-password"]
           value: secret/data/grafana-admin
-      - contains:
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: GF_SECURITY_ADMIN_PASSWORD__FILE
-            value: /vault/secrets/grafana-admin-admin-password
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: GF_SECURITY_ADMIN_USER__FILE
-            value: /vault/secrets/grafana-admin-admin-user
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+      - matchRegex:
+          path: data["grafana.ini"]
+          pattern: "(?m)^\\[security\\]\\nadmin_user = \\$__file\\{/vault/secrets/grafana-admin-admin-user\\}\\nadmin_password = \\$__file\\{/vault/secrets/grafana-admin-admin-password\\}$"
+        documentSelector:
+          path: metadata.name
+          value: grafana-config
+
+  - it: leaves the admin login out of grafana.ini with Vault off
+    set:
+      vault.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: grafana-config
+    asserts:
+      - notMatchRegex:
+          path: data["grafana.ini"]
+          pattern: admin_password
 
   - it: listens on grafana:80
     documentSelector:

@@ -275,6 +275,11 @@ data:
     disable_plugins = grafana-pyroscope-app,grafana-advisor-app
     [unified_storage]
     index_path = /var/lib/grafana-search/bleve
+    ; The admin login from the Vault agent's files. Not GF_SECURITY_ADMIN_*__FILE: only the image's shell
+    ; entrypoint reads those, and the distroless image has none, so Grafana would keep admin/admin.
+    [security]
+    admin_user = $__file{/vault/secrets/grafana-admin-admin-user}
+    admin_password = $__file{/vault/secrets/grafana-admin-admin-password}
     [auth]
     login_maximum_lifetime_duration = 7d
 ---
@@ -5865,7 +5870,7 @@ spec:
         app.kubernetes.io/name: grafana
         app.kubernetes.io/instance: grafana
       annotations:
-        checksum/config: 458e3452d432131c8087000386a7a0a435819c319ab961e9cd80857b9147a671
+        checksum/config: 86cf498fbea6a692191e3df989d365955a6731ab4277e80f65dc8a302c0cd750
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/agent-inject-secret-clickhouse-reader-password: secret/data/OBS_SECRET
         vault.hashicorp.com/agent-inject-secret-grafana-admin-admin-password: secret/data/OBS_SECRET
@@ -5916,10 +5921,6 @@ spec:
               value: "/var/lib/grafana/plugins"
             - name: GF_PATHS_PROVISIONING
               value: "/etc/grafana/provisioning"
-            - name: GF_SECURITY_ADMIN_PASSWORD__FILE
-              value: "/vault/secrets/grafana-admin-admin-password"
-            - name: GF_SECURITY_ADMIN_USER__FILE
-              value: "/vault/secrets/grafana-admin-admin-user"
             - name: GF_UNIFIED_STORAGE_INDEX_PATH
               value: "/var/lib/grafana-search/bleve"
             - name: GOMEMLIMIT

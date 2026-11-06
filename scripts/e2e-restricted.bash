@@ -192,6 +192,11 @@ if [[ "$(yq '.global.vault.enabled // false' "$restricted_values")" == true ]]; 
     map(select(.metadata.annotations["vault.hashicorp.com/agent-inject-status"] != "injected") | .metadata.name) | join(", ")' <<<"$pods")"
   [[ -z "$injected" ]] || { echo "  asked for the Vault agent but weren't injected: $injected"; exit 1; }
   echo "  ok: $(jq '[.items[] | select(.metadata.annotations["vault.hashicorp.com/agent-inject-status"] == "injected")] | length' <<<"$pods") pods injected, no secretKeyRef to a ClickHouse password, no ClickHouse password Secret"
+  # Grafana's admin login is the record's, not the image's default, which it keeps if it never reads the files.
+  step "Vault: Grafana refuses its default admin login"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -u admin:admin "$grafana/api/org")"
+  [[ "$code" == 401 ]] || { echo "  admin:admin got $code"; exit 1; }
+  echo "  ok"
 fi
 
 # Every Secret value the stack reads, looked for in its pods' logs and in the live objects that configure them.
