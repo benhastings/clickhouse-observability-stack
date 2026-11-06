@@ -194,7 +194,7 @@ Secrets first. Each ClickHouse user has its own, so a leaked password only reach
 |---|---|---|
 | `clickhouse-admin` | `observability` | the job that creates the tables; you, to change things |
 | `clickhouse-writer` | `observability` | the collector, which may only insert |
-| `clickhouse-reader` | `observability` | Cerberus and garmr's SQL adapter, which may only read |
+| `clickhouse-reader` | `observability` | Cerberus, garmr's SQL adapter and Grafana's rollups datasource, which may only read |
 | `clickhouse-analyst` | `observability` | notebooks and ad hoc SQL, read-only with limits |
 | `clickhouse-garmr` | `observability` | garmr, which keeps incidents in its own tables and reads the telemetry |
 | `grafana-admin` | `observability` | your Grafana login |

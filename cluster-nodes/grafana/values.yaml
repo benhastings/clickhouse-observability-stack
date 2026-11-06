@@ -108,7 +108,7 @@ configMaps:
         [plugins]
         ; Only the Drilldown apps, pinned. Grafana adds its default preinstall list
         ; to these; everything on it that isn't bundled in the image is disabled.
-        preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1
+        preinstall = grafana-metricsdrilldown-app@2.5.1,grafana-lokiexplore-app@2.6.0,grafana-exploretraces-app@2.2.1,grafana-clickhouse-datasource@4.23.4
         preinstall_auto_update = false
         disable_plugins = grafana-pyroscope-app,grafana-advisor-app
         [unified_storage]
@@ -245,6 +245,42 @@ configMaps:
                     value: service_name
                 customQuery: true
                 query: '{$${__tags}} | trace_id="$${__trace.traceId}"'
+      # The 13-month rollups in otel_rollup, which Cerberus doesn't serve, read with SQL as otel_reader. Its own
+      # file, because the logic below can't sit in datasources.yaml's map. The plugin verifies ClickHouse's
+      # certificate against the host it dials, with no name override, so over TLS global.clickhouse.tls.serverName
+      # has to be that host.
+      clickhouse.yaml: |
+        {{- $address := include "common.serviceAddress" (list $ "clickhouse") | splitList ":" }}
+        {{- $tls := include "common.clickhouseTLS" $ }}
+        {{- $v := include "common.values" $ | fromYaml }}
+        {{- if and $tls (ne (first $address) $v.global.clickhouse.tls.serverName) }}
+        {{- fail (printf "grafana's ClickHouse datasource dials %s, so global.clickhouse.tls.serverName must be %s: the plugin verifies the certificate only under the host it dials" (first $address) (first $address)) }}
+        {{- end -}}
+        apiVersion: 1
+        datasources:
+          - name: ClickHouse (rollups)
+            uid: clickhouse-rollup
+            type: grafana-clickhouse-datasource
+            editable: false
+            jsonData:
+              host: {{ first $address }}
+              port: {{ last $address }}
+              protocol: native
+              username: otel_reader
+              defaultDatabase: otel_rollup
+              {{- if $tls }}
+              secure: true
+              tlsAuthWithCACert: true
+              {{- end }}
+            secureJsonData:
+              {{- if $v.vault.enabled }}
+              password: $__file{{ "{" }}{{ include "common.secretFile" (list $ "grafana" "CLICKHOUSE_READER_PASSWORD") }}{{ "}" }}
+              {{- else }}
+              password: $__env{CLICKHOUSE_READER_PASSWORD}
+              {{- end }}
+              {{- if $tls }}
+              tlsCACert: $__file{{ "{" }}{{ include "common.clickhouseCA" $ }}{{ "}" }}
+              {{- end }}
       dashboards.yaml:
         apiVersion: 1
         providers:
@@ -313,6 +349,12 @@ deployment:
           if: '{{ .Values.auth.genericOauth.enabled }}'
           secret: grafana-oauth
           key: client-secret
+        # otel_reader's password, for the ClickHouse (rollups) datasource; with Vault, clickhouse.yaml reads the file.
+        CLICKHOUSE_READER_PASSWORD:
+          secret: clickhouse-reader
+          key: password
+      # ClickHouse's CA bundle, for the datasource's tlsCACert, when clients reach ClickHouse over TLS.
+      clickhouseCA: true
       livenessProbe:
         httpGet:
           path: /api/health
@@ -345,6 +387,9 @@ deployment:
         - name: config
           mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
           subPath: datasources.yaml
+        - name: config
+          mountPath: /etc/grafana/provisioning/datasources/clickhouse.yaml
+          subPath: clickhouse.yaml
         - name: config
           mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
           subPath: dashboards.yaml
@@ -406,7 +451,7 @@ deployment:
 
 # With global.networkPolicy.enabled: users reach Grafana through the exposure namespaces (the ingress
 # gateway or controller; kubectl port-forward isn't subject to NetworkPolicy), and Grafana reaches Cerberus,
-# Alertmanager and, on 443, the OAuth provider and grafana.com for its pinned plugins, both outside the cluster.
+# Alertmanager, ClickHouse's native port for the rollups datasource and, on 443, the OAuth provider and grafana.com for its pinned plugins, both outside the cluster.
 networkPolicy:
   ingress: |-
     {{- with dig "global" "networkPolicy" "exposureNamespaces" list .Values.AsMap }}
@@ -420,7 +465,8 @@ networkPolicy:
         - port: 3000
           protocol: TCP
     {{- end }}
-  egress:
+  egress: |-
+    {{- include "common.clickhouseEgress" (list . (list 9000)) }}
     - to:
         - podSelector:
             matchLabels:

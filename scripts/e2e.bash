@@ -559,6 +559,32 @@ analyst_rollup="$(clickhouse_as analyst "SELECT count() > 0 FROM otel_rollup.ser
 [[ "$analyst_rollup" == 1 ]] || { echo "  otel_analyst reads no checkout rollup"; exit 1; }
 echo "  payments and checkout at 5 minutes and 1 hour, and both node metrics, read as otel_reader and otel_analyst"
 
+# Grafana reads the rollups itself, through the ClickHouse datasource as otel_reader: the Year over year
+# dashboard's monthly table, from its JSON with both demo services selected.
+poll "Grafana: datasource clickhouse-rollup is healthy" \
+  '.status == "OK"' \
+  -u "$grafana_login" "$grafana/api/datasources/uid/clickhouse-rollup/health"
+poll "Grafana: the Year over year dashboard is provisioned" \
+  '.dashboard.uid == "year-over-year"' \
+  -u "$grafana_login" "$grafana/api/dashboards/uid/year-over-year"
+yoy_query="$(jq -c '{from: "now-1h", to: "now", queries: [.panels[] | select(.title == "Monthly, per service") |
+  .targets[0] | .rawSql |= gsub("\\$\\{service:singlequote\\}"; "'"'checkout', 'payments'"'")]}' \
+  cluster-nodes/grafana/dashboards/year-over-year.json)"
+# A POST, which poll (curl -G) can't send.
+step "Grafana: the Year over year dashboard's monthly table lists both demo services"
+deadline=$((SECONDS + DATA_TIMEOUT))
+until yoy="$(curl -fsS -X POST -u "$grafana_login" -H 'Content-Type: application/json' -d "$yoy_query" \
+  "$grafana/api/ds/query" 2>/dev/null)" &&
+  jq -e '.results.A.frames[0].data.values[1] | (index("checkout") != null) and (index("payments") != null)' \
+    <<<"$yoy" >/dev/null 2>&1; do
+  if ((SECONDS > deadline)); then
+    echo "  last response: ${yoy:0:500}"
+    exit 1
+  fi
+  sleep 5
+done
+echo "  ok"
+
 poll "Alertmanager: $e2e_alert is active and routed to the default receiver" \
   "[.[] | select(.labels.alertname == \"$e2e_alert\" and .status.state == \"active\")
    | .receivers[].name] | index(\"default\") != null" \
